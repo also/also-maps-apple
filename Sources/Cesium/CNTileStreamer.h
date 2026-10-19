@@ -65,10 +65,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// Runs one selection + load pass. Call once per frame on the main thread.
 - (CNFrame *)updateWithDeltaTime:(float)deltaTime;
 
-/// Samples the most detailed ground height at the focus and reports it as a
-/// local-frame height (metres up), or NAN on failure. Completion runs on the
-/// main thread during a later updateWithDeltaTime: call.
-- (void)sampleGroundHeightAtFocus:(void (^)(double height))completion;
+/// Samples the most detailed surface on a 3×3 grid across the focus region
+/// and reports the lowest hit as a local-frame height (metres up), or NAN if
+/// every sample failed. Completion runs on the main thread during a later
+/// updateWithDeltaTime: call.
+- (void)sampleGroundHeightInFocusRegion:(void (^)(double height))completion
+    NS_SWIFT_NAME(sampleGroundHeightInFocusRegion(completion:));
 
 @end
 

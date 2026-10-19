@@ -34,7 +34,7 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 
    Run on the Apple Vision Pro simulator or a device.
 
-To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stream a public Cesium sample tileset instead.
+To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stream a public Cesium sample tileset instead. `MAPVOLUME_LAT`, `MAPVOLUME_LON` and `MAPVOLUME_RADIUS` also work on their own, to start somewhere other than the Ferry Building.
 
 ## Controls
 
@@ -43,6 +43,6 @@ To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stre
 
 ## Known gaps
 
-- Mesh and texture creation run on the main thread under a time budget per frame, which causes hitches while streaming.
-- Ground height comes from a single sample at the focus point, which can land on a rooftop.
+- Mesh and texture creation run on the main thread under a time budget per frame, which causes hitches while streaming (#1).
+- Ground height is the lowest hit on a 3×3 grid of samples. In a region that's mostly hills with a little low ground, the hills can reach close to the top of the volume.
 - The attribution uses a text "Google" label where Google's logo asset should be.

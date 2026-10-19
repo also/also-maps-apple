@@ -47,6 +47,10 @@ final class MapVolumeModel {
     private var focusEast = 0.0
     private var focusNorth = 0.0
     private var focusHeight = 0.0
+    /// Where focusHeight is easing toward; set by the latest ground sample.
+    private var targetFocusHeight: Double?
+    /// Bumped per sample request so a slow, older result can't win.
+    private var groundSampleGeneration = 0
     private var radius = defaultLocation.radius
 
     init() {
@@ -61,16 +65,17 @@ final class MapVolumeModel {
     func start(subscribingIn content: RealityViewContent) {
         guard streamer == nil else { return }
 
-        // Debug override: MAPVOLUME_TILESET_URL (+ _LAT/_LON/_RADIUS) streams any
-        // 3D Tiles tileset instead of Google's, no key needed.
+        // Debug overrides: MAPVOLUME_LAT/_LON/_RADIUS pick the starting view, and
+        // MAPVOLUME_TILESET_URL streams any 3D Tiles tileset instead of
+        // Google's, no key needed.
         let env = ProcessInfo.processInfo.environment
         var location = Self.defaultLocation
+        location.latitude = env["MAPVOLUME_LAT"].flatMap(Double.init) ?? location.latitude
+        location.longitude = env["MAPVOLUME_LON"].flatMap(Double.init) ?? location.longitude
+        location.radius = env["MAPVOLUME_RADIUS"].flatMap(Double.init) ?? location.radius
         let url: String
         if let override = env["MAPVOLUME_TILESET_URL"], !override.isEmpty {
             url = override
-            location.latitude = env["MAPVOLUME_LAT"].flatMap(Double.init) ?? location.latitude
-            location.longitude = env["MAPVOLUME_LON"].flatMap(Double.init) ?? location.longitude
-            location.radius = env["MAPVOLUME_RADIUS"].flatMap(Double.init) ?? location.radius
         } else if let key = Self.apiKey() {
             url = "https://tile.googleapis.com/v1/3dtiles/root.json?key=\(key)"
         } else {
@@ -122,12 +127,15 @@ final class MapVolumeModel {
 
     func endMagnify() {
         magnifyStartRadius = nil
+        // The sampled region grows and shrinks with the radius.
+        sampleGround()
     }
 
     // MARK: Frame loop
 
     private func tick(deltaTime: Float) {
         guard let streamer else { return }
+        easeFocusHeight(deltaTime: Double(deltaTime))
         let frame = streamer.update(withDeltaTime: deltaTime)
 
         for id in frame.freedTileIDs {
@@ -183,13 +191,33 @@ final class MapVolumeModel {
     }
 
     private func sampleGround() {
-        streamer?.sampleGroundHeight(atFocus: { [weak self] height in
+        groundSampleGeneration += 1
+        let generation = groundSampleGeneration
+        streamer?.sampleGroundHeightInFocusRegion { [weak self] height in
             MainActor.assumeIsolated {
-                guard let self, height.isFinite else { return }
-                self.focusHeight = height
-                self.applyFocus()
+                guard let self, height.isFinite,
+                      generation == self.groundSampleGeneration else { return }
+                #if DEBUG
+                print("[MapVolume] ground sample \(Int(height)) m (was \(Int(self.focusHeight)) m)")
+                #endif
+                self.targetFocusHeight = height
             }
-        })
+        }
+    }
+
+    /// Glides the ground plane to the latest sample instead of snapping, so a
+    /// re-sample after a pan reads as the terrain settling rather than a jump.
+    private func easeFocusHeight(deltaTime: Double) {
+        guard let target = targetFocusHeight else { return }
+        let remaining = target - focusHeight
+        if abs(remaining) * sceneScale < 0.0005 {
+            focusHeight = target
+            targetFocusHeight = nil
+        } else {
+            // Exponential approach: about 95% of the way in half a second.
+            focusHeight += remaining * min(1, deltaTime * 6)
+        }
+        applyFocus()
     }
 
     private static func apiKey() -> String? {

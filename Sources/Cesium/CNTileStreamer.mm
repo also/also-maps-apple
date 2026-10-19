@@ -28,6 +28,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <mutex>
@@ -712,29 +713,49 @@ NSString* stripHTML(const std::string& html) {
   return frame;
 }
 
-- (void)sampleGroundHeightAtFocus:(void (^)(double height))completion {
-  const glm::dvec3 focus = [self focusECEF];
-  std::optional<Cartographic> cartographic =
-      Ellipsoid::WGS84.cartesianToCartographic(focus);
-  if (!cartographic) {
+- (void)sampleGroundHeightInFocusRegion:(void (^)(double height))completion {
+  // A 3×3 grid spanning most of the visible square. A single sample at the
+  // focus lands on whatever is there (a hilltop, a roof) and sinks the rest of
+  // the region below the volume floor; the lowest hit keeps it all above.
+  const double reach = 0.8 * _focusRadius;
+  std::vector<Cartographic> positions;
+  for (int row = -1; row <= 1; ++row) {
+    for (int column = -1; column <= 1; ++column) {
+      const glm::dvec3 ecef = glm::dvec3(
+          _enuToEcef * glm::dvec4(
+                           _focusEast + column * reach,
+                           _focusNorth + row * reach,
+                           0.0,
+                           1.0));
+      if (std::optional<Cartographic> cartographic =
+              Ellipsoid::WGS84.cartesianToCartographic(ecef)) {
+        positions.push_back(*cartographic);
+      }
+    }
+  }
+  if (positions.empty()) {
     completion(NAN);
     return;
   }
-  // Sample from well above any terrain, then convert the hit back to the
-  // local frame's up axis.
-  cartographic->height = 0.0;
+
+  // sampleHeightMostDetailed ignores the input heights and reports the
+  // highest surface hit at each longitude/latitude; convert each hit back to
+  // the local frame's up axis.
   glm::dmat4 ecefToEnu = _ecefToEnu;
-  _tileset->sampleHeightMostDetailed({*cartographic})
+  _tileset->sampleHeightMostDetailed(positions)
       .thenInMainThread([completion, ecefToEnu](SampleHeightResult&& result) {
-        if (result.sampleSuccess.empty() || !result.sampleSuccess[0]) {
-          completion(NAN);
-          return;
+        double lowest = INFINITY;
+        for (size_t i = 0; i < result.positions.size(); ++i) {
+          if (i >= result.sampleSuccess.size() || !result.sampleSuccess[i]) {
+            continue;
+          }
+          const glm::dvec3 hit =
+              Ellipsoid::WGS84.cartographicToCartesian(result.positions[i]);
+          const glm::dvec3 local =
+              glm::dvec3(ecefToEnu * glm::dvec4(hit, 1.0));
+          lowest = std::min(lowest, local.z);
         }
-        const glm::dvec3 hit =
-            Ellipsoid::WGS84.cartographicToCartesian(result.positions[0]);
-        const glm::dvec3 local =
-            glm::dvec3(ecefToEnu * glm::dvec4(hit, 1.0));
-        completion(local.z);
+        completion(std::isfinite(lowest) ? lowest : NAN);
       })
       .catchInMainThread([completion](std::exception&&) { completion(NAN); });
 }
