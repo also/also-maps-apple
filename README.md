@@ -34,12 +34,15 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 
    Run on the Apple Vision Pro simulator or a device.
 
-To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stream a public Cesium sample tileset instead. `MAPVOLUME_LAT`, `MAPVOLUME_LON` and `MAPVOLUME_RADIUS` also work on their own, to start somewhere other than the Ferry Building.
+To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stream a public Cesium sample tileset instead. `MAPVOLUME_LAT`, `MAPVOLUME_LON`, `MAPVOLUME_RADIUS` and `MAPVOLUME_HEADING` also work on their own, to start somewhere other than the Ferry Building.
 
 ## Controls
 
 - **Pan:** drag in the volume.
 - **Zoom:** pinch. The radius ranges from 50 m to 20 km.
+- **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F (or `=` and `-`) zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.
+
+`MAPVOLUME_HEADING`, in degrees clockwise from north, sets the starting direction.
 
 ## Known gaps
 

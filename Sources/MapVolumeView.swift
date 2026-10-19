@@ -40,6 +40,11 @@ struct MapVolumeView: View {
                 ProgressView(value: Double(model.loadProgress), total: 100)
                     .frame(width: 200)
             }
+            if model.keyboardConnected {
+                Text(KeyboardInput.hint)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             HStack(spacing: 8) {
                 Text("Google").font(.headline)
                 Text(model.credits.joined(separator: " · "))

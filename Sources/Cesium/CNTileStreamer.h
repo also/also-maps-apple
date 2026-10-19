@@ -59,6 +59,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic) double focusRadius;
 /// Distance of the synthetic LOD camera from the focus, metres of world.
 @property (nonatomic) double viewerDistance;
+/// Compass bearing the viewer faces, radians clockwise from north (0 = the
+/// volume's front looks north). Steers the LOD camera and streamed region.
+@property (nonatomic) double viewHeading;
 /// cesium-native's SSE threshold; lower = more detail. Default 16.
 @property (nonatomic) double maximumScreenSpaceError;
 

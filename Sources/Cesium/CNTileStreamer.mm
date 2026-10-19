@@ -645,14 +645,21 @@ NSString* stripHTML(const std::string& html) {
 - (CNFrame*)updateWithDeltaTime:(float)deltaTime {
   _excluder->east = _focusEast;
   _excluder->north = _focusNorth;
-  _excluder->radius = _focusRadius;
+  // The excluder's square is axis-aligned in east/north; when the view is
+  // turned, grow it to the square that encloses the rotated visible one.
+  const double sinHeading = std::sin(_viewHeading);
+  const double cosHeading = std::cos(_viewHeading);
+  _excluder->radius =
+      _focusRadius * (std::abs(sinHeading) + std::abs(cosHeading));
 
   // No head pose in the Shared Space, so LOD comes from a synthetic camera
-  // looking at the focus from the front of the volume, 45° up.
+  // looking at the focus from the front of the volume, 45° up, facing the
+  // view heading.
   const double elevation = M_PI / 4.0;
+  const double horizontal = std::cos(elevation) * _viewerDistance;
   const glm::dvec3 offsetEnu(
-      0.0,
-      -std::cos(elevation) * _viewerDistance,
+      -sinHeading * horizontal,
+      -cosHeading * horizontal,
       std::sin(elevation) * _viewerDistance);
   const glm::dvec3 target = [self focusECEF];
   const glm::dvec3 position = glm::dvec3(

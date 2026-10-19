@@ -33,6 +33,7 @@ final class MapVolumeModel {
     private(set) var credits: [String] = []
     private(set) var loadProgress: Float = 0
     private(set) var statusMessage: String?
+    private(set) var keyboardConnected = false
 
     private var streamer: CNTileStreamer?
     private let tilesRoot = Entity()
@@ -52,6 +53,9 @@ final class MapVolumeModel {
     /// Bumped per sample request so a slow, older result can't win.
     private var groundSampleGeneration = 0
     private var radius = defaultLocation.radius
+    /// Compass bearing the volume's front faces, radians clockwise from north.
+    private var heading = 0.0
+    private var keyboardWasActive = false
 
     init() {
         root.addChild(tilesRoot)
@@ -73,6 +77,7 @@ final class MapVolumeModel {
         location.latitude = env["MAPVOLUME_LAT"].flatMap(Double.init) ?? location.latitude
         location.longitude = env["MAPVOLUME_LON"].flatMap(Double.init) ?? location.longitude
         location.radius = env["MAPVOLUME_RADIUS"].flatMap(Double.init) ?? location.radius
+        heading = (env["MAPVOLUME_HEADING"].flatMap(Double.init) ?? 0) * .pi / 180
         let url: String
         if let override = env["MAPVOLUME_TILESET_URL"], !override.isEmpty {
             url = override
@@ -105,11 +110,12 @@ final class MapVolumeModel {
     func drag(translation: SIMD3<Float>) {
         if dragStartFocus == nil { dragStartFocus = (focusEast, focusNorth) }
         guard let start = dragStartFocus else { return }
+        let local = sceneToLocal(SIMD2(Double(translation.x), Double(translation.z)))
         let metresPerScene = 1 / sceneScale
-        // Content follows the hand: dragging right reveals what's west.
-        focusEast = start.east - Double(translation.x) * metresPerScene
-        // RealityKit +z is south, so dragging toward you reveals the north.
-        focusNorth = start.north + Double(translation.z) * metresPerScene
+        // Content follows the hand: dragging right reveals what's to the left.
+        focusEast = start.east - local.x * metresPerScene
+        // Local +z is south, so dragging toward you reveals what's ahead.
+        focusNorth = start.north + local.y * metresPerScene
         applyFocus()
     }
 
@@ -135,6 +141,7 @@ final class MapVolumeModel {
 
     private func tick(deltaTime: Float) {
         guard let streamer else { return }
+        applyKeyboard(deltaTime: Double(deltaTime))
         easeFocusHeight(deltaTime: Double(deltaTime))
         let frame = streamer.update(withDeltaTime: deltaTime)
 
@@ -168,7 +175,50 @@ final class MapVolumeModel {
         #endif
     }
 
+    // MARK: Keyboard
+
+    private func applyKeyboard(deltaTime: Double) {
+        let connected = KeyboardInput.isKeyboardConnected
+        if keyboardConnected != connected { keyboardConnected = connected }
+
+        let input = KeyboardInput.current()
+        guard input.isActive else {
+            // Re-sample once movement settles, like the end of a drag.
+            if keyboardWasActive {
+                keyboardWasActive = false
+                sampleGround()
+            }
+            return
+        }
+        keyboardWasActive = true
+        let boost = input.fast ? 3.0 : 1.0
+
+        if input.turn != 0 {
+            heading += input.turn * boost * (.pi / 3) * deltaTime  // 60°/s
+            heading = heading.truncatingRemainder(dividingBy: 2 * .pi)
+        }
+        if input.zoom != 0 {
+            radius = min(max(radius * exp(-input.zoom * boost * deltaTime), 50), 20_000)
+        }
+        if input.move != .zero {
+            // Scene-relative: forward is away from the viewer (−z), right is +x.
+            let local = sceneToLocal(SIMD2(input.move.x, -input.move.y))
+            // Cross most of the visible region per second at any zoom.
+            let metres = radius * 0.8 * boost * deltaTime
+            focusEast += local.x * metres
+            focusNorth -= local.y * metres
+        }
+        applyFocus()
+    }
+
     // MARK: Helpers
+
+    /// Rotates a horizontal scene-space vector (x, z) into the tiles' local
+    /// frame (x east, z south), undoing the map's heading rotation.
+    private func sceneToLocal(_ v: SIMD2<Double>) -> SIMD2<Double> {
+        let c = cos(heading), s = sin(heading)
+        return SIMD2(v.x * c - v.y * s, v.x * s + v.y * c)
+    }
 
     /// Scene metres per world metre.
     private var sceneScale: Double { (Self.volumeSize.x / 2) / radius }
@@ -180,14 +230,17 @@ final class MapVolumeModel {
         streamer.focusHeight = focusHeight
         streamer.focusRadius = radius
         streamer.viewerDistance = Self.viewerDistanceInScene / sceneScale
+        streamer.viewHeading = heading
 
-        // Tiles are baked in the origin's local frame (x east, y up, z south);
-        // place the focus point on the volume's ground plane.
+        // Tiles are baked in the origin's local frame (x east, y up, z south).
+        // Turn the map about the vertical by the heading, then place the
+        // focus point on the volume's ground plane.
         let s = Float(sceneScale)
+        let rotation = simd_quatf(angle: Float(heading), axis: [0, 1, 0])
+        let focusLocal = SIMD3<Float>(Float(focusEast), Float(focusHeight), Float(-focusNorth))
         tilesRoot.scale = SIMD3(repeating: s)
-        tilesRoot.position = SIMD3(Float(-focusEast) * s,
-                                   Self.groundY - Float(focusHeight) * s,
-                                   Float(focusNorth) * s)
+        tilesRoot.orientation = rotation
+        tilesRoot.position = SIMD3(0, Self.groundY, 0) - rotation.act(focusLocal * s)
     }
 
     private func sampleGround() {
