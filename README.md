@@ -14,7 +14,7 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 
 ## Setup
 
-1. **Build the xcframework.** Use the `visionos` branch of [cesium-native-xcframework](https://github.com/crookneck/cesium-native-xcframework), checked out next to this repo, then copy the result in:
+1. **Build the xcframework.** Use the `visionos` branch of [also/cesium-native-xcframework](https://github.com/also/cesium-native-xcframework/tree/visionos), checked out next to this repo, then copy the result in:
 
    ```
    ../cesium-native-xcframework/build-xcframework.sh --slices "visionos visionos-simulator"
