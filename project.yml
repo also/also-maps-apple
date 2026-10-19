@@ -1,0 +1,61 @@
+name: MapVolume
+options:
+  bundleIdPrefix: com.ryanberdeen
+  deploymentTarget:
+    visionOS: "2.0"
+configFiles:
+  Debug: Config/App.xcconfig
+  Release: Config/App.xcconfig
+targets:
+  MapVolume:
+    scheme:
+      # Tick MAPVOLUME_* to stream the public Cesium sample instead of Google's tiles.
+      environmentVariables:
+        - variable: MAPVOLUME_TILESET_URL
+          value: https://raw.githubusercontent.com/CesiumGS/3d-tiles-samples/main/1.0/TilesetWithDiscreteLOD/tileset.json
+          isEnabled: false
+        - variable: MAPVOLUME_LAT
+          value: "40.0425306"
+          isEnabled: false
+        - variable: MAPVOLUME_LON
+          value: "-75.6120943"
+          isEnabled: false
+        - variable: MAPVOLUME_RADIUS
+          value: "800"
+          isEnabled: false
+    type: application
+    platform: visionOS
+    sources:
+      - path: Sources
+    dependencies:
+      # Not committed; see README for how to build it.
+      - framework: Vendor/CesiumNative.xcframework
+        embed: false
+      - sdk: libsqlite3.tbd
+      - sdk: libc++.tbd
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: Map Volume
+        GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleVolumetricApplication
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/MapVolume-Bridging-Header.h
+        CLANG_CXX_LANGUAGE_STANDARD: c++20
+        # cesium-native's headers trip -Wdocumentation; not ours to fix.
+        CLANG_WARN_DOCUMENTATION_COMMENTS: NO
+        # cesium-native's exported INTERFACE_COMPILE_DEFINITIONS; its headers
+        # (and glm/spdlog/async++ layouts) must be seen the same way here.
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - $(inherited)
+          - GLM_FORCE_XYZW_ONLY
+          - GLM_FORCE_EXPLICIT_CTOR
+          - GLM_FORCE_INTRINSICS
+          - GLM_ENABLE_EXPERIMENTAL
+          - LIBASYNC_STATIC
+          - SPDLOG_COMPILED_LIB
+          - SPDLOG_FMT_EXTERNAL

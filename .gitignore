@@ -1,0 +1,5 @@
+Config/Secrets.xcconfig
+MapVolume.xcodeproj/
+build/
+DerivedData/
+Vendor/CesiumNative.xcframework/
