@@ -44,6 +44,14 @@ To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stre
 
 `MAPVOLUME_HEADING`, in degrees clockwise from north, sets the starting direction.
 
+## Views
+
+The picker under the volume switches between the volume and floor modes. A floor mode opens a mixed-immersion space and lays the map on the floor in front of you at 3×, 5× or 10× the volume's size. The volume stays open as the control panel, and an attribution panel sits at the map's near edge.
+
+Every mode streams the same tiles at the same level of detail, so a floor mode is the volume's map enlarged, at lower effective resolution. To try other sizes or placements, add entries to `MapPresentation.all`. `MAPVOLUME_PRESENTATION=floor5x` (or another mode's `id`) starts in that mode.
+
+Floor mode doesn't clip the map's edges the way the volume does, so whole tiles stick out past the region.
+
 ## Known gaps
 
 - Mesh and texture creation run on the main thread under a time budget per frame, which causes hitches while streaming (#1).

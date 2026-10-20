@@ -11,8 +11,6 @@ import UIKit
 final class MapVolumeModel {
     /// Volume extents in metres (width, height, depth).
     static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
-    /// Where the ground plane sits inside the volume (origin is the centre).
-    private static let groundY: Float = -0.25
     /// How far a typical viewer stands from the volume; drives LOD.
     private static let viewerDistanceInScene = 1.2
     /// Budget per frame for turning CPU meshes into RealityKit resources.
@@ -26,9 +24,20 @@ final class MapVolumeModel {
 
     static let defaultLocation = Location(latitude: 37.7955, longitude: -122.3937, radius: 600)
 
+    /// The whole map: tiles plus the gesture target. Lives under whichever
+    /// host's anchor matches the current presentation.
     let root = Entity()
     /// Invisible box that receives drag / magnify gestures.
     let gestureTarget = Entity()
+
+    var presentation = MapPresentation.volume {
+        didSet {
+            guard presentation != oldValue else { return }
+            reparentRoot()
+            layOutGestureTarget()
+            applyFocus()
+        }
+    }
 
     private(set) var credits: [String] = []
     private(set) var loadProgress: Float = 0
@@ -38,7 +47,10 @@ final class MapVolumeModel {
     private var streamer: CNTileStreamer?
     private let tilesRoot = Entity()
     private var tileEntities: [UInt64: Entity] = [:]
-    private var updateSubscription: EventSubscription?
+    /// One anchor per host scene; `root` moves between them.
+    private var anchors: [MapPresentation.Host: Entity] = [:]
+    /// Both scenes deliver frame updates; only the presented host's are used.
+    private var updateSubscriptions: [MapPresentation.Host: EventSubscription] = [:]
     private var debugLogElapsed: Float = 0
 
     // Gesture state.
@@ -59,15 +71,51 @@ final class MapVolumeModel {
 
     init() {
         root.addChild(tilesRoot)
-
-        let size = SIMD3<Float>(Self.volumeSize)
         gestureTarget.components.set(InputTargetComponent())
-        gestureTarget.components.set(CollisionComponent(shapes: [.generateBox(size: size)]))
         root.addChild(gestureTarget)
+        layOutGestureTarget()
     }
 
-    func start(subscribingIn content: RealityViewContent) {
-        guard streamer == nil else { return }
+    /// Called from each host's RealityView. Adds that host's anchor, routes
+    /// its frame updates here, and starts streaming the first time.
+    func attach(_ content: RealityViewContent, host: MapPresentation.Host) {
+        let anchor = Entity()
+        anchor.name = "anchor-\(host)"
+        content.add(anchor)
+        anchors[host] = anchor
+        updateSubscriptions[host] = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, self.presentation.host == host else { return }
+                self.tick(deltaTime: Float(event.deltaTime))
+            }
+        }
+        reparentRoot()
+        start()
+    }
+
+    /// The immersive space went away (dismissed by us or the system).
+    func immersiveSpaceDidClose() {
+        anchors[.immersive] = nil
+        updateSubscriptions[.immersive] = nil
+        if presentation.host == .immersive { presentation = .volume }
+    }
+
+    private func reparentRoot() {
+        if let anchor = anchors[presentation.host], root.parent !== anchor {
+            anchor.addChild(root)
+        }
+    }
+
+    /// Size the gesture box to the presented map: the volume's box, magnified,
+    /// standing on the ground point.
+    private func layOutGestureTarget() {
+        let size = SIMD3<Float>(Self.volumeSize * presentation.magnification)
+        gestureTarget.components.set(CollisionComponent(shapes: [.generateBox(size: size)]))
+        gestureTarget.position = presentation.groundPosition + [0, size.y / 2, 0]
+    }
+
+    private func start() {
+        guard streamer == nil, statusMessage == nil else { return }
 
         // Debug overrides: MAPVOLUME_LAT/_LON/_RADIUS pick the starting view, and
         // MAPVOLUME_TILESET_URL streams any 3D Tiles tileset instead of
@@ -96,12 +144,6 @@ final class MapVolumeModel {
         self.streamer = streamer
         applyFocus()
         sampleGround()
-
-        updateSubscription = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
-            MainActor.assumeIsolated {
-                self?.tick(deltaTime: Float(event.deltaTime))
-            }
-        }
     }
 
     // MARK: Gestures
@@ -220,8 +262,12 @@ final class MapVolumeModel {
         return SIMD2(v.x * c - v.y * s, v.x * s + v.y * c)
     }
 
-    /// Scene metres per world metre.
-    private var sceneScale: Double { (Self.volumeSize.x / 2) / radius }
+    /// Scene metres per world metre as the volume shows it. Streaming always
+    /// uses this, so every presentation gets the same tiles at the same detail.
+    private var streamingScale: Double { (Self.volumeSize.x / 2) / radius }
+
+    /// Scene metres per world metre as currently displayed.
+    private var sceneScale: Double { streamingScale * presentation.magnification }
 
     private func applyFocus() {
         guard let streamer else { return }
@@ -229,18 +275,18 @@ final class MapVolumeModel {
         streamer.focusNorth = focusNorth
         streamer.focusHeight = focusHeight
         streamer.focusRadius = radius
-        streamer.viewerDistance = Self.viewerDistanceInScene / sceneScale
+        streamer.viewerDistance = Self.viewerDistanceInScene / streamingScale
         streamer.viewHeading = heading
 
         // Tiles are baked in the origin's local frame (x east, y up, z south).
         // Turn the map about the vertical by the heading, then place the
-        // focus point on the volume's ground plane.
+        // focus point on the presentation's ground point.
         let s = Float(sceneScale)
         let rotation = simd_quatf(angle: Float(heading), axis: [0, 1, 0])
         let focusLocal = SIMD3<Float>(Float(focusEast), Float(focusHeight), Float(-focusNorth))
         tilesRoot.scale = SIMD3(repeating: s)
         tilesRoot.orientation = rotation
-        tilesRoot.position = SIMD3(0, Self.groundY, 0) - rotation.act(focusLocal * s)
+        tilesRoot.position = presentation.groundPosition - rotation.act(focusLocal * s)
     }
 
     private func sampleGround() {

@@ -2,37 +2,90 @@ import RealityKit
 import SwiftUI
 
 struct MapVolumeView: View {
-    @State private var model = MapVolumeModel()
+    @Environment(MapVolumeModel.self) private var model
+    @Environment(\.openImmersiveSpace) private var openImmersiveSpace
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
 
     var body: some View {
         RealityView { content in
-            content.add(model.root)
-            model.start(subscribingIn: content)
+            model.attach(content, host: .volume)
         }
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .targetedToEntity(model.gestureTarget)
-                .onChanged { value in
-                    let start = value.convert(value.startLocation3D, from: .local, to: .scene)
-                    let now = value.convert(value.location3D, from: .local, to: .scene)
-                    model.drag(translation: now - start)
-                }
-                .onEnded { _ in model.endDrag() }
-        )
-        .simultaneousGesture(
-            MagnifyGesture()
-                .targetedToEntity(model.gestureTarget)
-                .onChanged { value in model.magnify(by: value.magnification) }
-                .onEnded { _ in model.endMagnify() }
-        )
+        .mapGestures(model)
         .ornament(attachmentAnchor: .scene(.bottomFront)) {
-            attribution
+            VStack(spacing: 8) {
+                presentationPicker
+                if model.presentation.host == .volume {
+                    AttributionView()
+                }
+            }
+        }
+        .task {
+            // Debug: MAPVOLUME_PRESENTATION=floor5x (etc.) starts in that mode.
+            if let id = ProcessInfo.processInfo.environment["MAPVOLUME_PRESENTATION"],
+               let presentation = MapPresentation.all.first(where: { $0.id == id }) {
+                await present(presentation)
+            }
         }
     }
 
-    /// Google's terms require the attribution for the tiles on screen to be
-    /// visible. TODO: use the official Google logo asset instead of text.
-    private var attribution: some View {
+    private var presentationPicker: some View {
+        Picker("View", selection: Binding(
+            get: { model.presentation },
+            set: { presentation in Task { await present(presentation) } }
+        )) {
+            ForEach(MapPresentation.all) { presentation in
+                Text(presentation.name).tag(presentation)
+            }
+        }
+        .pickerStyle(.segmented)
+        .frame(width: 420)
+        .padding(6)
+        .glassBackgroundEffect()
+    }
+
+    private func present(_ presentation: MapPresentation) async {
+        switch (model.presentation.host, presentation.host) {
+        case (.volume, .immersive):
+            guard case .opened = await openImmersiveSpace(id: ImmersiveMapView.spaceID) else { return }
+        case (.immersive, .volume):
+            await dismissImmersiveSpace()
+        default:
+            break
+        }
+        model.presentation = presentation
+    }
+}
+
+extension View {
+    /// Drag to pan and pinch to zoom on the model's gesture target, in
+    /// whichever scene is showing the map.
+    func mapGestures(_ model: MapVolumeModel) -> some View {
+        self
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .targetedToEntity(model.gestureTarget)
+                    .onChanged { value in
+                        let start = value.convert(value.startLocation3D, from: .local, to: .scene)
+                        let now = value.convert(value.location3D, from: .local, to: .scene)
+                        model.drag(translation: now - start)
+                    }
+                    .onEnded { _ in model.endDrag() }
+            )
+            .simultaneousGesture(
+                MagnifyGesture()
+                    .targetedToEntity(model.gestureTarget)
+                    .onChanged { value in model.magnify(by: value.magnification) }
+                    .onEnded { _ in model.endMagnify() }
+            )
+    }
+}
+
+/// Google's terms require the attribution for the tiles on screen to be
+/// visible alongside them. TODO: use the official Google logo asset.
+struct AttributionView: View {
+    @Environment(MapVolumeModel.self) private var model
+
+    var body: some View {
         VStack(spacing: 4) {
             if let message = model.statusMessage {
                 Text(message).font(.callout)
