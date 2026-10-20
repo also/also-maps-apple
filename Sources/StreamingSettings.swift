@@ -1,7 +1,7 @@
 import Foundation
 
-/// Runtime streaming knobs, adjustable from the Tuning window and saved
-/// between launches. `default` is the hand-tuned baseline the app shipped
+/// Runtime streaming and control knobs, adjustable from the Tuning window and
+/// saved between launches. `default` is the hand-tuned baseline the app shipped
 /// with; Reset goes back to it.
 struct StreamingSettings: Codable, Equatable {
     /// SSE for tiles the LOD camera sees; lower = sharper and more tiles.
@@ -22,7 +22,34 @@ struct StreamingSettings: Codable, Equatable {
     /// Keep parent tiles until all their children have loaded.
     var forbidHoles = false
 
+    enum TurnPivot: String, Codable, CaseIterable {
+        /// Spin the map about its centre (the focus point).
+        case center
+        /// Turn about the middle of the map's near edge, where you are, so
+        /// turning and moving forward feels like flying.
+        case frontEdge
+    }
+    /// What the keyboard's Q/E turn around.
+    var keyboardTurnPivot = TurnPivot.center
+
     static let `default` = StreamingSettings()
+
+    init() {}
+
+    /// Missing keys keep their defaults, so adding a setting doesn't throw
+    /// away everything saved by an older build.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = StreamingSettings()
+        detail = try c.decodeIfPresent(Double.self, forKey: .detail) ?? d.detail
+        outerDetail = try c.decodeIfPresent(Double.self, forKey: .outerDetail) ?? d.outerDetail
+        immersiveRegion = try c.decodeIfPresent(Double.self, forKey: .immersiveRegion) ?? d.immersiveRegion
+        uploadBudgetMilliseconds = try c.decodeIfPresent(Double.self, forKey: .uploadBudgetMilliseconds) ?? d.uploadBudgetMilliseconds
+        simultaneousLoads = try c.decodeIfPresent(Double.self, forKey: .simultaneousLoads) ?? d.simultaneousLoads
+        cacheMegabytes = try c.decodeIfPresent(Double.self, forKey: .cacheMegabytes) ?? d.cacheMegabytes
+        forbidHoles = try c.decodeIfPresent(Bool.self, forKey: .forbidHoles) ?? d.forbidHoles
+        keyboardTurnPivot = try c.decodeIfPresent(TurnPivot.self, forKey: .keyboardTurnPivot) ?? d.keyboardTurnPivot
+    }
 
     private static let defaultsKey = "StreamingSettings"
 

@@ -301,8 +301,17 @@ final class MapVolumeModel {
         let boost = input.fast ? 3.0 : 1.0
 
         if input.turn != 0 {
-            heading += input.turn * boost * (.pi / 3) * deltaTime  // 60°/s
-            heading = heading.truncatingRemainder(dividingBy: 2 * .pi)
+            let newHeading = (heading + input.turn * boost * (.pi / 3) * deltaTime)  // 60°/s
+                .truncatingRemainder(dividingBy: 2 * .pi)
+            if settings.keyboardTurnPivot == .frontEdge {
+                // Keep the middle of the near edge fixed: it sits `radius`
+                // behind the focus along the facing direction, so the new
+                // focus is `radius` ahead of it along the new heading.
+                let back = SIMD2(focusEast - sin(heading) * radius, focusNorth - cos(heading) * radius)
+                focusEast = back.x + sin(newHeading) * radius
+                focusNorth = back.y + cos(newHeading) * radius
+            }
+            heading = newHeading
         }
         if input.zoom != 0 {
             radius = min(max(radius * exp(-input.zoom * boost * deltaTime), 50), 20_000)

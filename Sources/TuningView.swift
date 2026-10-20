@@ -47,6 +47,18 @@ struct TuningView: View {
                 }
 
                 Section {
+                    Picker("Keyboard turns around", selection: $model.settings.keyboardTurnPivot) {
+                        Text("Centre").tag(StreamingSettings.TurnPivot.center)
+                        Text("Front edge").tag(StreamingSettings.TurnPivot.frontEdge)
+                    }
+                    Text("Front edge turns about the middle of the map's near edge, so Q/E with W feels like flying.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Controls")
+                }
+
+                Section {
                     Button("Reset to Defaults") {
                         model.settings = .default
                     }
