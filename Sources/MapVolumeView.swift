@@ -78,12 +78,14 @@ extension View {
     func mapGestures(_ model: MapVolumeModel) -> some View {
         self
             .gesture(
-                DragGesture(minimumDistance: 0)
+                // Default minimum distance, so a pinch has to actually move
+                // before it pans.
+                DragGesture()
                     .targetedToEntity(model.gestureTarget)
                     .onChanged { value in
                         let start = value.convert(value.startLocation3D, from: .local, to: .scene)
                         let now = value.convert(value.location3D, from: .local, to: .scene)
-                        model.drag(translation: now - start)
+                        model.drag(from: start, to: now)
                     }
                     .onEnded { _ in model.endDrag() }
             )

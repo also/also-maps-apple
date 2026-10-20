@@ -33,6 +33,7 @@ final class MapVolumeModel {
             guard settings != oldValue else { return }
             settings.save()
             applySettings()
+            layOutGestureTarget()
             applyFocus()
         }
     }
@@ -71,6 +72,10 @@ final class MapVolumeModel {
 
     // Gesture state.
     private var dragStartFocus: (east: Double, north: Double)?
+    /// Identifies the drag in progress. visionOS can cancel a gesture without
+    /// calling onEnded, so a new start location means a new drag.
+    private var dragStartLocation: SIMD3<Float>?
+    private var lastMagnifyUpdate = Date.distantPast
     private var magnifyStartRadius: Double?
 
     private var focusEast = 0.0
@@ -87,7 +92,10 @@ final class MapVolumeModel {
 
     init() {
         root.addChild(tilesRoot)
-        gestureTarget.components.set(InputTargetComponent())
+        // Indirect only (look + pinch). Allowing direct input meant hands that
+        // were merely inside the map's area counted as touching it and
+        // dragged the map with no pinch at all.
+        gestureTarget.components.set(InputTargetComponent(allowedInputTypes: .indirect))
         root.addChild(gestureTarget)
         layOutGestureTarget()
     }
@@ -122,12 +130,18 @@ final class MapVolumeModel {
         }
     }
 
-    /// Size the gesture box to the presented map: the volume's box, magnified,
-    /// standing on the ground point.
+    /// The gesture target is a thin slab at ground level covering the
+    /// streamed square. Gaze passes through terrain and buildings (they have no
+    /// collision) to the slab, while looking past the map's edges or over it
+    /// no longer hits an invisible box.
     private func layOutGestureTarget() {
-        let size = SIMD3<Float>(Self.volumeSize * presentation.magnification)
-        gestureTarget.components.set(CollisionComponent(shapes: [.generateBox(size: size)]))
-        gestureTarget.position = presentation.groundPosition + [0, size.y / 2, 0]
+        let region = presentation.host == .immersive ? settings.immersiveRegion : 1
+        let width = Float(Self.volumeSize.x * presentation.magnification * region)
+        let thickness = Float(0.02 * presentation.magnification)
+        gestureTarget.components.set(CollisionComponent(shapes: [
+            .generateBox(size: [width, thickness, width])
+        ]))
+        gestureTarget.position = presentation.groundPosition
     }
 
     private func start() {
@@ -165,26 +179,36 @@ final class MapVolumeModel {
 
     // MARK: Gestures
 
-    /// `translation` is the drag in scene metres since the gesture began.
-    func drag(translation: SIMD3<Float>) {
-        if dragStartFocus == nil { dragStartFocus = (focusEast, focusNorth) }
-        guard let start = dragStartFocus else { return }
+    /// `start` and `current` are the drag's scene positions, in metres.
+    func drag(from start: SIMD3<Float>, to current: SIMD3<Float>) {
+        if dragStartLocation != start {
+            dragStartLocation = start
+            dragStartFocus = (focusEast, focusNorth)
+        }
+        let translation = current - start
+        guard let startFocus = dragStartFocus else { return }
         let local = sceneToLocal(SIMD2(Double(translation.x), Double(translation.z)))
         let metresPerScene = 1 / sceneScale
         // Content follows the hand: dragging right reveals what's to the left.
-        focusEast = start.east - local.x * metresPerScene
+        focusEast = startFocus.east - local.x * metresPerScene
         // Local +z is south, so dragging toward you reveals what's ahead.
-        focusNorth = start.north + local.y * metresPerScene
+        focusNorth = startFocus.north + local.y * metresPerScene
         applyFocus()
     }
 
     func endDrag() {
         dragStartFocus = nil
+        dragStartLocation = nil
         sampleGround()
     }
 
     func magnify(by magnification: Double) {
-        if magnifyStartRadius == nil { magnifyStartRadius = radius }
+        // As with drag, a cancelled pinch never reaches endMagnify; a pause in
+        // updates means this is a new pinch.
+        if magnifyStartRadius == nil || Date().timeIntervalSince(lastMagnifyUpdate) > 0.3 {
+            magnifyStartRadius = radius
+        }
+        lastMagnifyUpdate = Date()
         guard let start = magnifyStartRadius, magnification > 0 else { return }
         radius = min(max(start / magnification, 50), 20_000)
         applyFocus()
@@ -308,6 +332,7 @@ final class MapVolumeModel {
         let focusLocal = SIMD3<Float>(Float(focusEast), Float(focusHeight), Float(-focusNorth))
         tilesRoot.scale = SIMD3(repeating: s)
         tilesRoot.orientation = rotation
+        gestureTarget.orientation = rotation
         tilesRoot.position = presentation.groundPosition - rotation.act(focusLocal * s)
     }
 
