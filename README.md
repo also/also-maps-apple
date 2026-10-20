@@ -52,6 +52,16 @@ Every mode streams the same tiles at the same level of detail, so a floor mode i
 
 Floor mode doesn't clip the map's edges the way the volume does, so whole tiles stick out past the region.
 
+## Tuning
+
+The slider button next to the mode picker opens a Tuning window with live stats and streaming settings. Changes apply immediately and are remembered between launches. **Reset to Defaults** returns to the hand-tuned baseline in `StreamingSettings.default`.
+
+- **Region** (floor modes only): streams past the volume-sized square, up to 10× its half-width.
+- **Detail / Outer detail**: cesium-native's screen-space error thresholds, for tiles inside and outside the LOD camera's view. Most of an expanded region is outside that view, so Outer detail controls how sharp the far map is and how many tiles it costs.
+- **Upload budget, Simultaneous loads, Cache, Forbid holes**: trade-offs between fill speed, hitching and memory.
+
+`MAPVOLUME_OPEN_TUNING=1` opens the window at launch.
+
 ## Known gaps
 
 - Mesh and texture creation run on the main thread under a time budget per frame, which causes hitches while streaming (#1).

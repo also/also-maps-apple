@@ -637,6 +637,39 @@ NSString* stripHTML(const std::string& html) {
   _tileset->getOptions().maximumScreenSpaceError = value;
 }
 
+- (double)culledScreenSpaceError {
+  return _tileset->getOptions().culledScreenSpaceError;
+}
+
+- (void)setCulledScreenSpaceError:(double)value {
+  _tileset->getOptions().culledScreenSpaceError = value;
+}
+
+- (NSInteger)maximumSimultaneousTileLoads {
+  return NSInteger(_tileset->getOptions().maximumSimultaneousTileLoads);
+}
+
+- (void)setMaximumSimultaneousTileLoads:(NSInteger)value {
+  _tileset->getOptions().maximumSimultaneousTileLoads =
+      uint32_t(std::max<NSInteger>(1, value));
+}
+
+- (int64_t)maximumCachedBytes {
+  return _tileset->getOptions().maximumCachedBytes;
+}
+
+- (void)setMaximumCachedBytes:(int64_t)value {
+  _tileset->getOptions().maximumCachedBytes = value;
+}
+
+- (BOOL)forbidHoles {
+  return _tileset->getOptions().forbidHoles;
+}
+
+- (void)setForbidHoles:(BOOL)value {
+  _tileset->getOptions().forbidHoles = value;
+}
+
 - (glm::dvec3)focusECEF {
   return glm::dvec3(
       _enuToEcef * glm::dvec4(_focusEast, _focusNorth, _focusHeight, 1.0));
@@ -649,8 +682,10 @@ NSString* stripHTML(const std::string& html) {
   // turned, grow it to the square that encloses the rotated visible one.
   const double sinHeading = std::sin(_viewHeading);
   const double cosHeading = std::cos(_viewHeading);
+  const double streamingRadius =
+      _streamingRadius > 0.0 ? _streamingRadius : _focusRadius;
   _excluder->radius =
-      _focusRadius * (std::abs(sinHeading) + std::abs(cosHeading));
+      streamingRadius * (std::abs(sinHeading) + std::abs(cosHeading));
 
   // No head pose in the Shared Space, so LOD comes from a synthetic camera
   // looking at the focus from the front of the volume, 45° up, facing the

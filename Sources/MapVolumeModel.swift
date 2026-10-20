@@ -13,8 +13,6 @@ final class MapVolumeModel {
     static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
     /// How far a typical viewer stands from the volume; drives LOD.
     private static let viewerDistanceInScene = 1.2
-    /// Budget per frame for turning CPU meshes into RealityKit resources.
-    private static let uploadBudget: TimeInterval = 0.006
 
     struct Location {
         var latitude: Double
@@ -29,6 +27,21 @@ final class MapVolumeModel {
     let root = Entity()
     /// Invisible box that receives drag / magnify gestures.
     let gestureTarget = Entity()
+
+    var settings = StreamingSettings.load() {
+        didSet {
+            guard settings != oldValue else { return }
+            settings.save()
+            applySettings()
+            applyFocus()
+        }
+    }
+
+    struct Stats: Equatable {
+        var renderedTiles = 0
+        var entities = 0
+    }
+    private(set) var stats = Stats()
 
     var presentation = MapPresentation.volume {
         didSet {
@@ -142,6 +155,7 @@ final class MapVolumeModel {
                                       longitude: location.longitude,
                                       height: 0)
         self.streamer = streamer
+        applySettings()
         applyFocus()
         sampleGround()
     }
@@ -191,7 +205,7 @@ final class MapVolumeModel {
             tileEntities.removeValue(forKey: id.uint64Value)?.removeFromParent()
         }
 
-        let deadline = Date().addingTimeInterval(Self.uploadBudget)
+        let deadline = Date().addingTimeInterval(settings.uploadBudgetMilliseconds / 1000)
         var visible = Set<UInt64>()
         for tile in frame.tilesToRender {
             visible.insert(tile.identifier)
@@ -207,6 +221,8 @@ final class MapVolumeModel {
 
         if credits != frame.credits { credits = frame.credits }
         loadProgress = frame.loadProgress
+        let newStats = Stats(renderedTiles: frame.tilesToRender.count, entities: tileEntities.count)
+        if stats != newStats { stats = newStats }
 
         #if DEBUG
         debugLogElapsed += deltaTime
@@ -275,6 +291,9 @@ final class MapVolumeModel {
         streamer.focusNorth = focusNorth
         streamer.focusHeight = focusHeight
         streamer.focusRadius = radius
+        // Only the floor modes stream past the volume-sized square; the volume
+        // would clip the extra away anyway.
+        streamer.streamingRadius = presentation.host == .immersive ? radius * settings.immersiveRegion : 0
         streamer.viewerDistance = Self.viewerDistanceInScene / streamingScale
         streamer.viewHeading = heading
 
@@ -287,6 +306,15 @@ final class MapVolumeModel {
         tilesRoot.scale = SIMD3(repeating: s)
         tilesRoot.orientation = rotation
         tilesRoot.position = presentation.groundPosition - rotation.act(focusLocal * s)
+    }
+
+    private func applySettings() {
+        guard let streamer else { return }
+        streamer.maximumScreenSpaceError = settings.detail
+        streamer.culledScreenSpaceError = settings.outerDetail
+        streamer.maximumSimultaneousTileLoads = Int(settings.simultaneousLoads)
+        streamer.maximumCachedBytes = Int64(settings.cacheMegabytes * 1024 * 1024)
+        streamer.forbidHoles = settings.forbidHoles
     }
 
     private func sampleGround() {

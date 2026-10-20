@@ -5,6 +5,7 @@ struct MapVolumeView: View {
     @Environment(MapVolumeModel.self) private var model
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         RealityView { content in
@@ -13,14 +14,25 @@ struct MapVolumeView: View {
         .mapGestures(model)
         .ornament(attachmentAnchor: .scene(.bottomFront)) {
             VStack(spacing: 8) {
-                presentationPicker
+                HStack(spacing: 8) {
+                    presentationPicker
+                    Button("Tuning", systemImage: "slider.horizontal.3") {
+                        openWindow(id: TuningView.windowID)
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Streaming settings")
+                }
                 if model.presentation.host == .volume {
                     AttributionView()
                 }
             }
         }
         .task {
-            // Debug: MAPVOLUME_PRESENTATION=floor5x (etc.) starts in that mode.
+            // Debug: MAPVOLUME_OPEN_TUNING=1 opens the Tuning window, and
+            // MAPVOLUME_PRESENTATION=floor5x (etc.) starts in that mode.
+            if ProcessInfo.processInfo.environment["MAPVOLUME_OPEN_TUNING"] == "1" {
+                openWindow(id: TuningView.windowID)
+            }
             if let id = ProcessInfo.processInfo.environment["MAPVOLUME_PRESENTATION"],
                let presentation = MapPresentation.all.first(where: { $0.id == id }) {
                 await present(presentation)

@@ -16,6 +16,12 @@ struct MapVolumeApp: App {
                      depth: MapVolumeModel.volumeSize.z,
                      in: .meters)
 
+        WindowGroup(id: TuningView.windowID) {
+            TuningView()
+                .environment(model)
+        }
+        .defaultSize(width: 520, height: 760)
+
         ImmersiveSpace(id: ImmersiveMapView.spaceID) {
             ImmersiveMapView()
                 .environment(model)
