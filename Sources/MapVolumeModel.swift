@@ -76,6 +76,8 @@ final class MapVolumeModel {
     /// calling onEnded, so a new start location means a new drag.
     private var dragStartLocation: SIMD3<Float>?
     private var lastMagnifyUpdate = Date.distantPast
+    private var rotateStartHeading: Double?
+    private var rotateStartLocation: SIMD3<Float>?
     private var magnifyStartRadius: Double?
 
     private var focusEast = 0.0
@@ -218,6 +220,26 @@ final class MapVolumeModel {
         magnifyStartRadius = nil
         // The sampled region grows and shrinks with the radius.
         sampleGround()
+    }
+
+    /// `rotation` is the two-handed twist since the gesture began, already in
+    /// scene space. The map follows the hands, turning about its focus point.
+    func rotate(by rotation: simd_quatf, startedAt start: SIMD3<Float>) {
+        if rotateStartLocation != start {
+            rotateStartLocation = start
+            rotateStartHeading = heading
+        }
+        guard let startHeading = rotateStartHeading else { return }
+        // Signed angle about +Y (counterclockwise seen from above), which is
+        // the same sense as the map's heading rotation.
+        let yaw = 2 * atan2(Double(rotation.imag.y), Double(rotation.real))
+        heading = (startHeading + yaw).truncatingRemainder(dividingBy: 2 * .pi)
+        applyFocus()
+    }
+
+    func endRotate() {
+        rotateStartHeading = nil
+        rotateStartLocation = nil
     }
 
     // MARK: Frame loop

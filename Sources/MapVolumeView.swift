@@ -73,8 +73,8 @@ struct MapVolumeView: View {
 }
 
 extension View {
-    /// Drag to pan and pinch to zoom on the model's gesture target, in
-    /// whichever scene is showing the map.
+    /// Drag to pan, two-handed pinch to zoom and twist to turn, on the model's
+    /// gesture target, in whichever scene is showing the map.
     func mapGestures(_ model: MapVolumeModel) -> some View {
         self
             .gesture(
@@ -94,6 +94,18 @@ extension View {
                     .targetedToEntity(model.gestureTarget)
                     .onChanged { value in model.magnify(by: value.magnification) }
                     .onEnded { _ in model.endMagnify() }
+            )
+            .simultaneousGesture(
+                // Two-handed twist about the vertical; runs alongside zoom so
+                // one motion can turn and scale at once.
+                RotateGesture3D(constrainedToAxis: .y)
+                    .targetedToEntity(model.gestureTarget)
+                    .onChanged { value in
+                        let rotation = value.convert(value.rotation, from: .local, to: .scene)
+                        let start = value.convert(value.startLocation3D, from: .local, to: .scene)
+                        model.rotate(by: rotation, startedAt: start)
+                    }
+                    .onEnded { _ in model.endRotate() }
             )
     }
 }

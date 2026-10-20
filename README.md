@@ -38,8 +38,9 @@ To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stre
 
 ## Controls
 
-- **Pan:** drag in the volume.
-- **Zoom:** pinch. The radius ranges from 50 m to 20 km.
+- **Pan:** look at the map, pinch and drag. Gestures are indirect only (look and pinch), so open hands over the map do nothing.
+- **Zoom:** pinch with both hands and move them apart or together. The radius ranges from 50 m to 20 km.
+- **Turn:** pinch with both hands and twist about the vertical. The map turns around the focus point and can turn while zooming.
 - **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F (or `=` and `-`) zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.
 
 `MAPVOLUME_HEADING`, in degrees clockwise from north, sets the starting direction.
