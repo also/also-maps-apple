@@ -158,6 +158,9 @@ final class MapVolumeModel {
         location.longitude = env["MAPVOLUME_LON"].flatMap(Double.init) ?? location.longitude
         location.radius = env["MAPVOLUME_RADIUS"].flatMap(Double.init) ?? location.radius
         heading = (env["MAPVOLUME_HEADING"].flatMap(Double.init) ?? 0) * .pi / 180
+        // Start the focus away from the tileset origin, e.g. to check curvature.
+        focusEast = (env["MAPVOLUME_FOCUS_EAST_KM"].flatMap(Double.init) ?? 0) * 1000
+        focusNorth = (env["MAPVOLUME_FOCUS_NORTH_KM"].flatMap(Double.init) ?? 0) * 1000
         let url: String
         if let override = env["MAPVOLUME_TILESET_URL"], !override.isEmpty {
             url = override
@@ -277,7 +280,9 @@ final class MapVolumeModel {
         debugLogElapsed += deltaTime
         if debugLogElapsed > 1 {
             debugLogElapsed = 0
-            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, focus height \(Int(focusHeight)) m")
+            let display = streamer.displayTransform()
+            let tilt = acos(min(1, Double(display.columns.1.y))) * 180 / .pi
+            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, focus height \(Int(focusHeight)) m, re-level \(String(format: "%.2f", tilt))°")
         }
         #endif
     }
@@ -356,15 +361,17 @@ final class MapVolumeModel {
         streamer.viewHeading = heading
 
         // Tiles are baked in the origin's local frame (x east, y up, z south).
-        // Turn the map about the vertical by the heading, then place the
-        // focus point on the presentation's ground point.
+        // The streamer's display transform moves them into the focus's own
+        // level frame (focus ground point at 0, so curvature doesn't tilt the
+        // map far from the origin); then turn by the heading, scale, and
+        // place it on the presentation's ground point.
         let s = Float(sceneScale)
         let rotation = simd_quatf(angle: Float(heading), axis: [0, 1, 0])
-        let focusLocal = SIMD3<Float>(Float(focusEast), Float(focusHeight), Float(-focusNorth))
-        tilesRoot.scale = SIMD3(repeating: s)
-        tilesRoot.orientation = rotation
+        let placement = Transform(scale: SIMD3(repeating: s),
+                                  rotation: rotation,
+                                  translation: presentation.groundPosition)
+        tilesRoot.transform = Transform(matrix: placement.matrix * streamer.displayTransform())
         gestureTarget.orientation = rotation
-        tilesRoot.position = presentation.groundPosition - rotation.act(focusLocal * s)
     }
 
     private func applySettings() {

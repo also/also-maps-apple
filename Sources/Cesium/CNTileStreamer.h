@@ -7,6 +7,7 @@
 // rather than re-baking geometry.
 
 #import <Foundation/Foundation.h>
+#import <simd/simd.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -53,7 +54,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// Centre of the region to stream, metres east/north of the origin.
 @property (nonatomic) double focusEast;
 @property (nonatomic) double focusNorth;
-/// Height of the ground at the focus in the local frame (metres up).
+/// Height of the ground at the focus, metres above the WGS84 ellipsoid.
 @property (nonatomic) double focusHeight;
 /// Half-width of the square region to stream, metres.
 @property (nonatomic) double focusRadius;
@@ -79,11 +80,17 @@ NS_ASSUME_NONNULL_BEGIN
 /// Keep parents until all children have loaded. Default NO.
 @property (nonatomic) BOOL forbidHoles;
 
+/// Maps baked tile coordinates (origin frame, RealityKit axes) into the
+/// focus's own frame: focus ground point at the origin, local up along +y,
+/// local north along -z. Far from the origin this re-levels the map, which
+/// would otherwise tilt with the Earth's curvature.
+- (simd_float4x4)displayTransform;
+
 /// Runs one selection + load pass. Call once per frame on the main thread.
 - (CNFrame *)updateWithDeltaTime:(float)deltaTime;
 
 /// Samples the most detailed surface on a 3×3 grid across the focus region
-/// and reports the lowest hit as a local-frame height (metres up), or NAN if
+/// and reports the lowest hit in metres above the ellipsoid, or NAN if
 /// every sample failed. Completion runs on the main thread during a later
 /// updateWithDeltaTime: call.
 - (void)sampleGroundHeightInFocusRegion:(void (^)(double height))completion

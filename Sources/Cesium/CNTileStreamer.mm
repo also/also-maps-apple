@@ -670,9 +670,43 @@ NSString* stripHTML(const std::string& html) {
   _tileset->getOptions().forbidHoles = value;
 }
 
+/// The focus's ground point: the surface below (focusEast, focusNorth) on the
+/// origin's tangent plane, at focusHeight above the ellipsoid. Using ellipsoid
+/// height rather than the origin frame's up axis keeps it right far from the
+/// origin, where that axis is no longer vertical.
 - (glm::dvec3)focusECEF {
-  return glm::dvec3(
-      _enuToEcef * glm::dvec4(_focusEast, _focusNorth, _focusHeight, 1.0));
+  const glm::dvec3 onPlane = glm::dvec3(
+      _enuToEcef * glm::dvec4(_focusEast, _focusNorth, 0.0, 1.0));
+  std::optional<Cartographic> cartographic =
+      Ellipsoid::WGS84.cartesianToCartographic(onPlane);
+  if (!cartographic) {
+    return onPlane;
+  }
+  cartographic->height = _focusHeight;
+  return Ellipsoid::WGS84.cartographicToCartesian(*cartographic);
+}
+
+/// Local east-north-up at the focus, as a transform to ECEF.
+- (glm::dmat4)focusEnuToEcef {
+  return CesiumGeospatial::GlobeTransforms::eastNorthUpToFixedFrame(
+      [self focusECEF]);
+}
+
+- (simd_float4x4)displayTransform {
+  // Baked tile coordinates (RealityKit axes, origin frame) → ECEF → focus ENU
+  // → RealityKit axes. Rotation and translation only; computed in double and
+  // narrowed at the end.
+  const glm::dmat4 m = kEnuToRealityKit * glm::inverse([self focusEnuToEcef]) *
+                       _enuToEcef * glm::transpose(kEnuToRealityKit);
+  simd_float4x4 result;
+  for (int column = 0; column < 4; ++column) {
+    result.columns[column] = simd_make_float4(
+        float(m[column][0]),
+        float(m[column][1]),
+        float(m[column][2]),
+        float(m[column][3]));
+  }
+  return result;
 }
 
 - (CNFrame*)updateWithDeltaTime:(float)deltaTime {
@@ -696,16 +730,14 @@ NSString* stripHTML(const std::string& html) {
       -sinHeading * horizontal,
       -cosHeading * horizontal,
       std::sin(elevation) * _viewerDistance);
-  const glm::dvec3 target = [self focusECEF];
-  const glm::dvec3 position = glm::dvec3(
-      _enuToEcef * glm::dvec4(
-                       _focusEast + offsetEnu.x,
-                       _focusNorth + offsetEnu.y,
-                       _focusHeight + offsetEnu.z,
-                       1.0));
+  // Built in the focus's own east-north-up frame, so the camera stays level
+  // with the ground however far the focus is from the origin.
+  const glm::dmat4 focusFrame = [self focusEnuToEcef];
+  const glm::dvec3 target = glm::dvec3(focusFrame[3]);
+  const glm::dvec3 position =
+      glm::dvec3(focusFrame * glm::dvec4(offsetEnu, 1.0));
   const glm::dvec3 direction = glm::normalize(target - position);
-  const glm::dvec3 upEcef =
-      glm::normalize(glm::dvec3(_enuToEcef[2]));
+  const glm::dvec3 upEcef = glm::normalize(glm::dvec3(focusFrame[2]));
   const glm::dvec3 up =
       glm::normalize(upEcef - glm::dot(upEcef, direction) * direction);
   const double fov = glm::radians(60.0);
@@ -781,21 +813,16 @@ NSString* stripHTML(const std::string& html) {
   }
 
   // sampleHeightMostDetailed ignores the input heights and reports the
-  // highest surface hit at each longitude/latitude; convert each hit back to
-  // the local frame's up axis.
-  glm::dmat4 ecefToEnu = _ecefToEnu;
+  // highest surface hit at each longitude/latitude, as height above the
+  // ellipsoid, which is what focusHeight is measured in.
   _tileset->sampleHeightMostDetailed(positions)
-      .thenInMainThread([completion, ecefToEnu](SampleHeightResult&& result) {
+      .thenInMainThread([completion](SampleHeightResult&& result) {
         double lowest = INFINITY;
         for (size_t i = 0; i < result.positions.size(); ++i) {
           if (i >= result.sampleSuccess.size() || !result.sampleSuccess[i]) {
             continue;
           }
-          const glm::dvec3 hit =
-              Ellipsoid::WGS84.cartographicToCartesian(result.positions[i]);
-          const glm::dvec3 local =
-              glm::dvec3(ecefToEnu * glm::dvec4(hit, 1.0));
-          lowest = std::min(lowest, local.z);
+          lowest = std::min(lowest, result.positions[i].height);
         }
         completion(std::isfinite(lowest) ? lowest : NAN);
       })
