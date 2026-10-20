@@ -2,6 +2,8 @@ import RealityKit
 import SwiftUI
 
 struct MapVolumeView: View {
+    static let windowID = "volume"
+
     @Environment(MapVolumeModel.self) private var model
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
@@ -12,6 +14,8 @@ struct MapVolumeView: View {
             model.attach(content, host: .volume)
         }
         .mapGestures(model)
+        .onAppear { model.volumeIsOpen = true }
+        .onDisappear { model.volumeIsOpen = false }
         .ornament(attachmentAnchor: .scene(.bottomFront)) {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {

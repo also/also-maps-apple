@@ -56,6 +56,9 @@ final class MapVolumeModel {
     private(set) var loadProgress: Float = 0
     private(set) var statusMessage: String?
     private(set) var keyboardConnected = false
+    /// Whether the volume (map + controls) window is open. In a floor mode
+    /// it can be closed while the immersive space stays up.
+    var volumeIsOpen = false
 
     private var streamer: CNTileStreamer?
     private let tilesRoot = Entity()

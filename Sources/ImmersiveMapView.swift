@@ -9,6 +9,7 @@ struct ImmersiveMapView: View {
     private static let attributionID = "attribution"
 
     @Environment(MapVolumeModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         RealityView { content, attachments in
@@ -25,8 +26,17 @@ struct ImmersiveMapView: View {
             attribution.position = presentation.groundPosition + [0, 0.35, halfWidth + 0.1]
         } attachments: {
             Attachment(id: Self.attributionID) {
-                AttributionView()
-                    .environment(model)
+                VStack(spacing: 8) {
+                    // The volume holds the mode picker; if it was closed,
+                    // offer a way back instead of stranding the user here.
+                    if !model.volumeIsOpen {
+                        Button("Show Controls", systemImage: "map") {
+                            openWindow(id: MapVolumeView.windowID)
+                        }
+                    }
+                    AttributionView()
+                }
+                .environment(model)
             }
         }
         .mapGestures(model)

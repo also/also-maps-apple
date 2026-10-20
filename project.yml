@@ -2,7 +2,7 @@ name: MapVolume
 options:
   bundleIdPrefix: com.ryanberdeen
   deploymentTarget:
-    visionOS: "2.0"
+    visionOS: "26.0"
 configFiles:
   Debug: Config/App.xcconfig
   Release: Config/App.xcconfig
