@@ -1,4 +1,4 @@
-// Shared settings. Put your key in Config/Secrets.xcconfig (gitignored):
+// Shared settings. Put your key (and signing team) in Config/Secrets.xcconfig (gitignored):
 //   GOOGLE_MAPS_API_KEY = AIza...
 // The key needs the Map Tiles API enabled in Google Cloud.
 GOOGLE_MAPS_API_KEY =
