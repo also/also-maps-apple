@@ -31,6 +31,8 @@ struct StreamingSettings: Codable, Equatable {
     }
     /// What the keyboard's Q/E turn around.
     var keyboardTurnPivot = TurnPivot.center
+    /// Largest view half-width zoom-out allows, kilometres.
+    var zoomOutLimitKilometres = 20.0
 
     static let `default` = StreamingSettings()
 
@@ -49,6 +51,7 @@ struct StreamingSettings: Codable, Equatable {
         cacheMegabytes = try c.decodeIfPresent(Double.self, forKey: .cacheMegabytes) ?? d.cacheMegabytes
         forbidHoles = try c.decodeIfPresent(Bool.self, forKey: .forbidHoles) ?? d.forbidHoles
         keyboardTurnPivot = try c.decodeIfPresent(TurnPivot.self, forKey: .keyboardTurnPivot) ?? d.keyboardTurnPivot
+        zoomOutLimitKilometres = try c.decodeIfPresent(Double.self, forKey: .zoomOutLimitKilometres) ?? d.zoomOutLimitKilometres
     }
 
     private static let defaultsKey = "StreamingSettings"

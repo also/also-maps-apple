@@ -32,6 +32,10 @@ final class MapVolumeModel {
         didSet {
             guard settings != oldValue else { return }
             settings.save()
+            if radius != clampRadius(radius) {
+                radius = clampRadius(radius)
+                sampleGround()
+            }
             applySettings()
             layOutGestureTarget()
             applyFocus()
@@ -215,7 +219,8 @@ final class MapVolumeModel {
         }
         lastMagnifyUpdate = Date()
         guard let start = magnifyStartRadius, magnification > 0 else { return }
-        radius = min(max(start / magnification, 50), 20_000)
+        radius = clampRadius(start / magnification)
+        updateCurvatureAnchor()
         applyFocus()
     }
 
@@ -319,7 +324,8 @@ final class MapVolumeModel {
             heading = newHeading
         }
         if input.zoom != 0 {
-            radius = min(max(radius * exp(-input.zoom * boost * deltaTime), 50), 20_000)
+            radius = clampRadius(radius * exp(-input.zoom * boost * deltaTime))
+            updateCurvatureAnchor()
         }
         if input.move != .zero {
             // Scene-relative: forward is away from the viewer (−z), right is +x.
@@ -383,7 +389,36 @@ final class MapVolumeModel {
         streamer.forbidHoles = settings.forbidHoles
     }
 
+    private func clampRadius(_ value: Double) -> Double {
+        min(max(value, 50), settings.zoomOutLimitKilometres * 1000)
+    }
+
+    /// Above this half-width the Earth's curve, not the terrain, decides
+    /// where the ground should sit: the edges fall away by ~200 m at 50 km.
+    private static let curvatureAnchorRadius = 50_000.0
+    private static let earthRadius = 6_371_000.0
+
+    /// How far the surface at the view's edge (`radius` from the focus) falls
+    /// below the focus's level plane, capped at a hemisphere.
+    private func curvatureDrop() -> Double {
+        let angle = min(radius / Self.earthRadius, .pi / 2)
+        return Self.earthRadius * (1 - cos(angle))
+    }
+
+    /// Zoomed out past curvatureAnchorRadius, anchor on the curve instead of
+    /// sampling: lift the map so sea level at the view's edges meets the
+    /// floor. Cheap enough to follow the zoom continuously.
+    private func updateCurvatureAnchor() {
+        guard radius >= Self.curvatureAnchorRadius else { return }
+        groundSampleGeneration += 1  // Discard any sample still in flight.
+        targetFocusHeight = -curvatureDrop()
+    }
+
     private func sampleGround() {
+        if radius >= Self.curvatureAnchorRadius {
+            updateCurvatureAnchor()
+            return
+        }
         groundSampleGeneration += 1
         let generation = groundSampleGeneration
         streamer?.sampleGroundHeightInFocusRegion { [weak self] height in

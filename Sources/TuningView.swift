@@ -54,6 +54,14 @@ struct TuningView: View {
                     Text("Front edge turns about the middle of the map's near edge, so Q/E with W feels like flying.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // Logarithmic: 20 km … 10,000 km (about a hemisphere).
+                    setting("Zoom-out limit",
+                            value: Binding(
+                                get: { log10(model.settings.zoomOutLimitKilometres) },
+                                set: { model.settings.zoomOutLimitKilometres = pow(10, $0) }),
+                            in: log10(20)...4, step: 0.05,
+                            format: { Self.distance(pow(10, $0)) },
+                            hint: "Half-width of the widest view. Past 50 km the ground is placed by the Earth's curve instead of sampling terrain.")
                 } header: {
                     Text("Controls")
                 }
@@ -67,6 +75,12 @@ struct TuningView: View {
             }
             .navigationTitle("Tuning")
         }
+    }
+
+    private static func distance(_ kilometres: Double) -> String {
+        kilometres < 100 ? "\(Int(kilometres.rounded())) km"
+            : kilometres < 1000 ? "\(Int((kilometres / 10).rounded()) * 10) km"
+            : "\((kilometres / 100).rounded() / 10) thousand km"
     }
 
     private func setting(_ title: String,

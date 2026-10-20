@@ -526,11 +526,18 @@ public:
   double east = 0.0;
   double north = 0.0;
   double radius = 500.0;
+  /// Unit up at the focus (ECEF). At hemisphere-scale zoom the tangent-plane
+  /// square also covers the far side of the Earth; anything entirely on the
+  /// hemisphere opposite the focus is skipped.
+  glm::dvec3 focusUp{0.0, 0.0, 1.0};
 
   bool shouldExclude(const Tile& tile) const noexcept override {
     const CesiumGeometry::BoundingSphere sphere =
         getOrientedBoundingBoxFromBoundingVolume(tile.getBoundingVolume())
             .toSphere();
+    if (glm::dot(sphere.getCenter(), focusUp) + sphere.getRadius() < 0.0) {
+      return true;
+    }
     const glm::dvec3 center =
         glm::dvec3(_ecefToEnu * glm::dvec4(sphere.getCenter(), 1.0));
     const double r = sphere.getRadius();
@@ -733,6 +740,7 @@ NSString* stripHTML(const std::string& html) {
   // Built in the focus's own east-north-up frame, so the camera stays level
   // with the ground however far the focus is from the origin.
   const glm::dmat4 focusFrame = [self focusEnuToEcef];
+  _excluder->focusUp = glm::normalize(glm::dvec3(focusFrame[2]));
   const glm::dvec3 target = glm::dvec3(focusFrame[3]);
   const glm::dvec3 position =
       glm::dvec3(focusFrame * glm::dvec4(offsetEnu, 1.0));

@@ -39,7 +39,7 @@ To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stre
 ## Controls
 
 - **Pan:** look at the map, pinch and drag. Gestures are indirect only (look and pinch), so open hands over the map do nothing.
-- **Zoom:** pinch with both hands and move them apart or together. The radius ranges from 50 m to 20 km.
+- **Zoom:** pinch with both hands and move them apart or together. The view's half-width ranges from 50 m to the Tuning window's zoom-out limit (20 km by default, up to 10,000 km).
 - **Turn:** pinch with both hands and twist about the vertical. The map turns around the focus point and can turn while zooming.
 - **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F (or `=` and `-`) zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.
 
@@ -60,10 +60,12 @@ The slider button next to the mode picker opens a Tuning window with live stats 
 - **Region** (floor modes only): streams past the volume-sized square, up to 10× its half-width.
 - **Detail / Outer detail**: cesium-native's screen-space error thresholds, for tiles inside and outside the LOD camera's view. Most of an expanded region is outside that view, so Outer detail controls how sharp the far map is and how many tiles it costs.
 - **Upload budget, Simultaneous loads, Cache, Forbid holes**: trade-offs between fill speed, hitching and memory.
+- **Keyboard turns around**: the map's centre, or the middle of its near edge (more like flying).
+- **Zoom-out limit**: 20 km to 10,000 km, on a logarithmic slider. Below 50 km the ground is placed by sampling terrain. Above 50 km it's placed by the Earth's curve, so sea level at the view's edges meets the floor, with no sampling. At hemisphere scale, tiles on the far side of the Earth are skipped.
 
 `MAPVOLUME_OPEN_TUNING=1` opens the window at launch.
 
 ## Known gaps
 
 - Mesh and texture creation run on the main thread under a time budget per frame, which causes hitches while streaming (#1).
-- Ground height is the lowest hit on a 3×3 grid of samples. In a region that's mostly hills with a little low ground, the hills can reach close to the top of the volume.
+- Below 50 km, ground height is the lowest hit on a 3×3 grid of samples. In a region that's mostly hills with a little low ground, the hills can reach close to the top of the volume.
