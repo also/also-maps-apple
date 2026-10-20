@@ -56,4 +56,3 @@ Floor mode doesn't clip the map's edges the way the volume does, so whole tiles 
 
 - Mesh and texture creation run on the main thread under a time budget per frame, which causes hitches while streaming (#1).
 - Ground height is the lowest hit on a 3×3 grid of samples. In a region that's mostly hills with a little low ground, the hills can reach close to the top of the volume.
-- The attribution uses a text "Google" label where Google's logo asset should be.

@@ -80,8 +80,10 @@ extension View {
     }
 }
 
-/// Google's terms require the attribution for the tiles on screen to be
-/// visible alongside them. TODO: use the official Google logo asset.
+/// Google's terms require the Google Maps logo and the data attribution for
+/// the tiles on screen to be visible alongside them. The logo is Google's
+/// white variant (for dark backgrounds, like this glass), unaltered at its
+/// native size.
 struct AttributionView: View {
     @Environment(MapVolumeModel.self) private var model
 
@@ -99,7 +101,8 @@ struct AttributionView: View {
                     .foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
-                Text("Google").font(.headline)
+                Image("GoogleMapsLogo")
+                    .accessibilityLabel("Google Maps")
                 Text(model.credits.joined(separator: " · "))
                     .font(.caption)
                     .lineLimit(1)
