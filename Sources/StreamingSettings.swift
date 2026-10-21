@@ -23,13 +23,15 @@ struct StreamingSettings: Codable, Equatable {
     var forbidHoles = false
 
     enum TurnPivot: String, Codable, CaseIterable {
-        /// Spin the map about its centre (the focus point).
+        /// Turn and zoom about the map's centre (the focus point).
         case center
-        /// Turn about the middle of the map's near edge, where you are, so
-        /// turning and moving forward feels like flying.
-        case frontEdge
+        /// Turn and zoom about the ground beneath the viewer, so zooming is
+        /// climbing or descending in place and turning and moving forward
+        /// feels like flying. (Stored as "frontEdge", its earlier, near-
+        /// identical form, so saved settings carry over.)
+        case viewer = "frontEdge"
     }
-    /// What keyboard (Q/E) and controller (right stick) turns pivot around.
+    /// What turns and zooms pivot around, from any input.
     var keyboardTurnPivot = TurnPivot.center
     /// Largest view half-width zoom-out allows, kilometres.
     var zoomOutLimitKilometres = 20.0

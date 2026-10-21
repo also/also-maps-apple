@@ -47,11 +47,11 @@ struct TuningView: View {
                 }
 
                 Section {
-                    Picker("Keyboard / controller turns around", selection: $model.settings.keyboardTurnPivot) {
-                        Text("Centre").tag(StreamingSettings.TurnPivot.center)
-                        Text("Front edge").tag(StreamingSettings.TurnPivot.frontEdge)
+                    Picker("Turn and zoom around", selection: $model.settings.keyboardTurnPivot) {
+                        Text("Map centre").tag(StreamingSettings.TurnPivot.center)
+                        Text("Where you are").tag(StreamingSettings.TurnPivot.viewer)
                     }
-                    Text("Front edge turns about the middle of the map's near edge, so turning while moving forward feels like flying.")
+                    Text("Where you are keeps the ground beneath you fixed, so zooming is moving straight up or down and turning is turning on the spot.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     // Logarithmic: 20 km … 10,000 km (about a hemisphere).

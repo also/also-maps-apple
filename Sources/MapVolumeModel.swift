@@ -250,7 +250,7 @@ final class MapVolumeModel {
         }
         lastMagnifyUpdate = Date()
         guard let start = magnifyStartRadius, magnification > 0 else { return }
-        radius = clampRadius(start / magnification)
+        zoom(to: start / magnification)
         updateCurvatureAnchor()
         applyFocus()
     }
@@ -272,7 +272,7 @@ final class MapVolumeModel {
         // Signed angle about +Y (counterclockwise seen from above), which is
         // the same sense as the map's heading rotation.
         let yaw = 2 * atan2(Double(rotation.imag.y), Double(rotation.real))
-        heading = (startHeading + yaw).truncatingRemainder(dividingBy: 2 * .pi)
+        turn(to: startHeading + yaw)
         applyFocus()
     }
 
@@ -360,19 +360,10 @@ final class MapVolumeModel {
         let boost = input.fast ? 3.0 : 1.0
 
         if input.turn != 0 {
-            let newHeading = (heading + input.turn * boost * (.pi / 3) * deltaTime)  // 60°/s
-                .truncatingRemainder(dividingBy: 2 * .pi)
-            if settings.keyboardTurnPivot == .frontEdge {
-                // Keep the middle of the near edge fixed: it sits `radius`
-                // behind the focus, so swing the focus around it by the turn.
-                let back = GeoMath.destination(from: focus, bearing: heading + .pi, distance: radius)
-                let outward = GeoMath.bearing(from: back, to: focus)
-                focus = GeoMath.destination(from: back, bearing: outward + (newHeading - heading), distance: radius)
-            }
-            heading = newHeading
+            turn(to: heading + input.turn * boost * (.pi / 3) * deltaTime)  // 60°/s
         }
         if input.zoom != 0 {
-            radius = clampRadius(radius * exp(-input.zoom * boost * deltaTime))
+            zoom(to: radius * exp(-input.zoom * boost * deltaTime))
             updateCurvatureAnchor()
         }
         if input.move != .zero {
@@ -400,6 +391,47 @@ final class MapVolumeModel {
         default:
             break
         }
+    }
+
+    // MARK: Pivot
+
+    /// Metres (east, north) from the focus to the ground point beneath the
+    /// viewer, at the current scale and heading.
+    private func viewerGroundOffset() -> SIMD2<Double> {
+        let toViewer = presentation.viewerPosition - presentation.groundPosition
+        let local = sceneToLocal(SIMD2(Double(toViewer.x), Double(toViewer.z))) / sceneScale
+        return SIMD2(local.x, -local.y)  // local +z is south
+    }
+
+    private var pivotsAtViewer: Bool { settings.keyboardTurnPivot == .viewer }
+
+    /// Changes the view's half-width. Pivoting at the viewer, the ground
+    /// beneath them stays put: everything else scales toward or away from
+    /// that point, which reads as moving straight down or up.
+    private func zoom(to newRadius: Double) {
+        let clamped = clampRadius(newRadius)
+        if pivotsAtViewer, clamped != radius {
+            let offset = viewerGroundOffset()
+            let beneath = GeoMath.offset(focus, east: offset.x, north: offset.y)
+            let ratio = clamped / radius
+            focus = GeoMath.offset(beneath, east: -offset.x * ratio, north: -offset.y * ratio)
+        }
+        radius = clamped
+    }
+
+    /// Changes the heading. Pivoting at the viewer, the map swings around the
+    /// ground beneath them, so it's turning on the spot.
+    private func turn(to newHeading: Double) {
+        if pivotsAtViewer {
+            let offset = viewerGroundOffset()
+            let distance = simd_length(offset)
+            if distance > 0 {
+                let beneath = GeoMath.offset(focus, east: offset.x, north: offset.y)
+                let outward = GeoMath.bearing(from: beneath, to: focus)
+                focus = GeoMath.destination(from: beneath, bearing: outward + (newHeading - heading), distance: distance)
+            }
+        }
+        heading = newHeading.truncatingRemainder(dividingBy: 2 * .pi)
     }
 
     // MARK: Helpers

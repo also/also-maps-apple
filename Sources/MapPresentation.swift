@@ -18,13 +18,19 @@ struct MapPresentation: Identifiable, Hashable {
     /// the volume's centre; in the immersive space it's the floor at the
     /// user's feet when the space opened.
     let groundPosition: SIMD3<Float>
+    /// Where the viewer's eyes are assumed to be, same space. Zoom and turns
+    /// can pivot on the ground beneath it, so zooming reads as climbing or
+    /// descending in place.
+    let viewerPosition: SIMD3<Float>
 
     static let volume = MapPresentation(
         id: "volume",
         name: "Volume",
         host: .volume,
         magnification: 1,
-        groundPosition: [0, -0.25, 0])
+        groundPosition: [0, -0.25, 0],
+        // In front of the volume, where the LOD camera assumes a viewer.
+        viewerPosition: [0, 0.3, 0.85])
 
     /// The map lying on the floor in front of you, its near edge `gap` metres
     /// ahead, raised slightly so it doesn't fight the real floor.
@@ -35,7 +41,9 @@ struct MapPresentation: Identifiable, Hashable {
             name: "Floor \(Int(magnification))×",
             host: .immersive,
             magnification: magnification,
-            groundPosition: [0, 0.02, -(halfWidth + gap)])
+            groundPosition: [0, 0.02, -(halfWidth + gap)],
+            // Where you stood when the immersive space opened.
+            viewerPosition: [0, 1.6, 0])
     }
 
     static let all: [MapPresentation] = [.volume, .floor(3), .floor(5), .floor(10)]

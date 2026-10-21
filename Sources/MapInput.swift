@@ -69,7 +69,7 @@ struct MapInput {
 
     // MARK: Game controller
 
-    static let controllerHint = "Left stick move · Right stick turn · RT LT zoom · LB faster · D-pad places · Y north"
+    static let controllerHint = "Left stick move · Right stick turn, climb/descend · RT LT zoom · LB faster · D-pad places · Y north"
 
     /// The controller in use, if any (the most recently used one, or else
     /// the first connected).
@@ -83,8 +83,11 @@ struct MapInput {
         guard let pad = controller?.extendedGamepad else { return MapInput() }
         var input = MapInput()
         input.move = stick(pad.leftThumbstick)
-        input.turn = stick(pad.rightThumbstick).x
-        input.zoom = trigger(pad.rightTrigger) - trigger(pad.leftTrigger)
+        let right = stick(pad.rightThumbstick)
+        input.turn = right.x
+        // Zoom is altitude: right stick up climbs (zooms out), down descends,
+        // as on a drone. The triggers zoom too.
+        input.zoom = min(max(trigger(pad.rightTrigger) - trigger(pad.leftTrigger) - right.y, -1), 1)
         input.fast = pad.leftShoulder.isPressed || pad.leftThumbstickButton?.isPressed == true
         if pad.dpad.left.isPressed { input.held.insert(.previousPlace) }
         if pad.dpad.right.isPressed { input.held.insert(.nextPlace) }

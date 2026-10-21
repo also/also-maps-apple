@@ -42,7 +42,7 @@ To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stre
 - **Zoom:** pinch with both hands and move them apart or together. The view's half-width ranges from 50 m to the Tuning window's zoom-out limit (20 km by default, up to 10,000 km).
 - **Turn:** pinch with both hands and twist about the vertical. The map turns around the focus point and can turn while zooming.
 - **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F (or `=` and `-`) zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.
-- **Game controller** (Xbox-style): the left stick moves and the right stick turns, both analog with a dead zone. RT and LT zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, and Y faces north. The ornament shows these hints while a controller is connected. Keyboard and controller input combine, and the Tuning window's turn pivot applies to both.
+- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, and Y faces north. The ornament shows these hints while a controller is connected. Keyboard and controller input combine, and the Tuning window's turn pivot applies to both.
 
 `MAPVOLUME_HEADING`, in degrees clockwise from north, sets the starting direction.
 
@@ -65,7 +65,7 @@ The slider button next to the mode picker opens a Tuning window with live stats 
 - **Region** (floor modes only): streams past the volume-sized square, up to 10× its half-width.
 - **Detail / Outer detail**: cesium-native's screen-space error thresholds, for tiles inside and outside the LOD camera's view. Most of an expanded region is outside that view, so Outer detail controls how sharp the far map is and how many tiles it costs.
 - **Upload budget, Simultaneous loads, Cache, Forbid holes**: trade-offs between fill speed, hitching and memory.
-- **Keyboard / controller turns around**: the map's centre, or the middle of its near edge (more like flying).
+- **Turn and zoom around**: the map's centre, or **where you are**: the ground beneath the viewer stays fixed, so zooming is moving straight up or down and turning is turning on the spot. The viewer is where you stood when floor mode opened, or, for the volume, just in front of it. This applies to every input: sticks, triggers, keys, pinch and twist.
 - **Zoom-out limit**: 20 km to 10,000 km, on a logarithmic slider. Below 50 km the ground is placed by sampling terrain. Above 50 km it's placed by the Earth's curve, so sea level at the view's edges meets the floor, with no sampling. At hemisphere scale, tiles on the far side of the Earth are skipped.
 
 `MAPVOLUME_OPEN_TUNING=1` opens the window at launch.
