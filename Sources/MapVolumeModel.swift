@@ -75,7 +75,7 @@ final class MapVolumeModel {
     private var debugLogElapsed: Float = 0
 
     // Gesture state.
-    private var dragStartFocus: (east: Double, north: Double)?
+    private var dragStartFocus: GeoCoordinate?
     /// Identifies the drag in progress. visionOS can cancel a gesture without
     /// calling onEnded, so a new start location means a new drag.
     private var dragStartLocation: SIMD3<Float>?
@@ -84,8 +84,9 @@ final class MapVolumeModel {
     private var rotateStartLocation: SIMD3<Float>?
     private var magnifyStartRadius: Double?
 
-    private var focusEast = 0.0
-    private var focusNorth = 0.0
+    /// Centre of the view. Kept as latitude/longitude and moved along the
+    /// globe, so steering stays true however far it gets from the start.
+    private var focus = GeoCoordinate(latitude: defaultLocation.latitude, longitude: defaultLocation.longitude)
     private var focusHeight = 0.0
     /// Where focusHeight is easing toward; set by the latest ground sample.
     private var targetFocusHeight: Double?
@@ -163,8 +164,9 @@ final class MapVolumeModel {
         location.radius = env["MAPVOLUME_RADIUS"].flatMap(Double.init) ?? location.radius
         heading = (env["MAPVOLUME_HEADING"].flatMap(Double.init) ?? 0) * .pi / 180
         // Start the focus away from the tileset origin, e.g. to check curvature.
-        focusEast = (env["MAPVOLUME_FOCUS_EAST_KM"].flatMap(Double.init) ?? 0) * 1000
-        focusNorth = (env["MAPVOLUME_FOCUS_NORTH_KM"].flatMap(Double.init) ?? 0) * 1000
+        focus = GeoMath.offset(GeoCoordinate(latitude: location.latitude, longitude: location.longitude),
+                               east: (env["MAPVOLUME_FOCUS_EAST_KM"].flatMap(Double.init) ?? 0) * 1000,
+                               north: (env["MAPVOLUME_FOCUS_NORTH_KM"].flatMap(Double.init) ?? 0) * 1000)
         let url: String
         if let override = env["MAPVOLUME_TILESET_URL"], !override.isEmpty {
             url = override
@@ -192,16 +194,17 @@ final class MapVolumeModel {
     func drag(from start: SIMD3<Float>, to current: SIMD3<Float>) {
         if dragStartLocation != start {
             dragStartLocation = start
-            dragStartFocus = (focusEast, focusNorth)
+            dragStartFocus = focus
         }
         let translation = current - start
         guard let startFocus = dragStartFocus else { return }
         let local = sceneToLocal(SIMD2(Double(translation.x), Double(translation.z)))
         let metresPerScene = 1 / sceneScale
-        // Content follows the hand: dragging right reveals what's to the left.
-        focusEast = startFocus.east - local.x * metresPerScene
-        // Local +z is south, so dragging toward you reveals what's ahead.
-        focusNorth = startFocus.north + local.y * metresPerScene
+        // Content follows the hand: dragging right reveals what's to the left,
+        // and (local +z being south) dragging toward you reveals what's ahead.
+        focus = GeoMath.offset(startFocus,
+                               east: -local.x * metresPerScene,
+                               north: local.y * metresPerScene)
         applyFocus()
     }
 
@@ -315,11 +318,10 @@ final class MapVolumeModel {
                 .truncatingRemainder(dividingBy: 2 * .pi)
             if settings.keyboardTurnPivot == .frontEdge {
                 // Keep the middle of the near edge fixed: it sits `radius`
-                // behind the focus along the facing direction, so the new
-                // focus is `radius` ahead of it along the new heading.
-                let back = SIMD2(focusEast - sin(heading) * radius, focusNorth - cos(heading) * radius)
-                focusEast = back.x + sin(newHeading) * radius
-                focusNorth = back.y + cos(newHeading) * radius
+                // behind the focus, so swing the focus around it by the turn.
+                let back = GeoMath.destination(from: focus, bearing: heading + .pi, distance: radius)
+                let outward = GeoMath.bearing(from: back, to: focus)
+                focus = GeoMath.destination(from: back, bearing: outward + (newHeading - heading), distance: radius)
             }
             heading = newHeading
         }
@@ -332,8 +334,7 @@ final class MapVolumeModel {
             let local = sceneToLocal(SIMD2(input.move.x, -input.move.y))
             // Cross most of the visible region per second at any zoom.
             let metres = radius * 0.8 * boost * deltaTime
-            focusEast += local.x * metres
-            focusNorth -= local.y * metres
+            focus = GeoMath.offset(focus, east: local.x * metres, north: -local.y * metres)
         }
         applyFocus()
     }
@@ -356,8 +357,8 @@ final class MapVolumeModel {
 
     private func applyFocus() {
         guard let streamer else { return }
-        streamer.focusEast = focusEast
-        streamer.focusNorth = focusNorth
+        streamer.focusLatitude = focus.latitude
+        streamer.focusLongitude = focus.longitude
         streamer.focusHeight = focusHeight
         streamer.focusRadius = radius
         // Only the floor modes stream past the volume-sized square; the volume

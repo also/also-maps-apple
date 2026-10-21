@@ -517,14 +517,13 @@ private:
 };
 
 /// Skips tiles whose bounding sphere lies entirely outside the square focus
-/// region, so the volume only streams what it can show.
+/// region, so the volume only streams what it can show. The square is
+/// measured in the focus's own east-north-up frame, so it stays true however
+/// far the focus is from where the tileset was opened.
 class FocusRegionExcluder final : public ITileExcluder {
 public:
-  explicit FocusRegionExcluder(const glm::dmat4& ecefToEnu)
-      : _ecefToEnu(ecefToEnu) {}
-
-  double east = 0.0;
-  double north = 0.0;
+  /// ECEF → focus east-north-up; updated every frame.
+  glm::dmat4 ecefToFocusEnu{1.0};
   double radius = 500.0;
   /// Unit up at the focus (ECEF). At hemisphere-scale zoom the tangent-plane
   /// square also covers the far side of the Earth; anything entirely on the
@@ -539,14 +538,10 @@ public:
       return true;
     }
     const glm::dvec3 center =
-        glm::dvec3(_ecefToEnu * glm::dvec4(sphere.getCenter(), 1.0));
+        glm::dvec3(ecefToFocusEnu * glm::dvec4(sphere.getCenter(), 1.0));
     const double r = sphere.getRadius();
-    return std::abs(center.x - east) - r > radius ||
-           std::abs(center.y - north) - r > radius;
+    return std::abs(center.x) - r > radius || std::abs(center.y) - r > radius;
   }
-
-private:
-  glm::dmat4 _ecefToEnu;
 };
 
 NSString* stripHTML(const std::string& html) {
@@ -606,7 +601,7 @@ NSString* stripHTML(const std::string& html) {
     _creditSystem = std::make_shared<CesiumUtility::CreditSystem>();
     _resources =
         std::make_shared<RealityKitPrepareRendererResources>(_ecefToEnu);
-    _excluder = std::make_shared<FocusRegionExcluder>(_ecefToEnu);
+    _excluder = std::make_shared<FocusRegionExcluder>();
 
     TilesetExternals externals{
         .pAssetAccessor = std::make_shared<URLSessionAssetAccessor>(),
@@ -677,20 +672,13 @@ NSString* stripHTML(const std::string& html) {
   _tileset->getOptions().forbidHoles = value;
 }
 
-/// The focus's ground point: the surface below (focusEast, focusNorth) on the
-/// origin's tangent plane, at focusHeight above the ellipsoid. Using ellipsoid
-/// height rather than the origin frame's up axis keeps it right far from the
-/// origin, where that axis is no longer vertical.
+/// The focus's ground point: focusHeight above the ellipsoid at the focus's
+/// latitude/longitude.
 - (glm::dvec3)focusECEF {
-  const glm::dvec3 onPlane = glm::dvec3(
-      _enuToEcef * glm::dvec4(_focusEast, _focusNorth, 0.0, 1.0));
-  std::optional<Cartographic> cartographic =
-      Ellipsoid::WGS84.cartesianToCartographic(onPlane);
-  if (!cartographic) {
-    return onPlane;
-  }
-  cartographic->height = _focusHeight;
-  return Ellipsoid::WGS84.cartographicToCartesian(*cartographic);
+  return Ellipsoid::WGS84.cartographicToCartesian(Cartographic::fromDegrees(
+      _focusLongitude,
+      _focusLatitude,
+      _focusHeight));
 }
 
 /// Local east-north-up at the focus, as a transform to ECEF.
@@ -717,8 +705,6 @@ NSString* stripHTML(const std::string& html) {
 }
 
 - (CNFrame*)updateWithDeltaTime:(float)deltaTime {
-  _excluder->east = _focusEast;
-  _excluder->north = _focusNorth;
   // The excluder's square is axis-aligned in east/north; when the view is
   // turned, grow it to the square that encloses the rotated visible one.
   const double sinHeading = std::sin(_viewHeading);
@@ -741,6 +727,7 @@ NSString* stripHTML(const std::string& html) {
   // with the ground however far the focus is from the origin.
   const glm::dmat4 focusFrame = [self focusEnuToEcef];
   _excluder->focusUp = glm::normalize(glm::dvec3(focusFrame[2]));
+  _excluder->ecefToFocusEnu = glm::inverse(focusFrame);
   const glm::dvec3 target = glm::dvec3(focusFrame[3]);
   const glm::dvec3 position =
       glm::dvec3(focusFrame * glm::dvec4(offsetEnu, 1.0));
@@ -800,15 +787,12 @@ NSString* stripHTML(const std::string& html) {
   // focus lands on whatever is there (a hilltop, a roof) and sinks the rest of
   // the region below the volume floor; the lowest hit keeps it all above.
   const double reach = 0.8 * _focusRadius;
+  const glm::dmat4 focusFrame = [self focusEnuToEcef];
   std::vector<Cartographic> positions;
   for (int row = -1; row <= 1; ++row) {
     for (int column = -1; column <= 1; ++column) {
       const glm::dvec3 ecef = glm::dvec3(
-          _enuToEcef * glm::dvec4(
-                           _focusEast + column * reach,
-                           _focusNorth + row * reach,
-                           0.0,
-                           1.0));
+          focusFrame * glm::dvec4(column * reach, row * reach, 0.0, 1.0));
       if (std::optional<Cartographic> cartographic =
               Ellipsoid::WGS84.cartesianToCartographic(ecef)) {
         positions.push_back(*cartographic);

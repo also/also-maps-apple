@@ -1,10 +1,10 @@
 // Objective-C face of the cesium-native bridge. Nothing C++ leaks through this
 // header, so Swift sees plain classes; CNTileStreamer.mm owns the Tileset.
 //
-// Coordinates: everything handed to Swift is in a fixed local frame anchored at
-// the streamer's origin, in metres, already in RealityKit axes
-// (x = east, y = up, z = south). Panning moves the focus inside that frame
-// rather than re-baking geometry.
+// Coordinates: tile geometry handed to Swift is baked in a fixed local frame
+// anchored at the streamer's origin, in metres, already in RealityKit axes
+// (x = east, y = up, z = south). The focus is a latitude/longitude; the
+// display transform carries baked tiles into the focus's own level frame.
 
 #import <Foundation/Foundation.h>
 #import <simd/simd.h>
@@ -51,9 +51,10 @@ NS_ASSUME_NONNULL_BEGIN
                             height:(double)height NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
-/// Centre of the region to stream, metres east/north of the origin.
-@property (nonatomic) double focusEast;
-@property (nonatomic) double focusNorth;
+/// Centre of the region to stream, degrees. The streamed square, ground
+/// sampling and LOD camera are all built in the local frame here.
+@property (nonatomic) double focusLatitude;
+@property (nonatomic) double focusLongitude;
 /// Height of the ground at the focus, metres above the WGS84 ellipsoid.
 @property (nonatomic) double focusHeight;
 /// Half-width of the square region to stream, metres.
