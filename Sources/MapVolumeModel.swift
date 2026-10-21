@@ -178,10 +178,7 @@ final class MapVolumeModel {
         }
         radius = location.radius
 
-        let streamer = CNTileStreamer(tilesetURL: url,
-                                      originLatitude: location.latitude,
-                                      longitude: location.longitude,
-                                      height: 0)
+        let streamer = CNTileStreamer(tilesetURL: url)
         self.streamer = streamer
         applySettings()
         applyFocus()
@@ -267,12 +264,18 @@ final class MapVolumeModel {
 
         let deadline = Date().addingTimeInterval(settings.uploadBudgetMilliseconds / 1000)
         var visible = Set<UInt64>()
-        for tile in frame.tilesToRender {
-            visible.insert(tile.identifier)
-            if tileEntities[tile.identifier] == nil, Date() < deadline {
-                let entity = Self.makeEntity(for: tile)
-                tileEntities[tile.identifier] = entity
-                tilesRoot.addChild(entity)
+        frame.tileTransforms.withUnsafeBytes { buffer in
+            let placements = buffer.bindMemory(to: simd_float4x4.self)
+            for (index, tile) in frame.tilesToRender.enumerated() {
+                visible.insert(tile.identifier)
+                if tileEntities[tile.identifier] == nil, Date() < deadline {
+                    let entity = Self.makeEntity(for: tile)
+                    tileEntities[tile.identifier] = entity
+                    tilesRoot.addChild(entity)
+                }
+                // Placed relative to the current focus every frame, so there's
+                // no fixed origin for precision to drift away from.
+                tileEntities[tile.identifier]?.transform = Transform(matrix: placements[index])
             }
         }
         for (id, entity) in tileEntities {
@@ -288,9 +291,7 @@ final class MapVolumeModel {
         debugLogElapsed += deltaTime
         if debugLogElapsed > 1 {
             debugLogElapsed = 0
-            let display = streamer.displayTransform()
-            let tilt = acos(min(1, Double(display.columns.1.y))) * 180 / .pi
-            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, focus height \(Int(focusHeight)) m, re-level \(String(format: "%.2f", tilt))°")
+            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, focus \(String(format: "%.4f, %.4f", focus.latitude, focus.longitude)), height \(Int(focusHeight)) m")
         }
         #endif
     }
@@ -367,17 +368,16 @@ final class MapVolumeModel {
         streamer.viewerDistance = Self.viewerDistanceInScene / streamingScale
         streamer.viewHeading = heading
 
-        // Tiles are baked in the origin's local frame (x east, y up, z south).
-        // The streamer's display transform moves them into the focus's own
-        // level frame (focus ground point at 0, so curvature doesn't tilt the
-        // map far from the origin); then turn by the heading, scale, and
-        // place it on the presentation's ground point.
+        // Each tile entity is placed by the streamer in the focus's level
+        // frame (x east, y up, z south, focus ground point at 0). Here that
+        // frame is turned by the heading, scaled, and set on the
+        // presentation's ground point.
         let s = Float(sceneScale)
         let rotation = simd_quatf(angle: Float(heading), axis: [0, 1, 0])
         let placement = Transform(scale: SIMD3(repeating: s),
                                   rotation: rotation,
                                   translation: presentation.groundPosition)
-        tilesRoot.transform = Transform(matrix: placement.matrix * streamer.displayTransform())
+        tilesRoot.transform = placement
         gestureTarget.orientation = rotation
     }
 

@@ -27,6 +27,7 @@
 #include <CesiumUtility/CreditSystem.h>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -73,14 +74,19 @@ using CesiumGeospatial::Ellipsoid;
 
 @interface CNTileMesh ()
 - (instancetype)initWithIdentifier:(uint64_t)identifier
+                            center:(glm::dvec3)center
                         primitives:(NSArray<CNPrimitive *> *)primitives;
+/// ECEF point the tile's vertices are measured from, full precision.
+@property (nonatomic, readonly) glm::dvec3 center;
 @end
 
 @implementation CNTileMesh
 - (instancetype)initWithIdentifier:(uint64_t)identifier
+                            center:(glm::dvec3)center
                         primitives:(NSArray<CNPrimitive *> *)primitives {
   if ((self = [super init])) {
     _identifier = identifier;
+    _center = center;
     _primitives = primitives;
   }
   return self;
@@ -92,6 +98,7 @@ using CesiumGeospatial::Ellipsoid;
 
 @interface CNFrame ()
 @property (nonatomic, readwrite) NSArray<CNTileMesh *> *tilesToRender;
+@property (nonatomic, readwrite) NSData *tileTransforms;
 @property (nonatomic, readwrite) NSArray<NSNumber *> *freedTileIDs;
 @property (nonatomic, readwrite) NSArray<NSString *> *credits;
 @property (nonatomic, readwrite) float loadProgress;
@@ -291,17 +298,21 @@ bool appendIndices(
 }
 
 /// Flattens a tile's glTF into CNPrimitives in the local RealityKit frame.
+/// Flattens a tile's glTF into CNPrimitives whose positions are ECEF offsets
+/// (metres, ECEF axes) from a centre point on the tile. Offsets stay small,
+/// so 32-bit floats keep them precise anywhere on Earth; the centre itself is
+/// kept in double and placed relative to the focus every frame.
 CNTileMesh* _Nullable buildTileMesh(
     const CesiumGltf::Model& model,
     const glm::dmat4& tileTransform,
-    const glm::dmat4& ecefToLocal,
     uint64_t identifier) {
   using namespace CesiumGltf;
   using CesiumGltfContent::GltfUtilities;
 
   glm::dmat4 rootTransform = GltfUtilities::applyRtcCenter(model, tileTransform);
   rootTransform = GltfUtilities::applyGltfUpAxisTransform(model, rootTransform);
-  const glm::dmat4 toLocal = kEnuToRealityKit * ecefToLocal * rootTransform;
+  // The first vertex seen; any point on the tile keeps offsets tile-sized.
+  std::optional<glm::dvec3> center;
 
   NSMutableArray<CNPrimitive*>* primitives = [NSMutableArray array];
 
@@ -325,14 +336,19 @@ CNTileMesh* _Nullable buildTileMesh(
           return;
         }
 
-        const glm::dmat4 transform = toLocal * nodeTransform;
+        const glm::dmat4 transform = rootTransform * nodeTransform;
         const size_t vertexCount = size_t(positions.size());
+        if (!center) {
+          center = glm::dvec3(
+              transform * glm::dvec4(glm::dvec3(positions[0]), 1.0));
+        }
         NSMutableData* positionData =
             [NSMutableData dataWithLength:vertexCount * 4 * sizeof(float)];
         float* p = static_cast<float*>(positionData.mutableBytes);
         for (size_t i = 0; i < vertexCount; ++i) {
-          const glm::dvec4 v =
-              transform * glm::dvec4(glm::dvec3(positions[int64_t(i)]), 1.0);
+          const glm::dvec3 v = glm::dvec3(
+              transform * glm::dvec4(glm::dvec3(positions[int64_t(i)]), 1.0)) -
+                               *center;
           p[i * 4 + 0] = float(v.x);
           p[i * 4 + 1] = float(v.y);
           p[i * 4 + 2] = float(v.z);
@@ -426,10 +442,11 @@ CNTileMesh* _Nullable buildTileMesh(
                                                               height:height]];
       });
 
-  if (primitives.count == 0) {
+  if (primitives.count == 0 || !center) {
     return nil;
   }
   return [[CNTileMesh alloc] initWithIdentifier:identifier
+                                         center:*center
                                      primitives:primitives];
 }
 
@@ -438,8 +455,6 @@ CNTileMesh* _Nullable buildTileMesh(
 class RealityKitPrepareRendererResources final
     : public IPrepareRendererResources {
 public:
-  explicit RealityKitPrepareRendererResources(const glm::dmat4& ecefToLocal)
-      : _ecefToLocal(ecefToLocal) {}
 
   Future<TileLoadResultAndRenderResources> prepareInLoadThread(
       const AsyncSystem& asyncSystem,
@@ -450,7 +465,7 @@ public:
     if (const CesiumGltf::Model* pModel =
             std::get_if<CesiumGltf::Model>(&tileLoadResult.contentKind)) {
       CNTileMesh* mesh =
-          buildTileMesh(*pModel, transform, _ecefToLocal, _nextID++);
+          buildTileMesh(*pModel, transform, _nextID++);
       if (mesh) {
         pResources = (__bridge_retained void*)mesh;
       }
@@ -510,7 +525,6 @@ public:
   }
 
 private:
-  glm::dmat4 _ecefToLocal;
   std::atomic<uint64_t> _nextID{1};
   std::mutex _freedMutex;
   std::vector<uint64_t> _freed;
@@ -574,14 +588,9 @@ NSString* stripHTML(const std::string& html) {
   std::shared_ptr<RealityKitPrepareRendererResources> _resources;
   std::shared_ptr<FocusRegionExcluder> _excluder;
   std::unique_ptr<Tileset> _tileset;
-  glm::dmat4 _enuToEcef;
-  glm::dmat4 _ecefToEnu;
 }
 
-- (instancetype)initWithTilesetURL:(NSString*)url
-                    originLatitude:(double)latitude
-                         longitude:(double)longitude
-                            height:(double)height {
+- (instancetype)initWithTilesetURL:(NSString*)url {
   if ((self = [super init])) {
     // Without this, b3dm/glb/i3dm/pnts content is not recognised and the
     // loader falls back to parsing it as an external tileset.json.
@@ -592,15 +601,8 @@ NSString* stripHTML(const std::string& html) {
 
     _asyncSystem.emplace(std::make_shared<GCDTaskProcessor>());
 
-    const glm::dvec3 origin = Ellipsoid::WGS84.cartographicToCartesian(
-        Cartographic::fromDegrees(longitude, latitude, height));
-    _enuToEcef =
-        CesiumGeospatial::GlobeTransforms::eastNorthUpToFixedFrame(origin);
-    _ecefToEnu = glm::inverse(_enuToEcef);
-
     _creditSystem = std::make_shared<CesiumUtility::CreditSystem>();
-    _resources =
-        std::make_shared<RealityKitPrepareRendererResources>(_ecefToEnu);
+    _resources = std::make_shared<RealityKitPrepareRendererResources>();
     _excluder = std::make_shared<FocusRegionExcluder>();
 
     TilesetExternals externals{
@@ -687,23 +689,6 @@ NSString* stripHTML(const std::string& html) {
       [self focusECEF]);
 }
 
-- (simd_float4x4)displayTransform {
-  // Baked tile coordinates (RealityKit axes, origin frame) → ECEF → focus ENU
-  // → RealityKit axes. Rotation and translation only; computed in double and
-  // narrowed at the end.
-  const glm::dmat4 m = kEnuToRealityKit * glm::inverse([self focusEnuToEcef]) *
-                       _enuToEcef * glm::transpose(kEnuToRealityKit);
-  simd_float4x4 result;
-  for (int column = 0; column < 4; ++column) {
-    result.columns[column] = simd_make_float4(
-        float(m[column][0]),
-        float(m[column][1]),
-        float(m[column][2]),
-        float(m[column][3]));
-  }
-  return result;
-}
-
 - (CNFrame*)updateWithDeltaTime:(float)deltaTime {
   // The excluder's square is axis-aligned in east/north; when the view is
   // turned, grow it to the square that encloses the rotated visible one.
@@ -751,13 +736,34 @@ NSString* stripHTML(const std::string& html) {
   _tileset->loadTiles();
   _asyncSystem->dispatchMainThreadTasks();
 
+  // Each drawn tile's placement in the focus's level frame (RealityKit axes,
+  // focus ground point at the origin): computed in double from the tile's
+  // full-precision centre, so only small, nearby numbers reach Float.
+  const glm::dmat4 ecefToFocusRealityKit =
+      kEnuToRealityKit * glm::inverse(focusFrame);
   NSMutableArray<CNTileMesh*>* tiles =
       [NSMutableArray arrayWithCapacity:result.tilesToRenderThisFrame.size()];
+  NSMutableData* transforms = [NSMutableData
+      dataWithCapacity:result.tilesToRenderThisFrame.size() *
+                       sizeof(simd_float4x4)];
   for (const Tile::ConstPointer& pTile : result.tilesToRenderThisFrame) {
     const TileRenderContent* pRender = pTile->getContent().getRenderContent();
-    if (pRender && pRender->getRenderResources()) {
-      [tiles addObject:(__bridge CNTileMesh*)pRender->getRenderResources()];
+    if (!pRender || !pRender->getRenderResources()) {
+      continue;
     }
+    CNTileMesh* mesh = (__bridge CNTileMesh*)pRender->getRenderResources();
+    const glm::dmat4 m =
+        glm::translate(ecefToFocusRealityKit, mesh.center);
+    simd_float4x4 placement;
+    for (int column = 0; column < 4; ++column) {
+      placement.columns[column] = simd_make_float4(
+          float(m[column][0]),
+          float(m[column][1]),
+          float(m[column][2]),
+          float(m[column][3]));
+    }
+    [tiles addObject:mesh];
+    [transforms appendBytes:&placement length:sizeof(placement)];
   }
 
   NSMutableArray<NSNumber*>* freed = [NSMutableArray array];
@@ -776,6 +782,7 @@ NSString* stripHTML(const std::string& html) {
 
   CNFrame* frame = [[CNFrame alloc] init];
   frame.tilesToRender = tiles;
+  frame.tileTransforms = transforms;
   frame.freedTileIDs = freed;
   frame.credits = credits;
   frame.loadProgress = _tileset->computeLoadProgress();

@@ -1,10 +1,10 @@
 // Objective-C face of the cesium-native bridge. Nothing C++ leaks through this
 // header, so Swift sees plain classes; CNTileStreamer.mm owns the Tileset.
 //
-// Coordinates: tile geometry handed to Swift is baked in a fixed local frame
-// anchored at the streamer's origin, in metres, already in RealityKit axes
-// (x = east, y = up, z = south). The focus is a latitude/longitude; the
-// display transform carries baked tiles into the focus's own level frame.
+// Coordinates: there is no global origin. Each tile's vertices are small
+// offsets from its own centre; every frame the bridge hands Swift a transform
+// per drawn tile that places it in the focus's level frame, in metres and
+// RealityKit axes (x = east, y = up, z = south, focus ground point at 0).
 
 #import <Foundation/Foundation.h>
 #import <simd/simd.h>
@@ -13,7 +13,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// One glTF primitive flattened for RealityKit's MeshDescriptor.
 @interface CNPrimitive : NSObject
-/// float4 per vertex (xyz + padding) so it binds directly to SIMD3<Float>.
+/// float4 per vertex (xyz + padding) so it binds directly to SIMD3<Float>:
+/// ECEF-axis offsets in metres from the tile's centre; place with the
+/// matching CNFrame.tileTransforms entry.
 @property (nonatomic, readonly) NSData *positions;
 /// float2 per vertex, v already flipped for RealityKit; nil if untextured.
 @property (nonatomic, readonly, nullable) NSData *texcoords;
@@ -36,6 +38,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface CNFrame : NSObject
 @property (nonatomic, readonly) NSArray<CNTileMesh *> *tilesToRender;
+/// One simd_float4x4 per tilesToRender entry, same order: the tile's
+/// placement in the focus's level frame (see the coordinates note above).
+@property (nonatomic, readonly) NSData *tileTransforms;
 @property (nonatomic, readonly) NSArray<NSNumber *> *freedTileIDs;
 /// Attribution strings (HTML stripped) that must be shown on screen.
 @property (nonatomic, readonly) NSArray<NSString *> *credits;
@@ -45,10 +50,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface CNTileStreamer : NSObject
 
-- (instancetype)initWithTilesetURL:(NSString *)url
-                    originLatitude:(double)latitude
-                         longitude:(double)longitude
-                            height:(double)height NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithTilesetURL:(NSString *)url NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
 /// Centre of the region to stream, degrees. The streamed square, ground
@@ -80,12 +82,6 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic) int64_t maximumCachedBytes;
 /// Keep parents until all children have loaded. Default NO.
 @property (nonatomic) BOOL forbidHoles;
-
-/// Maps baked tile coordinates (origin frame, RealityKit axes) into the
-/// focus's own frame: focus ground point at the origin, local up along +y,
-/// local north along -z. Far from the origin this re-levels the map, which
-/// would otherwise tilt with the Earth's curvature.
-- (simd_float4x4)displayTransform;
 
 /// Runs one selection + load pass. Call once per frame on the main thread.
 - (CNFrame *)updateWithDeltaTime:(float)deltaTime;

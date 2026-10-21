@@ -7,8 +7,8 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 - `Sources/Cesium/CNTileStreamer.{h,mm}`: an Objective-C++ bridge that owns a cesium-native `Tileset`. It provides:
   - networking over `NSURLSession` (cesium-native is built without curl)
   - a GCD task processor
-  - an `IPrepareRendererResources` that flattens each tile's glTF into float positions, UVs, indices and RGBA in a fixed local east-north-up frame
-  - an excluder that limits streaming to the square region shown in the volume
+  - an `IPrepareRendererResources` that flattens each tile's glTF into float positions (small offsets from the tile's own centre), UVs, indices and RGBA. Every frame each drawn tile gets a transform, computed in double, that places it relative to the current focus. There's no global origin, so precision is the same anywhere on Earth
+  - an excluder that limits streaming to the square region shown, measured in the focus's own frame. The focus is a latitude/longitude, moved along the globe
 - `Sources/MapVolumeModel.swift`: runs one cesium-native update per RealityKit frame, turns new tiles into `ModelEntity`s with unlit textured materials, hides tiles that aren't selected, removes freed ones, and handles pan and zoom.
 - The Shared Space provides no head pose, so a synthetic camera in front of the volume, 45° up, drives level of detail.
 
