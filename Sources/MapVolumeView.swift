@@ -14,6 +14,7 @@ struct MapVolumeView: View {
             model.attach(content, host: .volume)
         }
         .mapGestures(model)
+        .receivesGameControllerInput()
         .onAppear { model.volumeIsOpen = true }
         .onDisappear { model.volumeIsOpen = false }
         .ornament(attachmentAnchor: .scene(.bottomFront)) {
@@ -133,7 +134,12 @@ struct AttributionView: View {
                     .frame(width: 200)
             }
             if model.keyboardConnected {
-                Text(KeyboardInput.hint)
+                Text(MapInput.keyboardHint)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if model.controllerName != nil {
+                Text(MapInput.controllerHint)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

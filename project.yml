@@ -38,6 +38,10 @@ targets:
       properties:
         CFBundleDisplayName: Map Volume
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
+        # Game controllers drive the map (MapInput) rather than system navigation.
+        GCSupportsControllerUserInteraction: true
+        GCSupportedGameControllers:
+          - ProfileName: ExtendedGamepad
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
           UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleVolumetricApplication

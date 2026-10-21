@@ -40,6 +40,7 @@ struct ImmersiveMapView: View {
             }
         }
         .mapGestures(model)
+        .receivesGameControllerInput()
         .onDisappear {
             model.immersiveSpaceDidClose()
         }

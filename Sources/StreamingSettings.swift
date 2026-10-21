@@ -29,7 +29,7 @@ struct StreamingSettings: Codable, Equatable {
         /// turning and moving forward feels like flying.
         case frontEdge
     }
-    /// What the keyboard's Q/E turn around.
+    /// What keyboard (Q/E) and controller (right stick) turns pivot around.
     var keyboardTurnPivot = TurnPivot.center
     /// Largest view half-width zoom-out allows, kilometres.
     var zoomOutLimitKilometres = 20.0

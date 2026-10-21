@@ -61,6 +61,8 @@ final class MapVolumeModel {
     private(set) var loadProgress: Float = 0
     private(set) var statusMessage: String?
     private(set) var keyboardConnected = false
+    /// Name of the connected game controller, if any.
+    private(set) var controllerName: String?
     /// Whether the volume (map + controls) window is open. In a floor mode
     /// it can be closed while the immersive space stays up.
     var volumeIsOpen = false
@@ -95,7 +97,10 @@ final class MapVolumeModel {
     private var radius = defaultLocation.radius
     /// Compass bearing the volume's front faces, radians clockwise from north.
     private var heading = 0.0
-    private var keyboardWasActive = false
+    private var inputWasMoving = false
+    private var heldActions: Set<MapInput.Action> = []
+    /// Index into PlaceLibrary.all of the last place jumped to, for cycling.
+    private var currentPlaceIndex: Int?
 
     init() {
         root.addChild(tilesRoot)
@@ -203,6 +208,7 @@ final class MapVolumeModel {
         rotateStartHeading = nil
         rotateStartLocation = nil
 
+        currentPlaceIndex = PlaceLibrary.all.firstIndex(of: place)
         focus = place.coordinate
         radius = clampRadius(place.radius)
         heading = place.heading * .pi / 180
@@ -279,7 +285,7 @@ final class MapVolumeModel {
 
     private func tick(deltaTime: Float) {
         guard let streamer else { return }
-        applyKeyboard(deltaTime: Double(deltaTime))
+        applyInput(deltaTime: Double(deltaTime))
         easeFocusHeight(deltaTime: Double(deltaTime))
         let frame = streamer.update(withDeltaTime: deltaTime)
 
@@ -321,22 +327,36 @@ final class MapVolumeModel {
         #endif
     }
 
-    // MARK: Keyboard
+    // MARK: Keyboard and controller
 
-    private func applyKeyboard(deltaTime: Double) {
-        let connected = KeyboardInput.isKeyboardConnected
+    private func applyInput(deltaTime: Double) {
+        let connected = MapInput.isKeyboardConnected
         if keyboardConnected != connected { keyboardConnected = connected }
+        let controller = MapInput.controller?.vendorName ?? (MapInput.controller == nil ? nil : "Controller")
+        if controllerName != controller {
+            controllerName = controller
+            #if DEBUG
+            print("[MapVolume] game controller: \(controller ?? "none")")
+            #endif
+        }
 
-        let input = KeyboardInput.current()
-        guard input.isActive else {
+        let input = MapInput.current()
+
+        // Buttons act once, on the frame they go down.
+        for action in input.held.subtracting(heldActions) {
+            perform(action)
+        }
+        heldActions = input.held
+
+        guard input.isMoving else {
             // Re-sample once movement settles, like the end of a drag.
-            if keyboardWasActive {
-                keyboardWasActive = false
+            if inputWasMoving {
+                inputWasMoving = false
                 sampleGround()
             }
             return
         }
-        keyboardWasActive = true
+        inputWasMoving = true
         let boost = input.fast ? 3.0 : 1.0
 
         if input.turn != 0 {
@@ -363,6 +383,23 @@ final class MapVolumeModel {
             focus = GeoMath.offset(focus, east: local.x * metres, north: -local.y * metres)
         }
         applyFocus()
+    }
+
+    private func perform(_ action: MapInput.Action) {
+        let places = PlaceLibrary.all
+        switch action {
+        case .nextPlace where !places.isEmpty:
+            let index = ((currentPlaceIndex ?? -1) + 1) % places.count
+            go(to: places[index])
+        case .previousPlace where !places.isEmpty:
+            let index = ((currentPlaceIndex ?? 0) - 1 + places.count) % places.count
+            go(to: places[index])
+        case .faceNorth:
+            heading = 0
+            applyFocus()
+        default:
+            break
+        }
     }
 
     // MARK: Helpers
