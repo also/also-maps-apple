@@ -45,6 +45,10 @@ To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stre
 
 `MAPVOLUME_HEADING`, in degrees clockwise from north, sets the starting direction.
 
+## Places
+
+The pin button next to the mode picker jumps to a saved place: its position, zoom and facing. The defaults are in `Sources/Places/Places.json` (San Francisco, Boston, New York and Chicago). Each entry has an `id`, `name`, `latitude`, `longitude`, `radius` (view half-width in metres) and an optional `heading` (degrees clockwise from north). `PlaceLibrary` is where user-added places, stored locally or in iCloud, would be merged in later. `MAPVOLUME_PLACE=<id>` starts at that place.
+
 ## Views
 
 The picker under the volume switches between the volume and floor modes. A floor mode opens a mixed-immersion space and lays the map on the floor in front of you at 3×, 5× or 10× the volume's size. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If you close the volume while in a floor mode, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.

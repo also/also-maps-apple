@@ -20,6 +20,13 @@ struct MapVolumeView: View {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
                     presentationPicker
+                    Menu("Places", systemImage: "mappin.and.ellipse") {
+                        ForEach(PlaceLibrary.all) { place in
+                            Button(place.name) { model.go(to: place) }
+                        }
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Go to a place")
                     Button("Tuning", systemImage: "slider.horizontal.3") {
                         openWindow(id: TuningView.windowID)
                     }

@@ -183,6 +183,31 @@ final class MapVolumeModel {
         applySettings()
         applyFocus()
         sampleGround()
+
+        // Debug: MAPVOLUME_PLACE=<id from Places.json> starts at that place.
+        if let id = env["MAPVOLUME_PLACE"], let place = PlaceLibrary.all.first(where: { $0.id == id }) {
+            go(to: place)
+        }
+    }
+
+    // MARK: Places
+
+    /// Jumps the view to `place`: its position, zoom (within the zoom-out
+    /// limit) and facing. Tiles for the old area unload as they fall outside
+    /// the streamed region; the new area streams in.
+    func go(to place: Place) {
+        // Any gesture in progress was relative to the old view.
+        dragStartFocus = nil
+        dragStartLocation = nil
+        magnifyStartRadius = nil
+        rotateStartHeading = nil
+        rotateStartLocation = nil
+
+        focus = place.coordinate
+        radius = clampRadius(place.radius)
+        heading = place.heading * .pi / 180
+        applyFocus()
+        sampleGround()
     }
 
     // MARK: Gestures
