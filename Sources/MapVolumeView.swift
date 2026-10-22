@@ -63,7 +63,15 @@ struct MapVolumeView: View {
             if ProcessInfo.processInfo.environment["MAPVOLUME_OPEN_TUNING"] == "1" {
                 openWindow(id: TuningView.windowID)
             }
-            if let id = ProcessInfo.processInfo.environment["MAPVOLUME_PRESENTATION"],
+            // MAPVOLUME_MARKERS=1 shows the pivot and centre markers, and
+            // MAPVOLUME_STATE=<JSON from Copy View State> restores that view.
+            if ProcessInfo.processInfo.environment["MAPVOLUME_MARKERS"] == "1" {
+                model.showsDebugMarkers = true
+            }
+            if let text = ProcessInfo.processInfo.environment["MAPVOLUME_STATE"],
+               let state = MapViewState.parse(text) {
+                await Self.restore(state, model: model, open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
+            } else if let id = ProcessInfo.processInfo.environment["MAPVOLUME_PRESENTATION"],
                let presentation = MapPresentation.all.first(where: { $0.id == id }) {
                 await present(presentation)
             }
@@ -86,15 +94,36 @@ struct MapVolumeView: View {
     }
 
     private func present(_ presentation: MapPresentation) async {
+        await Self.present(presentation, model: model,
+                           open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
+    }
+
+    /// Switches presentation, opening or closing the immersive space as
+    /// needed. Shared with the Tuning window's state restore.
+    static func present(_ presentation: MapPresentation,
+                        model: MapVolumeModel,
+                        open: OpenImmersiveSpaceAction,
+                        dismiss: DismissImmersiveSpaceAction) async {
         switch (model.presentation.host, presentation.host) {
         case (.volume, .immersive):
-            guard case .opened = await openImmersiveSpace(id: ImmersiveMapView.spaceID) else { return }
+            guard case .opened = await open(id: ImmersiveMapView.spaceID) else { return }
         case (.immersive, .volume):
-            await dismissImmersiveSpace()
+            await dismiss()
         default:
             break
         }
         model.presentation = presentation
+    }
+
+    /// Switches to a captured state's presentation, then restores the rest.
+    static func restore(_ state: MapViewState,
+                        model: MapVolumeModel,
+                        open: OpenImmersiveSpaceAction,
+                        dismiss: DismissImmersiveSpaceAction) async {
+        if let presentation = MapPresentation.all.first(where: { $0.id == state.presentation }) {
+            await present(presentation, model: model, open: open, dismiss: dismiss)
+        }
+        model.restore(state)
     }
 }
 

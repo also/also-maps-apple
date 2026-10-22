@@ -6,6 +6,9 @@ struct TuningView: View {
     static let windowID = "tuning"
 
     @Environment(MapVolumeModel.self) private var model
+    @Environment(\.openImmersiveSpace) private var openImmersiveSpace
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
+    @State private var stateNote: String?
 
     var body: some View {
         @Bindable var model = model
@@ -77,6 +80,35 @@ struct TuningView: View {
                             hint: "Half-width of the widest view. Past 50 km the ground is placed by the Earth's curve instead of sampling terrain.")
                 } header: {
                     Text("Controls")
+                }
+
+                Section {
+                    Toggle("Show pivot and centre markers", isOn: $model.showsDebugMarkers)
+                    Text("Red: the point turns and zooms rotate around. Blue: the map's centre.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Copy View State") {
+                        let json = model.captureState().json()
+                        UIPasteboard.general.string = json
+                        print("[MapVolume] view state: \(json)")
+                        stateNote = "Copied (also printed to the console)."
+                    }
+                    Button("Restore from Clipboard") {
+                        guard let text = UIPasteboard.general.string, let state = MapViewState.parse(text) else {
+                            stateNote = "The clipboard doesn't hold a view state."
+                            return
+                        }
+                        Task {
+                            await MapVolumeView.restore(state, model: model,
+                                                        open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
+                            stateNote = "Restored."
+                        }
+                    }
+                    if let stateNote {
+                        Text(stateNote).font(.caption).foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Debugging")
                 }
 
                 Section {

@@ -132,6 +132,8 @@ final class MapVolumeModel {
     private var currentPlaceIndex: Int?
 
     init() {
+        root.addChild(debugMarkers)
+        debugMarkers.isEnabled = false
         root.addChild(flyRoot)
         flyRoot.addChild(tilesRoot)
         // Indirect only (look + pinch). Allowing direct input meant hands that
@@ -516,6 +518,95 @@ final class MapVolumeModel {
         }
     }
 
+    // MARK: View state (debugging)
+
+    func captureState() -> MapViewState {
+        MapViewState(latitude: focus.latitude,
+                     longitude: focus.longitude,
+                     focusHeight: focusHeight,
+                     radius: radius,
+                     headingDegrees: heading * 180 / .pi,
+                     presentation: presentation.id,
+                     flying: isFlying,
+                     flyScale: flyScale,
+                     flyYawDegrees: flyYaw * 180 / .pi,
+                     flyTranslation: [flyTranslation.x, flyTranslation.y, flyTranslation.z],
+                     settings: settings)
+    }
+
+    /// Restores a captured view. The caller switches to its presentation
+    /// first (that may need to open the immersive space). The ground isn't
+    /// re-sampled, so the view comes back exactly as captured.
+    func restore(_ state: MapViewState) {
+        if isFlying { cancelFlying() }
+        settings = state.settings
+        dragStartFocus = nil
+        dragStartLocation = nil
+        magnifyStartRadius = nil
+        rotateStartHeading = nil
+        rotateStartLocation = nil
+        groundSampleGeneration += 1  // Drop any sample in flight.
+        targetFocusHeight = nil
+
+        focus = GeoCoordinate(latitude: state.latitude, longitude: state.longitude)
+        focusHeight = state.focusHeight
+        radius = state.radius
+        heading = state.headingDegrees * .pi / 180
+        applyFocus()
+
+        if state.flying {
+            setFlying(true)
+            flyScale = state.flyScale
+            flyYaw = state.flyYawDegrees * .pi / 180
+            if state.flyTranslation.count == 3 {
+                flyTranslation = SIMD3(state.flyTranslation[0], state.flyTranslation[1], state.flyTranslation[2])
+            }
+            applyFly()
+        }
+        #if DEBUG
+        print("[MapVolume] restored view state: \(captureState().json())")
+        #endif
+    }
+
+    // MARK: Debug markers
+
+    /// Posts at the pivot (red: what turns and zooms rotate around) and the
+    /// map's centre (blue), in the room's coordinates.
+    var showsDebugMarkers = false {
+        didSet { updateDebugMarkers() }
+    }
+    private let debugMarkers = Entity()
+
+    /// Where turns and zooms currently pivot, in scene coordinates.
+    private var displayPivot: SIMD3<Float> {
+        if isFlying { return flyPivot }
+        let ground = presentation.groundPosition
+        guard pivotsAtViewer else { return ground }
+        let beneathViewer = SIMD3(presentation.viewerPosition.x, ground.y, presentation.viewerPosition.z)
+        return ground + (beneathViewer - ground) * Float(viewerPivotWeight)
+    }
+
+    private func updateDebugMarkers() {
+        debugMarkers.isEnabled = showsDebugMarkers
+        guard showsDebugMarkers else { return }
+        if debugMarkers.children.isEmpty {
+            func post(_ color: UIColor) -> ModelEntity {
+                var material = UnlitMaterial()
+                material.color = .init(tint: color)
+                return ModelEntity(mesh: .generateCylinder(height: 1, radius: 1), materials: [material])
+            }
+            debugMarkers.addChild(post(.systemRed))   // pivot
+            debugMarkers.addChild(post(.systemBlue))  // focus
+        }
+        let size = Float(presentation.magnification)
+        let height = 0.25 * size
+        let posts = debugMarkers.children
+        for (index, base) in [displayPivot, presentation.groundPosition].enumerated() {
+            posts[index].scale = [0.006 * size, height, 0.006 * size]
+            posts[index].position = base + [0, height / 2, 0]
+        }
+    }
+
     // MARK: Fly
 
     /// Freezes streaming so the controls move the loaded scene instead, or
@@ -548,6 +639,7 @@ final class MapVolumeModel {
         flyRoot.transform = Transform(scale: SIMD3(repeating: flyScale),
                                       rotation: simd_quatf(angle: flyYaw, axis: [0, 1, 0]),
                                       translation: flyTranslation)
+        updateDebugMarkers()
     }
 
     /// The same point outside Fly turns and zooms pivot on: the ground beneath
@@ -714,6 +806,7 @@ final class MapVolumeModel {
                                   translation: presentation.groundPosition)
         tilesRoot.transform = placement
         gestureTarget.orientation = rotation
+        updateDebugMarkers()
     }
 
     private func applySettings() {

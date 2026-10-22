@@ -81,6 +81,13 @@ The slider button next to the mode picker opens a Tuning window with live stats 
 
 `MAPVOLUME_OPEN_TUNING=1` opens the window at launch.
 
+**Debugging** (in Tuning):
+- **Show pivot and centre markers** draws a red post where turns and zooms pivot, and a blue post at the map's centre.
+- **Copy View State** copies the whole view as JSON (position, zoom, heading, presentation, Fly pose and settings) and prints it to the console.
+- **Restore from Clipboard** brings a copied state back.
+
+At launch, `MAPVOLUME_STATE=<that JSON>` restores a state and `MAPVOLUME_MARKERS=1` shows the markers.
+
 ## Known gaps
 
 - The main thread still spends 2–3 ms per frame on tile selection and on re-placing every tile, even when the view isn't moving (#2).
