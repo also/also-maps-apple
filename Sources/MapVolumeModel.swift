@@ -313,9 +313,9 @@ final class MapVolumeModel {
         let metresPerScene = 1 / sceneScale
         // Content follows the hand: dragging right reveals what's to the left,
         // and (local +z being south) dragging toward you reveals what's ahead.
-        focus = GeoMath.offset(startFocus,
-                               east: -local.x * metresPerScene,
-                               north: local.y * metresPerScene)
+        moveFocus(to: GeoMath.offset(startFocus,
+                                     east: -local.x * metresPerScene,
+                                     north: local.y * metresPerScene))
         applyFocus()
     }
 
@@ -492,7 +492,7 @@ final class MapVolumeModel {
             let local = sceneToLocal(SIMD2(input.move.x, -input.move.y))
             // Cross most of the visible region per second at any zoom.
             let metres = radius * 0.8 * boost * deltaTime
-            focus = GeoMath.offset(focus, east: local.x * metres, north: -local.y * metres)
+            moveFocus(to: GeoMath.offset(focus, east: local.x * metres, north: -local.y * metres))
         }
         applyFocus()
     }
@@ -707,7 +707,7 @@ final class MapVolumeModel {
         // Put that point back at the reference at the new heading and zoom.
         let toReference = reference - ground
         let referenceLocal = sceneToLocal(SIMD2(Double(toReference.x), Double(toReference.z))) / sceneScale
-        focus = GeoMath.offset(beneath, east: -referenceLocal.x, north: referenceLocal.y)
+        moveFocus(to: GeoMath.offset(beneath, east: -referenceLocal.x, north: referenceLocal.y))
 
         cancelFlying()
         applyFocus()
@@ -787,7 +787,7 @@ final class MapVolumeModel {
                 // facing east or west.
                 let beneath = GeoMath.offset(focus, east: offset.x, north: offset.y)
                 let outward = GeoMath.bearing(from: beneath, to: focus)
-                focus = GeoMath.destination(from: beneath, bearing: outward, distance: distance * clamped / radius)
+                moveFocus(to: GeoMath.destination(from: beneath, bearing: outward, distance: distance * clamped / radius))
             }
         }
         radius = clamped
@@ -802,10 +802,24 @@ final class MapVolumeModel {
             if distance > 0 {
                 let beneath = GeoMath.offset(focus, east: offset.x, north: offset.y)
                 let outward = GeoMath.bearing(from: beneath, to: focus)
-                focus = GeoMath.destination(from: beneath, bearing: outward + (newHeading - heading), distance: distance)
+                let swung = GeoMath.destination(from: beneath, bearing: outward + (newHeading - heading), distance: distance)
+                heading = newHeading
+                moveFocus(to: swung)
+                return
             }
         }
         heading = newHeading.truncatingRemainder(dividingBy: 2 * .pi)
+    }
+
+    /// Moves the focus along the globe and carries the heading with it, so
+    /// the view keeps facing the same way relative to the path. Heading is
+    /// measured from local north, which turns as you travel (and reverses
+    /// over a pole); without this, flying north over a pole bounced back,
+    /// since "north" pointed back at the pole from the far side.
+    private func moveFocus(to newFocus: GeoCoordinate) {
+        heading = (heading + GeoMath.bearingChange(from: focus, to: newFocus))
+            .truncatingRemainder(dividingBy: 2 * .pi)
+        focus = newFocus
     }
 
     // MARK: Helpers

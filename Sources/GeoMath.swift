@@ -40,6 +40,17 @@ enum GeoMath {
                      cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon))
     }
 
+    /// How much a direction's bearing changes when carried along the great
+    /// circle from `a` to `b`, radians: the final bearing on arrival minus the
+    /// initial bearing. Zero along a meridian; π when the path crosses a pole,
+    /// where north reverses; small but real on long east–west legs.
+    static func bearingChange(from a: GeoCoordinate, to b: GeoCoordinate) -> Double {
+        guard a != b else { return 0 }
+        let initial = bearing(from: a, to: b)
+        let final = bearing(from: b, to: a) + .pi
+        return remainder(final - initial, 2 * .pi)
+    }
+
     static func normalizedLongitude(_ degrees: Double) -> Double {
         var value = (degrees + 180).truncatingRemainder(dividingBy: 360)
         if value < 0 { value += 360 }
