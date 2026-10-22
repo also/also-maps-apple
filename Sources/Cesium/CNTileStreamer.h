@@ -96,6 +96,10 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 /// Compass bearing the viewer faces, radians clockwise from north (0 = the
 /// volume's front looks north). Steers the LOD camera and streamed region.
 @property (nonatomic) double viewHeading;
+/// Angle of the LOD camera above the focus's horizon, radians: π/4 for the
+/// usual oblique view, up to π/2 (straight down) when the map is tilted to
+/// face the viewer.
+@property (nonatomic) double viewElevation;
 /// Half-width of the square actually streamed, metres. 0 means use
 /// focusRadius; larger streams beyond what the volume shows (ground sampling
 /// still uses focusRadius).

@@ -746,6 +746,7 @@ NSString* stripHTML(const std::string& html) {
   std::shared_ptr<RealityKitPrepareRendererResources> _resources;
   std::shared_ptr<FocusRegionExcluder> _excluder;
   std::unique_ptr<Tileset> _tileset;
+  CNFrame* _lastFrame;
 }
 
 - (instancetype)initWithTilesetURL:(NSString*)url {
@@ -893,38 +894,62 @@ NSString* stripHTML(const std::string& html) {
   // No head pose in the Shared Space, so LOD comes from a synthetic camera
   // looking at the focus from the front of the volume, 45° up, facing the
   // view heading.
-  const double elevation = M_PI / 4.0;
-  const double horizontal = std::cos(elevation) * _viewerDistance;
-  const glm::dvec3 offsetEnu(
-      -sinHeading * horizontal,
-      -cosHeading * horizontal,
-      std::sin(elevation) * _viewerDistance);
+  const double elevation =
+      std::clamp(_viewElevation > 0 ? _viewElevation : M_PI / 4.0, 0.05, M_PI / 2);
+  const double sinElevation = std::sin(elevation);
+  const double cosElevation = std::cos(elevation);
   // Built in the focus's own east-north-up frame, so the camera stays level
-  // with the ground however far the focus is from the origin.
+  // with the ground however far the focus is from the origin. Direction and
+  // up are written down directly so they stay perpendicular unit vectors at
+  // any elevation; deriving up from the vertical degenerates when looking
+  // straight down (as the facing tilt does far away), which made cesium-
+  // native throw "normal must be normalized".
+  const glm::dvec3 directionEnu(
+      sinHeading * cosElevation,
+      cosHeading * cosElevation,
+      -sinElevation);
+  const glm::dvec3 upEnu(
+      sinHeading * sinElevation,
+      cosHeading * sinElevation,
+      cosElevation);
   const glm::dmat4 focusFrame = [self focusEnuToEcef];
+  const glm::dmat3 enuToEcefRotation(focusFrame);
   _excluder->focusUp = glm::normalize(glm::dvec3(focusFrame[2]));
   _excluder->ecefToFocusEnu = glm::inverse(focusFrame);
   const glm::dvec3 target = glm::dvec3(focusFrame[3]);
-  const glm::dvec3 position =
-      glm::dvec3(focusFrame * glm::dvec4(offsetEnu, 1.0));
-  const glm::dvec3 direction = glm::normalize(target - position);
-  const glm::dvec3 upEcef = glm::normalize(glm::dvec3(focusFrame[2]));
-  const glm::dvec3 up =
-      glm::normalize(upEcef - glm::dot(upEcef, direction) * direction);
+  const glm::dvec3 direction = glm::normalize(enuToEcefRotation * directionEnu);
+  const glm::dvec3 up = glm::normalize(enuToEcefRotation * upEnu);
+  const glm::dvec3 position = target - direction * _viewerDistance;
   const double fov = glm::radians(60.0);
-  ViewState view(
-      position,
-      direction,
-      up,
-      glm::dvec2(2048.0, 2048.0),
-      fov,
-      fov);
 
-  const ViewUpdateResult& result = _tileset->updateViewGroup(
-      _tileset->getDefaultViewGroup(),
-      {view},
-      deltaTime);
-  _tileset->loadTiles();
+  const ViewUpdateResult* pResult = nullptr;
+  try {
+    ViewState view(
+        position,
+        direction,
+        up,
+        glm::dvec2(2048.0, 2048.0),
+        fov,
+        fov);
+    pResult = &_tileset->updateViewGroup(
+        _tileset->getDefaultViewGroup(),
+        {view},
+        deltaTime);
+    _tileset->loadTiles();
+  } catch (const std::exception& error) {
+    // Don't take the app down over one bad view: log it, keep loads moving
+    // and show the last good frame.
+    NSLog(@"[cesium] update failed: %s", error.what());
+    _asyncSystem->dispatchMainThreadTasks();
+    CNFrame* frame = [[CNFrame alloc] init];
+    frame.tilesToRender = _lastFrame.tilesToRender ?: @[];
+    frame.tileTransforms = _lastFrame.tileTransforms ?: [NSData data];
+    frame.freedTileIDs = @[];
+    frame.credits = _lastFrame.credits ?: @[];
+    frame.loadProgress = _lastFrame.loadProgress;
+    return frame;
+  }
+  const ViewUpdateResult& result = *pResult;
   _asyncSystem->dispatchMainThreadTasks();
 
   // Each drawn tile's placement in the focus's level frame (RealityKit axes,
@@ -979,6 +1004,7 @@ NSString* stripHTML(const std::string& html) {
   frame.freedTileIDs = freed;
   frame.credits = credits;
   frame.loadProgress = _tileset->computeLoadProgress();
+  _lastFrame = frame;
   return frame;
 }
 

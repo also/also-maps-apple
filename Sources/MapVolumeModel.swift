@@ -185,7 +185,7 @@ final class MapVolumeModel {
         gestureTarget.components.set(CollisionComponent(shapes: [
             .generateBox(size: [width, thickness, width])
         ]))
-        gestureTarget.position = presentation.groundPosition
+        gestureTarget.position = tiltedGroundPosition
     }
 
     private var started = false
@@ -307,7 +307,9 @@ final class MapVolumeModel {
             return
         }
         guard let startFocus = dragStartFocus else { return }
-        let local = sceneToLocal(SIMD2(Double(translation.x), Double(translation.z)))
+        // Undo the facing tilt so a drag across a tilted map pans along it.
+        let alongMap = tiltRotation.inverse.act(translation)
+        let local = sceneToLocal(SIMD2(Double(alongMap.x), Double(alongMap.z)))
         let metresPerScene = 1 / sceneScale
         // Content follows the hand: dragging right reveals what's to the left,
         // and (local +z being south) dragging toward you reveals what's ahead.
@@ -580,7 +582,7 @@ final class MapVolumeModel {
     /// Where turns and zooms currently pivot, in scene coordinates.
     private var displayPivot: SIMD3<Float> {
         if isFlying { return flyPivot }
-        let ground = presentation.groundPosition
+        let ground = tiltedGroundPosition
         guard pivotsAtViewer else { return ground }
         let beneathViewer = SIMD3(presentation.viewerPosition.x, ground.y, presentation.viewerPosition.z)
         return ground + (beneathViewer - ground) * Float(viewerPivotWeight)
@@ -601,7 +603,7 @@ final class MapVolumeModel {
         let size = Float(presentation.magnification)
         let height = 0.25 * size
         let posts = debugMarkers.children
-        for (index, base) in [displayPivot, presentation.groundPosition].enumerated() {
+        for (index, base) in [displayPivot, tiltedGroundPosition].enumerated() {
             posts[index].scale = [0.006 * size, height, 0.006 * size]
             posts[index].position = base + [0, height / 2, 0]
         }
@@ -712,6 +714,36 @@ final class MapVolumeModel {
         sampleGround()
     }
 
+    // MARK: Facing tilt
+
+    /// 0 up close, 1 far away: the same 50–500 km log-scale fade as the pivot
+    /// (viewerPivotWeight). As it rises the map tilts to face the viewer, as
+    /// Google Earth VR turns the globe toward you, so far away your line of
+    /// sight meets the surface at the centre head-on instead of skimming it.
+    private var farTilt: Float { Float(1 - viewerPivotWeight) }
+
+    /// The map's centre, rising with the tilt from the floor toward a little
+    /// below eye level (the volume's middle in the volume), so far away you
+    /// look straight at it, like a globe in front of you. In the bigger floor
+    /// modes the lower part of a fully tilted map then reaches below the
+    /// floor; Floor 3× keeps it near the floor.
+    private var tiltedGroundPosition: SIMD3<Float> {
+        let ground = presentation.groundPosition
+        let target: Float = presentation.host == .volume ? 0 : presentation.viewerPosition.y - 0.3
+        return ground + [0, (target - ground.y) * farTilt, 0]
+    }
+
+    /// Tilt that points the map's up from its (raised) centre at the
+    /// viewer's eyes, scaled by how far away you are, so at full tilt your
+    /// line of sight meets the centre perpendicularly.
+    private var tiltAngle: Float {
+        let toEye = presentation.viewerPosition - tiltedGroundPosition
+        return atan2(toEye.z, toEye.y) * farTilt
+    }
+
+    /// Tips the map's up toward the viewer (+z), about a horizontal axis.
+    private var tiltRotation: simd_quatf { simd_quatf(angle: tiltAngle, axis: [1, 0, 0]) }
+
     // MARK: Pivot
 
     /// Metres (east, north) from the focus to the pivot: the ground point
@@ -811,10 +843,14 @@ final class MapVolumeModel {
         let s = Float(sceneScale)
         let rotation = simd_quatf(angle: Float(heading), axis: [0, 1, 0])
         let placement = Transform(scale: SIMD3(repeating: s),
-                                  rotation: rotation,
-                                  translation: presentation.groundPosition)
+                                  rotation: tiltRotation * rotation,
+                                  translation: tiltedGroundPosition)
         tilesRoot.transform = placement
-        gestureTarget.orientation = rotation
+        gestureTarget.orientation = tiltRotation * rotation
+        gestureTarget.position = tiltedGroundPosition
+        // The LOD camera looks down more steeply as the map turns to face
+        // you: 45° when flat, straight down when fully tilted.
+        streamer.viewElevation = .pi / 4 + .pi / 4 * Double(farTilt)
         updateDebugMarkers()
     }
 
