@@ -395,12 +395,26 @@ final class MapVolumeModel {
 
     // MARK: Pivot
 
-    /// Metres (east, north) from the focus to the ground point beneath the
-    /// viewer, at the current scale and heading.
+    /// Metres (east, north) from the focus to the pivot: the ground point
+    /// beneath the viewer at local scales, fading to the focus itself when
+    /// zoomed far out (see viewerPivotWeight).
     private func viewerGroundOffset() -> SIMD2<Double> {
         let toViewer = presentation.viewerPosition - presentation.groundPosition
         let local = sceneToLocal(SIMD2(Double(toViewer.x), Double(toViewer.z))) / sceneScale
-        return SIMD2(local.x, -local.y)  // local +z is south
+        return SIMD2(local.x, -local.y) * viewerPivotWeight  // local +z is south
+    }
+
+    /// The ground beneath the viewer is over a view half-width away from the
+    /// focus, so holding it fixed while climbing drags the focus forward by
+    /// more than the climb. Fine locally, but at continental scale on a
+    /// curved map there's no meaningful "beneath you" and the view raced to
+    /// the far side of the planet. Full strength up to 50 km (where curvature
+    /// starts to matter, as for ground anchoring), fading smoothly, in log
+    /// scale, to pivoting at the centre by 500 km.
+    private var viewerPivotWeight: Double {
+        let t = log(radius / 50_000) / log(500_000 / 50_000.0)
+        let clamped = min(max(t, 0), 1)
+        return 1 - clamped * clamped * (3 - 2 * clamped)
     }
 
     private var pivotsAtViewer: Bool { settings.keyboardTurnPivot == .viewer }
