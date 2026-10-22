@@ -2,7 +2,6 @@
 //   GOOGLE_MAPS_API_KEY = AIza...
 // The key needs the Map Tiles API enabled in Google Cloud.
 GOOGLE_MAPS_API_KEY =
-qqqqeq
 // Optional: a Cesium ion token (assets:read only) for the ion tile sources.
 CESIUM_ION_TOKEN =
 #include? "Secrets.xcconfig"
