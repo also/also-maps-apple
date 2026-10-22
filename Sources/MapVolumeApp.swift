@@ -39,5 +39,8 @@ struct MapVolumeApp: App {
                 .environment(model)
         }
         .immersionStyle(selection: $immersionStyle, in: .mixed)
+        // Keep the user's system environment (Mount Hood, the Moon, …) around
+        // the floor map instead of hiding it when the space opens.
+        .immersiveEnvironmentBehavior(.coexist)
     }
 }

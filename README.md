@@ -61,7 +61,7 @@ The pin button next to the mode picker jumps to a saved place: its position, zoo
 
 ## Views
 
-The picker under the volume switches between the volume and floor modes. A floor mode opens a mixed-immersion space and lays the map on the floor in front of you at 3×, 5× or 10× the volume's size. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If you close the volume while in a floor mode, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
+The picker under the volume switches between the volume and floor modes. A floor mode opens a mixed-immersion space and lays the map on the floor in front of you at 3×, 5× or 10× the volume's size. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, floor mode keeps it, with the map on its ground. If you close the volume while in a floor mode, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
 
 Every mode streams the same tiles at the same level of detail, so a floor mode is the volume's map enlarged, at lower effective resolution. To try other sizes or placements, add entries to `MapPresentation.all`. `MAPVOLUME_PRESENTATION=floor5x` (or another mode's `id`) starts in that mode.
 
