@@ -1,3 +1,4 @@
+import GameController
 import RealityKit
 import SwiftUI
 
@@ -40,7 +41,9 @@ struct ImmersiveMapView: View {
             }
         }
         .mapGestures(model)
-        .receivesGameControllerInput()
+        // visionOS turns controller input into look-and-pinch events by
+        // default; route it to the Game Controller framework for MapInput.
+        .handlesGameControllerEvents(matching: .gamepad)
         .onDisappear {
             model.immersiveSpaceDidClose()
         }

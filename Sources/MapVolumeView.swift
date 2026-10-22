@@ -1,3 +1,4 @@
+import GameController
 import RealityKit
 import SwiftUI
 
@@ -15,7 +16,9 @@ struct MapVolumeView: View {
             model.attach(content, host: .volume)
         }
         .mapGestures(model)
-        .receivesGameControllerInput()
+        // visionOS turns controller input into look-and-pinch events by
+        // default; route it to the Game Controller framework for MapInput.
+        .handlesGameControllerEvents(matching: .gamepad)
         .onAppear { model.volumeIsOpen = true }
         .onDisappear { model.volumeIsOpen = false }
         .ornament(attachmentAnchor: .scene(.bottomFront)) {
