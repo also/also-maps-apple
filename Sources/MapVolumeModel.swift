@@ -100,20 +100,18 @@ final class MapVolumeModel {
     /// Compass bearing the volume's front faces, radians clockwise from north.
     private var heading = 0.0
 
-    // Fly: streaming frozen; inputs fly a drone through the loaded scene. The
-    // drone's pose is relative to the scene as placed when Fly started.
+    // Fly: streaming frozen; the controls move the loaded scene around you
+    // exactly as they move the map outside Fly. The scene's pose relative to
+    // where it was when Fly started: x ↦ flyScale · R(flyYaw) · x + flyTranslation.
     private(set) var isFlying = false
-    /// Scene position of the drone (the viewer's eyes), in that start scene.
-    private var dronePosition = SIMD3<Float>.zero
-    /// Radians about +Y (counterclockwise seen from above); turning right
-    /// makes it smaller.
-    private var droneYaw = 0.0
-    /// How much bigger the world looks than at the start.
-    private var flyScale = 1.0
+    private var flyScale: Float = 1
+    private var flyYaw: Float = 0
+    private var flyTranslation = SIMD3<Float>.zero
     private let flyRoot = Entity()
-    private var dragStartDronePosition: SIMD3<Float>?
-    private var magnifyStartFlyScale: Double?
-    private var rotateStartDroneYaw: Double?
+    // Last value seen per gesture, so simultaneous pinch and twist compose.
+    private var flyDragLast: SIMD3<Float>?
+    private var flyMagnifyLast: Double?
+    private var flyRotateLast: Double?
     private var inputWasMoving = false
     private var heldActions: Set<MapInput.Action> = []
     /// Index into PlaceLibrary.all of the last place jumped to, for cycling.
@@ -242,14 +240,14 @@ final class MapVolumeModel {
         if dragStartLocation != start {
             dragStartLocation = start
             dragStartFocus = focus
-            dragStartDronePosition = dronePosition
+            flyDragLast = nil
         }
         let translation = current - start
         if isFlying {
             // The frozen scene follows the hand horizontally.
-            guard let startPosition = dragStartDronePosition else { return }
             let horizontal = SIMD3<Float>(translation.x, 0, translation.z)
-            dronePosition = startPosition - droneRotation.act(horizontal) / Float(flyScale)
+            flyTranslation += horizontal - (flyDragLast ?? .zero)
+            flyDragLast = horizontal
             applyFly()
             return
         }
@@ -267,7 +265,7 @@ final class MapVolumeModel {
     func endDrag() {
         dragStartFocus = nil
         dragStartLocation = nil
-        dragStartDronePosition = nil
+        flyDragLast = nil
         if !isFlying { sampleGround() }
     }
 
@@ -276,12 +274,13 @@ final class MapVolumeModel {
         // updates means this is a new pinch.
         if magnifyStartRadius == nil || Date().timeIntervalSince(lastMagnifyUpdate) > 0.3 {
             magnifyStartRadius = radius
-            magnifyStartFlyScale = flyScale
+            flyMagnifyLast = nil
         }
         lastMagnifyUpdate = Date()
         if isFlying {
-            guard let start = magnifyStartFlyScale, magnification > 0 else { return }
-            flyScale = Self.clampFlyScale(start * magnification)
+            guard magnification > 0 else { return }
+            flyAboutPivot(scale: Float(magnification / (flyMagnifyLast ?? 1)))
+            flyMagnifyLast = magnification
             applyFly()
             return
         }
@@ -293,7 +292,7 @@ final class MapVolumeModel {
 
     func endMagnify() {
         magnifyStartRadius = nil
-        magnifyStartFlyScale = nil
+        flyMagnifyLast = nil
         // The sampled region grows and shrinks with the radius.
         if !isFlying { sampleGround() }
     }
@@ -304,15 +303,16 @@ final class MapVolumeModel {
         if rotateStartLocation != start {
             rotateStartLocation = start
             rotateStartHeading = heading
-            rotateStartDroneYaw = droneYaw
+            flyRotateLast = nil
         }
         guard let startHeading = rotateStartHeading else { return }
         // Signed angle about +Y (counterclockwise seen from above), which is
         // the same sense as the map's heading rotation.
         let yaw = 2 * atan2(Double(rotation.imag.y), Double(rotation.real))
         if isFlying {
-            // The frozen scene turns with the hands, about the viewer.
-            droneYaw = (rotateStartDroneYaw ?? droneYaw) - yaw
+            // The frozen scene turns with the hands, as the map does.
+            flyAboutPivot(turn: Float(yaw - (flyRotateLast ?? 0)))
+            flyRotateLast = yaw
             applyFly()
             return
         }
@@ -323,7 +323,7 @@ final class MapVolumeModel {
     func endRotate() {
         rotateStartHeading = nil
         rotateStartLocation = nil
-        rotateStartDroneYaw = nil
+        flyRotateLast = nil
     }
 
     // MARK: Frame loop
@@ -407,6 +407,12 @@ final class MapVolumeModel {
             return
         }
         inputWasMoving = true
+        steer(with: input, deltaTime: deltaTime)
+    }
+
+    /// Moves, turns and zooms the streaming map; fly(with:) is the frozen
+    /// counterpart and behaves the same.
+    private func steer(with input: MapInput, deltaTime: Double) {
         let boost = input.fast ? 3.0 : 1.0
 
         if input.turn != 0 {
@@ -438,8 +444,8 @@ final class MapVolumeModel {
             let index = ((currentPlaceIndex ?? 0) - 1 + places.count) % places.count
             go(to: places[index])
         case .faceNorth where isFlying:
-            // The drone faces north when the scene's turn cancels the map's.
-            droneYaw = heading
+            // North is up when the scene's turn cancels the map's heading.
+            flyAboutPivot(turn: -(Float(heading) + flyYaw))
             applyFly()
         case .faceNorth:
             heading = 0
@@ -453,85 +459,102 @@ final class MapVolumeModel {
 
     // MARK: Fly
 
-    /// Freezes streaming and lets the inputs fly through the loaded scene, or
-    /// resumes streaming from wherever the drone ended up.
+    /// Freezes streaming so the controls move the loaded scene instead, or
+    /// resumes streaming from wherever that left you.
     func setFlying(_ flying: Bool) {
         guard flying != isFlying else { return }
         if flying {
-            dronePosition = presentation.viewerPosition
-            droneYaw = 0
-            flyScale = 1
             isFlying = true
-            applyFly()
+            resetFlyPose()
         } else {
-            resumeStreamingAtDrone()
+            resumeStreamingAfterFlying()
         }
     }
 
-    /// Leaves Fly without carrying the drone's pose over (the scene it was
-    /// relative to is going away).
+    /// Leaves Fly without carrying the pose over (the scene it was relative
+    /// to is going away).
     private func cancelFlying() {
         isFlying = false
-        dronePosition = presentation.viewerPosition
-        droneYaw = 0
+        resetFlyPose()
+    }
+
+    private func resetFlyPose() {
         flyScale = 1
-        flyRoot.transform = .identity
+        flyYaw = 0
+        flyTranslation = .zero
+        applyFly()
     }
 
-    private var droneRotation: simd_quatf { simd_quatf(angle: Float(droneYaw), axis: [0, 1, 0]) }
-
-    private static func clampFlyScale(_ value: Double) -> Double { min(max(value, 0.05), 50) }
-
-    /// The frozen scene as seen from the drone: everything is moved so the
-    /// drone sits at the viewer's position, facing the viewer's forward, with
-    /// the world scaled about it.
     private func applyFly() {
-        let viewer = Transform(translation: presentation.viewerPosition).matrix
-        let turn = Transform(rotation: droneRotation.inverse).matrix
-        let scale = Transform(scale: SIMD3(repeating: Float(flyScale))).matrix
-        let toDrone = Transform(translation: -dronePosition).matrix
-        flyRoot.transform = Transform(matrix: viewer * turn * scale * toDrone)
+        flyRoot.transform = Transform(scale: SIMD3(repeating: flyScale),
+                                      rotation: simd_quatf(angle: flyYaw, axis: [0, 1, 0]),
+                                      translation: flyTranslation)
     }
 
+    /// The same point outside Fly turns and zooms pivot on: the ground beneath
+    /// the viewer, or the view's centre, per the "Turn and zoom around" setting.
+    private var flyPivot: SIMD3<Float> {
+        let ground = presentation.groundPosition
+        guard pivotsAtViewer else { return ground }
+        return SIMD3(presentation.viewerPosition.x, ground.y, presentation.viewerPosition.z)
+    }
+
+    /// Scales and/or turns the frozen scene about the pivot. Scale stays
+    /// within the zoom range outside Fly (radius / flyScale is the zoom).
+    private func flyAboutPivot(scale factor: Float = 1, turn angle: Float = 0) {
+        let lower = Float(radius / (settings.zoomOutLimitKilometres * 1000))
+        let upper = Float(radius / 50)
+        let newScale = min(max(flyScale * factor, lower), upper)
+        let k = newScale / flyScale
+        let pivot = flyPivot
+        let rotation = simd_quatf(angle: angle, axis: [0, 1, 0])
+        flyTranslation = pivot + rotation.act((flyTranslation - pivot) * k)
+        flyScale = newScale
+        flyYaw += angle
+    }
+
+    /// The same controls, rates and pivot as outside Fly, applied to the
+    /// frozen scene: the surface stays on the floor and nothing streams.
     private func fly(with input: MapInput, deltaTime: Double) {
         guard input.isMoving else { return }
         let boost = input.fast ? 3.0 : 1.0
-        // Walking-to-running pace at the presentation's size, constant as the
-        // world is scaled.
-        let speed = Float(0.3 * presentation.magnification * boost / flyScale * deltaTime)
         if input.turn != 0 {
-            droneYaw -= input.turn * boost * (.pi / 3) * deltaTime  // right is clockwise
+            flyAboutPivot(turn: Float(input.turn * boost * (.pi / 3) * deltaTime))  // 60°/s
+        }
+        // Altitude is zoom here too: climbing zooms out.
+        let zoomRate = input.zoom - input.altitude
+        if zoomRate != 0 {
+            flyAboutPivot(scale: Float(exp(zoomRate * boost * deltaTime)))
         }
         if input.move != .zero {
-            let direction = SIMD3<Float>(Float(input.move.x), 0, Float(-input.move.y))
-            dronePosition += droneRotation.act(direction) * speed
-        }
-        if input.altitude != 0 {
-            dronePosition.y += Float(input.altitude) * speed
-        }
-        if input.zoom != 0 {
-            flyScale = Self.clampFlyScale(flyScale * exp(input.zoom * boost * deltaTime))
+            // Outside Fly the map moves 0.8 of the view's half-width per
+            // second; in scene terms that's this, whatever the zoom.
+            let speed = Float(0.8 * MapVolumeModel.volumeSize.x / 2 * presentation.magnification * boost * deltaTime)
+            flyTranslation += SIMD3(Float(-input.move.x), 0, Float(input.move.y)) * speed
         }
         applyFly()
     }
 
-    /// Ends Fly by streaming again around where the drone is: the ground
-    /// beneath it stays beneath you, at the drone's heading and scale. Only
-    /// the extra height is dropped, so the map settles back onto the floor.
-    private func resumeStreamingAtDrone() {
-        // The map point under the drone, from the scene as it was placed
-        // when Fly started (focus, heading and radius haven't changed since).
-        let toDrone = dronePosition - presentation.groundPosition
-        let local = sceneToLocal(SIMD2(Double(toDrone.x), Double(toDrone.z))) / sceneScale
-        let beneathDrone = GeoMath.offset(focus, east: local.x, north: -local.y)
+    /// Ends Fly by streaming again from where it left you: the scene's pose
+    /// becomes the map's focus, heading and zoom, so nothing visibly moves.
+    private func resumeStreamingAfterFlying() {
+        let ground = presentation.groundPosition
+        // Any reference point will do, since the pose is a similarity; use
+        // the ground beneath the viewer. Find it in the scene as placed when
+        // Fly started (focus, heading and radius haven't changed since).
+        let reference = SIMD3(presentation.viewerPosition.x, ground.y, presentation.viewerPosition.z)
+        let unflown = simd_quatf(angle: -flyYaw, axis: [0, 1, 0]).act(reference - flyTranslation) / flyScale
+        let fromFocus = unflown - ground
+        let local = sceneToLocal(SIMD2(Double(fromFocus.x), Double(fromFocus.z))) / sceneScale
+        let beneath = GeoMath.offset(focus, east: local.x, north: -local.y)
 
-        heading = (heading - droneYaw).truncatingRemainder(dividingBy: 2 * .pi)
-        radius = clampRadius(radius / flyScale)
+        heading = (heading + Double(flyYaw)).truncatingRemainder(dividingBy: 2 * .pi)
+        radius = clampRadius(radius / Double(flyScale))
 
-        // Put that point beneath the viewer at the new heading and scale.
-        let toViewer = presentation.viewerPosition - presentation.groundPosition
-        let viewerLocal = sceneToLocal(SIMD2(Double(toViewer.x), Double(toViewer.z))) / sceneScale
-        focus = GeoMath.offset(beneathDrone, east: -viewerLocal.x, north: viewerLocal.y)
+        // Put that point back at the reference at the new heading and zoom.
+        let toReference = reference - ground
+        let referenceLocal = sceneToLocal(SIMD2(Double(toReference.x), Double(toReference.z))) / sceneScale
+        focus = GeoMath.offset(beneath, east: -referenceLocal.x, north: referenceLocal.y)
 
         cancelFlying()
         applyFocus()

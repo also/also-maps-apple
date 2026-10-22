@@ -50,13 +50,9 @@ To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stre
 
 ## Fly
 
-The airplane button, or X on a controller, toggles **Fly**. Streaming freezes, so the loaded tiles stay as they are, and the controls fly a drone through that scene instead of moving the map:
-- left stick or WASD moves along the drone's heading
-- the right stick, Q/E and R/F turn and climb or descend
-- the triggers and `=`/`-` scale the world around you
-- drag, pinch and twist move, scale and turn the scene
+The airplane button, or X on a controller, toggles **Fly**. Streaming freezes, so the loaded tiles stay as they are. Every control then does exactly what it does outside Fly: the same moves, turns and zoom, at the same rates and around the same pivot (the "Turn and zoom around" setting), applied to the frozen scene instead of the live map. The surface stays on the floor. Turning Fly off resumes streaming from where you are, without anything visibly moving.
 
-Your head is a free camera on the drone. Turning Fly off resumes streaming from where the drone is: same ground beneath you, same heading and scale, with the extra height dropped so the map settles back onto the floor. Detail doesn't improve as you fly closer, because nothing new loads while frozen. Changing view mode or going to a place leaves Fly.
+Detail doesn't improve as you zoom in, because nothing new loads while frozen. Changing view mode or going to a place leaves Fly.
 
 ## Places
 
