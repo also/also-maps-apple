@@ -13,16 +13,20 @@ struct MapInput {
     var move = SIMD2<Double>.zero
     /// Turn right (+) / left (−), −1…1.
     var turn = 0.0
-    /// Zoom in (+) / out (−), −1…1.
+    /// Zoom in (+) / out (−), −1…1: triggers and =/−. In Fly, scales the
+    /// frozen scene instead.
     var zoom = 0.0
+    /// Climb (+) / descend (−), −1…1: right stick up/down and F/R. Normally
+    /// that's zooming out/in (altitude is zoom); in Fly it moves vertically.
+    var altitude = 0.0
     var fast = false
 
     /// One-shot actions; reported while the button is held, so the model
     /// fires them on the frame a button goes down.
-    enum Action: Hashable { case previousPlace, nextPlace, faceNorth }
+    enum Action: Hashable { case previousPlace, nextPlace, faceNorth, toggleFly }
     var held: Set<Action> = []
 
-    var isMoving: Bool { move != .zero || turn != 0 || zoom != 0 }
+    var isMoving: Bool { move != .zero || turn != 0 || zoom != 0 || altitude != 0 }
 
     /// Keyboard and controller together.
     static func current() -> MapInput {
@@ -36,13 +40,14 @@ struct MapInput {
         if simd_length(move) > 1 { move = simd_normalize(move) }
         turn = min(max(turn + other.turn, -1), 1)
         zoom = min(max(zoom + other.zoom, -1), 1)
+        altitude = min(max(altitude + other.altitude, -1), 1)
         fast = fast || other.fast
         held.formUnion(other.held)
     }
 
     // MARK: Keyboard
 
-    static let keyboardHint = "WASD / arrows move · Q E turn · R F zoom · Shift faster"
+    static let keyboardHint = "WASD / arrows move · Q E turn · R F descend/climb · = − zoom · Shift faster"
 
     static var isKeyboardConnected: Bool { GCKeyboard.coalesced != nil }
 
@@ -61,15 +66,15 @@ struct MapInput {
         input.move.y = axis(positive: held(.keyW, .upArrow), negative: held(.keyS, .downArrow))
         if input.move != .zero { input.move /= simd_length(input.move) }
         input.turn = axis(positive: held(.keyE), negative: held(.keyQ))
-        input.zoom = axis(positive: held(.keyR, .equalSign, .keypadPlus),
-                          negative: held(.keyF, .hyphen, .keypadHyphen))
+        input.zoom = axis(positive: held(.equalSign, .keypadPlus), negative: held(.hyphen, .keypadHyphen))
+        input.altitude = axis(positive: held(.keyF), negative: held(.keyR))
         input.fast = held(.leftShift, .rightShift)
         return input
     }
 
     // MARK: Game controller
 
-    static let controllerHint = "Left stick move · Right stick turn, climb/descend · RT LT zoom · LB faster · D-pad places · Y north"
+    static let controllerHint = "Left stick move · Right stick turn, climb/descend · RT LT zoom · LB faster · D-pad places · Y north · X fly"
 
     /// The controller in use, if any (the most recently used one, or else
     /// the first connected).
@@ -85,13 +90,14 @@ struct MapInput {
         input.move = stick(pad.leftThumbstick)
         let right = stick(pad.rightThumbstick)
         input.turn = right.x
-        // Zoom is altitude: right stick up climbs (zooms out), down descends,
-        // as on a drone. The triggers zoom too.
-        input.zoom = min(max(trigger(pad.rightTrigger) - trigger(pad.leftTrigger) - right.y, -1), 1)
+        // Right stick up climbs, down descends, as on a drone.
+        input.altitude = right.y
+        input.zoom = trigger(pad.rightTrigger) - trigger(pad.leftTrigger)
         input.fast = pad.leftShoulder.isPressed || pad.leftThumbstickButton?.isPressed == true
         if pad.dpad.left.isPressed { input.held.insert(.previousPlace) }
         if pad.dpad.right.isPressed { input.held.insert(.nextPlace) }
         if pad.buttonY.isPressed { input.held.insert(.faceNorth) }
+        if pad.buttonX.isPressed { input.held.insert(.toggleFly) }
         return input
     }
 

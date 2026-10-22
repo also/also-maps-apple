@@ -43,10 +43,20 @@ To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stre
 - **Pan:** look at the map, pinch and drag. Gestures are indirect only (look and pinch), so open hands over the map do nothing.
 - **Zoom:** pinch with both hands and move them apart or together. The view's half-width ranges from 50 m to the Tuning window's zoom-out limit (20 km by default, up to 10,000 km).
 - **Turn:** pinch with both hands and twist about the vertical. The map turns around the focus point and can turn while zooming.
-- **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F (or `=` and `-`) zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.
-- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, and Y faces north. The ornament shows these hints while a controller is connected. Keyboard and controller input combine, and the Tuning window's turn pivot applies to both.
+- **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F descend and climb (which is zoom), `=` and `-` zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.
+- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, Y faces north, and X toggles Fly. The ornament shows these hints while a controller is connected. Keyboard and controller input combine, and the Tuning window's turn pivot applies to both.
 
 `MAPVOLUME_HEADING`, in degrees clockwise from north, sets the starting direction.
+
+## Fly
+
+The airplane button, or X on a controller, toggles **Fly**. Streaming freezes, so the loaded tiles stay as they are, and the controls fly a drone through that scene instead of moving the map:
+- left stick or WASD moves along the drone's heading
+- the right stick, Q/E and R/F turn and climb or descend
+- the triggers and `=`/`-` scale the world around you
+- drag, pinch and twist move, scale and turn the scene
+
+Your head is a free camera on the drone. Turning Fly off resumes streaming from where the drone is: same ground beneath you, same heading and scale, with the extra height dropped so the map settles back onto the floor. Detail doesn't improve as you fly closer, because nothing new loads while frozen. Changing view mode or going to a place leaves Fly.
 
 ## Places
 

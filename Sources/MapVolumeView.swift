@@ -22,6 +22,13 @@ struct MapVolumeView: View {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
                     presentationPicker
+                    Toggle(isOn: Binding(get: { model.isFlying },
+                                         set: { model.setFlying($0) })) {
+                        Label("Fly", systemImage: "airplane")
+                    }
+                    .toggleStyle(.button)
+                    .labelStyle(.iconOnly)
+                    .help("Fly through the loaded map (streaming frozen)")
                     Menu("Places", systemImage: "mappin.and.ellipse") {
                         ForEach(PlaceLibrary.all) { place in
                             Button(place.name) { model.go(to: place) }
@@ -140,6 +147,10 @@ struct AttributionView: View {
             } else if model.loadProgress < 100 {
                 ProgressView(value: Double(model.loadProgress), total: 100)
                     .frame(width: 200)
+            }
+            if model.isFlying {
+                Text("Flying · map frozen")
+                    .font(.caption)
             }
             if model.keyboardConnected {
                 Text(MapInput.keyboardHint)
