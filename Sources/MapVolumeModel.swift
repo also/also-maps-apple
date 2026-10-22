@@ -745,9 +745,18 @@ final class MapVolumeModel {
         let clamped = clampRadius(newRadius)
         if pivotsAtViewer, clamped != radius {
             let offset = viewerGroundOffset()
-            let beneath = GeoMath.offset(focus, east: offset.x, north: offset.y)
-            let ratio = clamped / radius
-            focus = GeoMath.offset(beneath, east: -offset.x * ratio, north: -offset.y * ratio)
+            let distance = simd_length(offset)
+            if distance > 0 {
+                // Move the focus along the actual direction from the pivot,
+                // as turn(to:) does. Reusing the east/north offset at the
+                // pivot was wrong: north there differs from north at the
+                // focus (meridians converge), so every step landed slightly
+                // sideways, sliding the view steadily right or left when
+                // facing east or west.
+                let beneath = GeoMath.offset(focus, east: offset.x, north: offset.y)
+                let outward = GeoMath.bearing(from: beneath, to: focus)
+                focus = GeoMath.destination(from: beneath, bearing: outward, distance: distance * clamped / radius)
+            }
         }
         radius = clamped
     }
