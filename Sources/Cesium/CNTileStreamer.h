@@ -77,7 +77,10 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 /// A Cesium ion asset, e.g. 96188 (Cesium OSM Buildings). The token needs
 /// only the assets:read scope.
 - (instancetype)initWithIonAssetID:(int64_t)assetID
-                       accessToken:(NSString *)accessToken NS_DESIGNATED_INITIALIZER;
+                       accessToken:(NSString *)accessToken
+                     smoothNormals:(BOOL)smoothNormals NS_DESIGNATED_INITIALIZER;
+/// smoothNormals: have cesium-native generate smooth normals for content
+/// without any (terrain); otherwise flat ones are computed (buildings).
 - (instancetype)init NS_UNAVAILABLE;
 
 /// Centre of the region to stream, degrees. The streamed square, ground

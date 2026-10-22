@@ -758,12 +758,15 @@ NSString* stripHTML(const std::string& html) {
 }
 
 - (instancetype)initWithIonAssetID:(int64_t)assetID
-                       accessToken:(NSString*)accessToken {
+                       accessToken:(NSString*)accessToken
+                     smoothNormals:(BOOL)smoothNormals {
   std::string token = accessToken.UTF8String;
-  return [self initWithTilesetMaker:[assetID, token](
+  return [self initWithTilesetMaker:[assetID, token, smoothNormals](
                                         const TilesetExternals& externals,
                                         const TilesetOptions& options) {
-    return std::make_unique<Tileset>(externals, assetID, token, options);
+    TilesetOptions ionOptions = options;
+    ionOptions.contentOptions.generateMissingNormalsSmooth = smoothNormals;
+    return std::make_unique<Tileset>(externals, assetID, token, ionOptions);
   }];
 }
 

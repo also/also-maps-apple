@@ -10,16 +10,20 @@ import UIKit
 /// tiles are in flight so a burst doesn't create hundreds at once.
 final class TileUploader: @unchecked Sendable {
     private let limiter = AsyncLimiter(limit: 4)
+    /// Replaces the base colour of lit, untextured content when set, for
+    /// sources whose tiles carry no colour (terrain). Set before streaming.
+    var untexturedColor: SIMD4<Float>?
 
     func setConcurrency(_ limit: Int) {
         Task { await limiter.setLimit(max(1, limit)) }
     }
 
     var handler: CNTileLoadHandler {
-        { [limiter] tile, completion in
+        { [limiter, self] tile, completion in
+            let tint = self.untexturedColor
             Task.detached(priority: .userInitiated) {
                 await limiter.acquire()
-                await Self.build(tile)
+                await Self.build(tile, untexturedColor: tint)
                 tile.discardCPUData()
                 await limiter.release()
                 completion()
@@ -30,7 +34,7 @@ final class TileUploader: @unchecked Sendable {
     // MARK: Building
 
     /// Meshes off the main thread, then textures and the entity on it.
-    private static func build(_ tile: CNTileMesh) async {
+    private static func build(_ tile: CNTileMesh, untexturedColor: SIMD4<Float>?) async {
         var parts: [Part] = []
         for primitive in tile.primitives ?? [] {
             do {
@@ -41,7 +45,7 @@ final class TileUploader: @unchecked Sendable {
                 print("[MapVolume] tile \(tile.identifier) mesh failed: \(error)")
             }
         }
-        await assemble(parts, into: tile)
+        await assemble(parts, into: tile, untexturedColor: untexturedColor)
     }
 
     private struct Part {
@@ -53,7 +57,7 @@ final class TileUploader: @unchecked Sendable {
     }
 
     @MainActor
-    private static func assemble(_ parts: [Part], into tile: CNTileMesh) async {
+    private static func assemble(_ parts: [Part], into tile: CNTileMesh, untexturedColor: SIMD4<Float>?) async {
         let entity = Entity()
         for part in parts {
             let material: any RealityKit.Material
@@ -61,7 +65,7 @@ final class TileUploader: @unchecked Sendable {
                 // Untextured content (e.g. OSM buildings) needs shading to read
                 // as shapes; scene lighting comes from the environment.
                 var lit = PhysicallyBasedMaterial()
-                lit.baseColor = .init(tint: color(part.baseColor))
+                lit.baseColor = .init(tint: color(untexturedColor ?? part.baseColor))
                 lit.roughness = .init(floatLiteral: 0.85)
                 lit.metallic = .init(floatLiteral: 0)
                 lit.faceCulling = .none

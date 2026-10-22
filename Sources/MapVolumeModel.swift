@@ -230,7 +230,8 @@ final class MapVolumeModel {
                 statusMessage = "Set CESIUM_ION_TOKEN in Config/Secrets.xcconfig (or the scheme environment)."
                 return
             }
-            streamer = CNTileStreamer(ionAssetID: assetID, accessToken: token)
+            streamer = CNTileStreamer(ionAssetID: assetID, accessToken: token,
+                                      smoothNormals: settings.tileSource.smoothNormals)
         } else {
             guard let key = Self.secret(environment: "GOOGLE_MAPS_API_KEY", infoKey: "GoogleMapsAPIKey") else {
                 statusMessage = "Set GOOGLE_MAPS_API_KEY in Config/Secrets.xcconfig (or the scheme environment)."
@@ -240,6 +241,7 @@ final class MapVolumeModel {
             showsGoogleLogo = true
         }
         statusMessage = nil
+        tileUploader.untexturedColor = settings.tileSource.untexturedColor
         // Before the first update, so every tile goes through it.
         streamer.tileLoadHandler = tileUploader.handler
         self.streamer = streamer
