@@ -27,5 +27,12 @@
     "longitude": -87.6233,
     "radius": 800,
     "heading": 270
+  },
+  {
+    "id": "grand-canyon",
+    "name": "Grand Canyon",
+    "latitude": 36.0995,
+    "longitude": -112.1130,
+    "radius": 8000
   }
 ]
