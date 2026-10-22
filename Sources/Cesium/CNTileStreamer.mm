@@ -78,6 +78,7 @@ using CesiumGeospatial::Ellipsoid;
                         primitives:(NSArray<CNPrimitive *> *)primitives;
 /// ECEF point the tile's vertices are measured from, full precision.
 @property (nonatomic, readonly) glm::dvec3 center;
+@property (atomic, readwrite, nullable) NSArray<CNPrimitive *> *primitives;
 @end
 
 @implementation CNTileMesh
@@ -92,7 +93,7 @@ using CesiumGeospatial::Ellipsoid;
   return self;
 }
 - (void)discardCPUData {
-  _primitives = nil;
+  self.primitives = nil;
 }
 @end
 
@@ -455,24 +456,47 @@ CNTileMesh* _Nullable buildTileMesh(
 class RealityKitPrepareRendererResources final
     : public IPrepareRendererResources {
 public:
+  void setTileLoadHandler(CNTileLoadHandler handler) {
+    std::lock_guard<std::mutex> lock(_handlerMutex);
+    _handler = handler;
+  }
 
   Future<TileLoadResultAndRenderResources> prepareInLoadThread(
       const AsyncSystem& asyncSystem,
       TileLoadResult&& tileLoadResult,
       const glm::dmat4& transform,
       const std::any&) override {
-    void* pResources = nullptr;
+    CNTileMesh* mesh = nil;
     if (const CesiumGltf::Model* pModel =
             std::get_if<CesiumGltf::Model>(&tileLoadResult.contentKind)) {
-      CNTileMesh* mesh =
-          buildTileMesh(*pModel, transform, _nextID++);
-      if (mesh) {
-        pResources = (__bridge_retained void*)mesh;
-      }
+      mesh = buildTileMesh(*pModel, transform, _nextID++);
     }
-    return asyncSystem.createResolvedFuture(TileLoadResultAndRenderResources{
-        std::move(tileLoadResult),
-        pResources});
+    CNTileLoadHandler handler = tileLoadHandler();
+    if (!mesh || !handler) {
+      void* pResources = mesh ? (__bridge_retained void*)mesh : nullptr;
+      return asyncSystem.createResolvedFuture(TileLoadResultAndRenderResources{
+          std::move(tileLoadResult),
+          pResources});
+    }
+
+    // Hand the tile to the app and finish loading only once its renderer
+    // resources exist, so "loaded" means "drawable". The result moves into
+    // shared state the completion block can reach; `once` guards against a
+    // second call.
+    auto promise =
+        asyncSystem.createPromise<TileLoadResultAndRenderResources>();
+    auto pResult = std::make_shared<TileLoadResult>(std::move(tileLoadResult));
+    auto once = std::make_shared<std::atomic<bool>>(false);
+    void* pResources = (__bridge_retained void*)mesh;
+    handler(mesh, ^{
+      if (once->exchange(true)) {
+        return;
+      }
+      promise.resolve(TileLoadResultAndRenderResources{
+          std::move(*pResult),
+          pResources});
+    });
+    return promise.getFuture();
   }
 
   void* prepareInMainThread(Tile&, void* pLoadThreadResult) override {
@@ -519,6 +543,11 @@ public:
       const CesiumRasterOverlays::RasterOverlayTile&,
       void*) noexcept override {}
 
+  CNTileLoadHandler tileLoadHandler() {
+    std::lock_guard<std::mutex> lock(_handlerMutex);
+    return _handler;
+  }
+
   std::vector<uint64_t> takeFreed() {
     std::lock_guard<std::mutex> lock(_freedMutex);
     return std::exchange(_freed, {});
@@ -526,6 +555,8 @@ public:
 
 private:
   std::atomic<uint64_t> _nextID{1};
+  std::mutex _handlerMutex;
+  CNTileLoadHandler _handler;
   std::mutex _freedMutex;
   std::vector<uint64_t> _freed;
 };
@@ -631,6 +662,14 @@ NSString* stripHTML(const std::string& html) {
     _viewerDistance = 1200.0;
   }
   return self;
+}
+
+- (CNTileLoadHandler)tileLoadHandler {
+  return _resources->tileLoadHandler();
+}
+
+- (void)setTileLoadHandler:(CNTileLoadHandler)handler {
+  _resources->setTileLoadHandler(handler);
 }
 
 - (double)maximumScreenSpaceError {

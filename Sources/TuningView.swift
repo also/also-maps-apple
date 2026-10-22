@@ -32,9 +32,9 @@ struct TuningView: View {
                 }
 
                 Section {
-                    setting("Upload budget", value: $model.settings.uploadBudgetMilliseconds, in: 1...30, step: 1,
-                            format: { "\(Int($0)) ms/frame" },
-                            hint: "Higher fills in faster but hitches more.")
+                    setting("Parallel uploads", value: $model.settings.uploadConcurrency, in: 1...12, step: 1,
+                            format: { "\(Int($0))" },
+                            hint: "Tiles turned into RealityKit resources at once, off the main thread. Higher fills in faster.")
                     setting("Simultaneous loads", value: $model.settings.simultaneousLoads, in: 4...64, step: 2,
                             format: { "\(Int($0))" },
                             hint: "Concurrent tile requests.")

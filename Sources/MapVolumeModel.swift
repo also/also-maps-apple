@@ -70,6 +70,7 @@ final class MapVolumeModel {
     var volumeIsOpen = false
 
     private var streamer: CNTileStreamer?
+    private let tileUploader = TileUploader()
     private let tilesRoot = Entity()
     private var tileEntities: [UInt64: Entity] = [:]
     /// One anchor per host scene; `root` moves between them.
@@ -77,6 +78,8 @@ final class MapVolumeModel {
     /// Both scenes deliver frame updates; only the presented host's are used.
     private var updateSubscriptions: [MapPresentation.Host: EventSubscription] = [:]
     private var debugLogElapsed: Float = 0
+    /// Longest main-thread frame update in the current debug-log second.
+    private var debugSlowestTick: TimeInterval = 0
 
     // Gesture state.
     private var dragStartFocus: GeoCoordinate?
@@ -200,6 +203,8 @@ final class MapVolumeModel {
         radius = location.radius
 
         let streamer = CNTileStreamer(tilesetURL: url)
+        // Before the first update, so every tile goes through it.
+        streamer.tileLoadHandler = tileUploader.handler
         self.streamer = streamer
         applySettings()
         applyFocus()
@@ -330,6 +335,10 @@ final class MapVolumeModel {
 
     private func tick(deltaTime: Float) {
         guard let streamer else { return }
+        #if DEBUG
+        let tickStart = Date()
+        defer { debugSlowestTick = max(debugSlowestTick, Date().timeIntervalSince(tickStart)) }
+        #endif
         applyInput(deltaTime: Double(deltaTime))
         easeFocusHeight(deltaTime: Double(deltaTime))
         let frame = streamer.update(withDeltaTime: deltaTime)
@@ -338,14 +347,14 @@ final class MapVolumeModel {
             tileEntities.removeValue(forKey: id.uint64Value)?.removeFromParent()
         }
 
-        let deadline = Date().addingTimeInterval(settings.uploadBudgetMilliseconds / 1000)
         var visible = Set<UInt64>()
         frame.tileTransforms.withUnsafeBytes { buffer in
             let placements = buffer.bindMemory(to: simd_float4x4.self)
             for (index, tile) in frame.tilesToRender.enumerated() {
                 visible.insert(tile.identifier)
-                if tileEntities[tile.identifier] == nil, Date() < deadline {
-                    let entity = Self.makeEntity(for: tile)
+                // Built off the main thread before cesium-native counted the
+                // tile as loaded; here it only needs adding.
+                if tileEntities[tile.identifier] == nil, let entity = tile.renderObject as? Entity {
                     tileEntities[tile.identifier] = entity
                     tilesRoot.addChild(entity)
                 }
@@ -367,7 +376,8 @@ final class MapVolumeModel {
         debugLogElapsed += deltaTime
         if debugLogElapsed > 1 {
             debugLogElapsed = 0
-            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, focus \(String(format: "%.4f, %.4f", focus.latitude, focus.longitude)), height \(Int(focusHeight)) m")
+            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, focus \(String(format: "%.4f, %.4f", focus.latitude, focus.longitude)), height \(Int(focusHeight)) m, slowest update \(String(format: "%.1f", debugSlowestTick * 1000)) ms")
+            debugSlowestTick = 0
         }
         #endif
     }
@@ -664,6 +674,7 @@ final class MapVolumeModel {
         streamer.maximumSimultaneousTileLoads = Int(settings.simultaneousLoads)
         streamer.maximumCachedBytes = Int64(settings.cacheMegabytes * 1024 * 1024)
         streamer.forbidHoles = settings.forbidHoles
+        tileUploader.setConcurrency(Int(settings.uploadConcurrency))
     }
 
     private func clampRadius(_ value: Double) -> Double {
@@ -732,63 +743,5 @@ final class MapVolumeModel {
         ]
         return candidates.compactMap { $0?.trimmingCharacters(in: .whitespaces) }
             .first { !$0.isEmpty && !$0.hasPrefix("$(") && $0 != "YOUR_KEY_HERE" }
-    }
-
-    private static func makeEntity(for tile: CNTileMesh) -> Entity {
-        let entity = Entity()
-        for primitive in tile.primitives ?? [] {
-            do {
-                entity.addChild(try makeModel(for: primitive))
-            } catch {
-                print("[MapVolume] tile \(tile.identifier) primitive failed: \(error)")
-            }
-        }
-        tile.discardCPUData()
-        return entity
-    }
-
-    private static func makeModel(for primitive: CNPrimitive) throws -> ModelEntity {
-        var descriptor = MeshDescriptor(name: "tile")
-        descriptor.positions = MeshBuffer(primitive.positions.withUnsafeBytes {
-            Array($0.bindMemory(to: SIMD3<Float>.self))
-        })
-        if let texcoords = primitive.texcoords {
-            descriptor.textureCoordinates = MeshBuffer(texcoords.withUnsafeBytes {
-                Array($0.bindMemory(to: SIMD2<Float>.self))
-            })
-        }
-        descriptor.primitives = .triangles(primitive.indices.withUnsafeBytes {
-            Array($0.bindMemory(to: UInt32.self))
-        })
-        let mesh = try MeshResource.generate(from: [descriptor])
-
-        var material = UnlitMaterial()
-        material.faceCulling = .none
-        if let rgba = primitive.rgba, let image = makeImage(rgba: rgba,
-                                                            width: primitive.textureWidth,
-                                                            height: primitive.textureHeight) {
-            let texture = try TextureResource.generate(from: image,
-                                                       options: .init(semantic: .color))
-            material.color = .init(tint: .white, texture: .init(texture))
-        } else {
-            material.color = .init(tint: .gray)
-        }
-        return ModelEntity(mesh: mesh, materials: [material])
-    }
-
-    private static func makeImage(rgba: Data, width: Int, height: Int) -> CGImage? {
-        guard width > 0, height > 0,
-              let provider = CGDataProvider(data: rgba as CFData) else { return nil }
-        return CGImage(width: width,
-                       height: height,
-                       bitsPerComponent: 8,
-                       bitsPerPixel: 32,
-                       bytesPerRow: width * 4,
-                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                       provider: provider,
-                       decode: nil,
-                       shouldInterpolate: true,
-                       intent: .defaultIntent)
     }
 }

@@ -12,15 +12,15 @@ struct StreamingSettings: Codable, Equatable {
     /// Immersive only: how far past the volume-sized square to stream, as a
     /// multiple of its half-width. 1 = exactly what the volume shows.
     var immersiveRegion = 1.0
-    /// Main-thread time per frame for turning loaded tiles into RealityKit
-    /// entities; higher fills in faster but hitches more (see #1).
-    var uploadBudgetMilliseconds = 6.0
+    /// Tiles whose RealityKit resources are built at once (off the main
+    /// thread); higher fills in faster but uses more memory and CPU at once.
+    var uploadConcurrency = 4.0
     /// Concurrent tile requests.
     var simultaneousLoads = 20.0
     /// Loaded-tile cache budget.
     var cacheMegabytes = 512.0
-    /// Keep parent tiles until all their children have loaded.
-    var forbidHoles = false
+    /// Keep parent tiles until all their children are drawable.
+    var forbidHoles = true
 
     enum TurnPivot: String, Codable, CaseIterable {
         /// Turn and zoom about the map's centre (the focus point).
@@ -48,7 +48,7 @@ struct StreamingSettings: Codable, Equatable {
         detail = try c.decodeIfPresent(Double.self, forKey: .detail) ?? d.detail
         outerDetail = try c.decodeIfPresent(Double.self, forKey: .outerDetail) ?? d.outerDetail
         immersiveRegion = try c.decodeIfPresent(Double.self, forKey: .immersiveRegion) ?? d.immersiveRegion
-        uploadBudgetMilliseconds = try c.decodeIfPresent(Double.self, forKey: .uploadBudgetMilliseconds) ?? d.uploadBudgetMilliseconds
+        uploadConcurrency = try c.decodeIfPresent(Double.self, forKey: .uploadConcurrency) ?? d.uploadConcurrency
         simultaneousLoads = try c.decodeIfPresent(Double.self, forKey: .simultaneousLoads) ?? d.simultaneousLoads
         cacheMegabytes = try c.decodeIfPresent(Double.self, forKey: .cacheMegabytes) ?? d.cacheMegabytes
         forbidHoles = try c.decodeIfPresent(Bool.self, forKey: .forbidHoles) ?? d.forbidHoles

@@ -9,7 +9,8 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
   - a GCD task processor
   - an `IPrepareRendererResources` that flattens each tile's glTF into float positions (small offsets from the tile's own centre), UVs, indices and RGBA. Every frame each drawn tile gets a transform, computed in double, that places it relative to the current focus. There's no global origin, so precision is the same anywhere on Earth
   - an excluder that limits streaming to the square region shown, measured in the focus's own frame. The focus is a latitude/longitude, moved along the globe
-- `Sources/MapVolumeModel.swift`: runs one cesium-native update per RealityKit frame, turns new tiles into `ModelEntity`s with unlit textured materials, hides tiles that aren't selected, removes freed ones, and handles pan and zoom.
+- `Sources/TileUploader.swift`: builds each loaded tile's RealityKit meshes and textures asynchronously, a few at a time, before cesium-native counts the tile as loaded. Meshes are built off the main thread.
+- `Sources/MapVolumeModel.swift`: runs one cesium-native update per RealityKit frame, adds ready tile entities, hides tiles that aren't selected, removes freed ones, and handles navigation.
 - The Shared Space provides no head pose, so a synthetic camera in front of the volume, 45° up, drives level of detail.
 
 ## Setup
@@ -72,7 +73,7 @@ The slider button next to the mode picker opens a Tuning window with live stats 
 
 - **Region** (floor modes only): streams past the volume-sized square, up to 10× its half-width.
 - **Detail / Outer detail**: cesium-native's screen-space error thresholds, for tiles inside and outside the LOD camera's view. Most of an expanded region is outside that view, so Outer detail controls how sharp the far map is and how many tiles it costs.
-- **Upload budget, Simultaneous loads, Cache, Forbid holes**: trade-offs between fill speed, hitching and memory.
+- **Parallel uploads, Simultaneous loads, Cache, Forbid holes**: trade-offs between fill speed, memory and gaps while refining. Forbid holes is on by default: a tile counts as loaded only once it's drawable, so parents stay until all their children can replace them.
 - **Turn and zoom around**: the map's centre, or **where you are**: the ground beneath the viewer stays fixed, so zooming is moving straight up or down and turning is turning on the spot. The viewer is where you stood when floor mode opened, or, for the volume, just in front of it. This applies to every input: sticks, triggers, keys, pinch and twist. The pivot is full strength up to a 50 km half-width and fades to the map's centre by 500 km, where there's no meaningful "beneath you" on the curved map.
 - **Zoom-out limit**: 20 km to 10,000 km, on a logarithmic slider. Below 50 km the ground is placed by sampling terrain. Above 50 km it's placed by the Earth's curve, so sea level at the view's edges meets the floor, with no sampling. At hemisphere scale, tiles on the far side of the Earth are skipped.
 
@@ -80,5 +81,5 @@ The slider button next to the mode picker opens a Tuning window with live stats 
 
 ## Known gaps
 
-- Mesh and texture creation run on the main thread under a time budget per frame, which causes hitches while streaming (#1).
+- The main thread still spends 2–3 ms per frame on tile selection and on re-placing every tile, even when the view isn't moving.
 - Below 50 km, ground height is the lowest hit on a 3×3 grid of samples. In a region that's mostly hills with a little low ground, the hills can reach close to the top of the volume.

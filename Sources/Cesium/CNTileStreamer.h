@@ -31,10 +31,20 @@ NS_ASSUME_NONNULL_BEGIN
 /// tile, at which point its identifier shows up in CNFrame.freedTileIDs.
 @interface CNTileMesh : NSObject
 @property (nonatomic, readonly) uint64_t identifier;
-@property (nonatomic, readonly, nullable) NSArray<CNPrimitive *> *primitives;
-/// Drops the CPU-side buffers once Swift has uploaded them to RealityKit.
+@property (atomic, readonly, nullable) NSArray<CNPrimitive *> *primitives;
+/// Whatever the app built to draw this tile (a RealityKit entity), attached
+/// by the tile load handler before it completes.
+@property (atomic, strong, nullable) id renderObject;
+/// Drops the CPU-side buffers once they've been uploaded.
 - (void)discardCPUData;
 @end
+
+/// Called on a background thread for each newly loaded tile, before
+/// cesium-native counts it as loaded: build its renderer resources, attach
+/// them as `renderObject`, then call `completion` exactly once, from any
+/// thread. Until then the tile isn't drawable, so with forbidHoles cesium-
+/// native keeps its parent instead of leaving a gap.
+typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 
 @interface CNFrame : NSObject
 @property (nonatomic, readonly) NSArray<CNTileMesh *> *tilesToRender;
@@ -70,6 +80,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// focusRadius; larger streams beyond what the volume shows (ground sampling
 /// still uses focusRadius).
 @property (nonatomic) double streamingRadius;
+
+/// Prepares each tile's renderer resources off the main thread. Set it before
+/// the first update; without one, tiles count as loaded immediately.
+@property (nonatomic, copy, nullable) CNTileLoadHandler tileLoadHandler;
 
 // Live cesium-native TilesetOptions; changes apply on the next update.
 /// SSE threshold for tiles the LOD camera sees; lower = more detail. Default 16.
