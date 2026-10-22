@@ -65,7 +65,7 @@ The picker under the volume switches between the volume and floor modes. A floor
 
 Every mode streams the same tiles at the same level of detail, so a floor mode is the volume's map enlarged, at lower effective resolution. To try other sizes or placements, add entries to `MapPresentation.all`. `MAPVOLUME_PRESENTATION=floor5x` (or another mode's `id`) starts in that mode.
 
-Floor mode doesn't clip the map's edges the way the volume does, so whole tiles stick out past the region.
+Floor mode doesn't clip the map's edges the way the volume does, so whole tiles stick out past the region (#5).
 
 ## Tuning
 
@@ -81,5 +81,5 @@ The slider button next to the mode picker opens a Tuning window with live stats 
 
 ## Known gaps
 
-- The main thread still spends 2–3 ms per frame on tile selection and on re-placing every tile, even when the view isn't moving.
+- The main thread still spends 2–3 ms per frame on tile selection and on re-placing every tile, even when the view isn't moving (#2).
 - Below 50 km, ground height is the lowest hit on a 3×3 grid of samples. In a region that's mostly hills with a little low ground, the hills can reach close to the top of the volume.
