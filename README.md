@@ -35,6 +35,8 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 
    Run on the Apple Vision Pro simulator or a device running visionOS 26 or later.
 
+**Optional Cesium ion token:** to use the Cesium ion tile sources, add `CESIUM_ION_TOKEN` to `Config/Secrets.xcconfig`. Create the token with only the `assets:read` scope, restricted to the assets the app uses (96188, Cesium OSM Buildings).
+
 **Optional soundtrack:** put an MP3 at `Local/soundtrack.mp3`. `Local/` is gitignored, for assets that can't be published. If the file is there, the build bundles it and the app loops it quietly while active, with a mute button in the ornament. Without it, the app simply has no soundtrack.
 
 To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stream a public Cesium sample tileset instead. `MAPVOLUME_LAT`, `MAPVOLUME_LON`, `MAPVOLUME_RADIUS` and `MAPVOLUME_HEADING` also work on their own, to start somewhere other than the Ferry Building.
@@ -69,7 +71,7 @@ Floor mode doesn't clip the map's edges the way the volume does, so whole tiles 
 
 ## Tuning
 
-The slider button next to the mode picker opens a Tuning window with live stats and streaming settings. Changes apply immediately and are remembered between launches. **Reset to Defaults** returns to the hand-tuned baseline in `StreamingSettings.default`.
+The slider button next to the mode picker opens a Tuning window with live stats and streaming settings. **Tiles** picks the source: Google Photorealistic, or Cesium OSM Buildings via Cesium ion. OSM Buildings are untextured, so they're drawn lit, using their normals or flat normals computed per triangle. There's no terrain or imagery with them yet. Switching restarts streaming at the same view. Credits that carry a logo, such as Cesium ion's, show it in the attribution panel. Changes apply immediately and are remembered between launches. **Reset to Defaults** returns to the hand-tuned baseline in `StreamingSettings.default`.
 
 - **Region** (floor modes only): streams past the volume-sized square, up to 10× its half-width.
 - **Detail / Outer detail**: cesium-native's screen-space error thresholds, for tiles inside and outside the LOD camera's view. Most of an expanded region is outside that view, so Outer detail controls how sharp the far map is and how many tiles it costs.

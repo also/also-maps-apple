@@ -166,9 +166,20 @@ struct AttributionView: View {
                     .foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
-                Image("GoogleMapsLogo")
-                    .accessibilityLabel("Google Maps")
-                Text(model.credits.joined(separator: " · "))
+                if model.showsGoogleLogo {
+                    Image("GoogleMapsLogo")
+                        .accessibilityLabel("Google Maps")
+                }
+                // Providers' own logos (e.g. Cesium ion) come in their credits.
+                ForEach(model.credits.compactMap(\.imageURL), id: \.self) { url in
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFit()
+                    } placeholder: {
+                        Color.clear
+                    }
+                    .frame(height: 18)
+                }
+                Text(model.credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption)
                     .lineLimit(1)
             }

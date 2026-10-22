@@ -25,6 +25,19 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly, nullable) NSData *rgba;
 @property (nonatomic, readonly) NSInteger textureWidth;
 @property (nonatomic, readonly) NSInteger textureHeight;
+/// float4 per vertex: unit normals in ECEF axes. Present for untextured
+/// content (drawn lit); nil for textured photogrammetry (drawn unlit). Flat
+/// normals are computed when the glTF has none.
+@property (nonatomic, readonly, nullable) NSData *normals;
+/// glTF base colour factor (linear RGBA); multiplies the texture if any.
+@property (nonatomic, readonly) simd_float4 baseColor;
+@end
+
+/// One attribution to show: its text, and its logo if the provider gave one
+/// (e.g. the Cesium ion logo).
+@interface CNCredit : NSObject
+@property (nonatomic, readonly) NSString *text;
+@property (nonatomic, readonly, nullable) NSString *imageURL;
 @end
 
 /// A loaded tile's renderable content. Lives until cesium-native frees the
@@ -52,8 +65,8 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 /// placement in the focus's level frame (see the coordinates note above).
 @property (nonatomic, readonly) NSData *tileTransforms;
 @property (nonatomic, readonly) NSArray<NSNumber *> *freedTileIDs;
-/// Attribution strings (HTML stripped) that must be shown on screen.
-@property (nonatomic, readonly) NSArray<NSString *> *credits;
+/// Attributions that must be shown on screen.
+@property (nonatomic, readonly) NSArray<CNCredit *> *credits;
 /// 0–100.
 @property (nonatomic, readonly) float loadProgress;
 @end
@@ -61,6 +74,10 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 @interface CNTileStreamer : NSObject
 
 - (instancetype)initWithTilesetURL:(NSString *)url NS_DESIGNATED_INITIALIZER;
+/// A Cesium ion asset, e.g. 96188 (Cesium OSM Buildings). The token needs
+/// only the assets:read scope.
+- (instancetype)initWithIonAssetID:(int64_t)assetID
+                       accessToken:(NSString *)accessToken NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
 /// Centre of the region to stream, degrees. The streamed square, ground

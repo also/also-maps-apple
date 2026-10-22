@@ -20,6 +20,8 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>CesiumIonToken</key>
+	<string>$(CESIUM_ION_TOKEN)</string>
 	<key>GCSupportedGameControllers</key>
 	<array>
 		<dict>

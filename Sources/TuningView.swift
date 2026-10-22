@@ -18,6 +18,19 @@ struct TuningView: View {
                 }
 
                 Section {
+                    Picker("Tiles", selection: $model.settings.tileSource) {
+                        ForEach(TileSource.allCases) { source in
+                            Text(source.name).tag(source)
+                        }
+                    }
+                    Text("Cesium ion sources need CESIUM_ION_TOKEN in Config/Secrets.xcconfig.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Source")
+                }
+
+                Section {
                     setting("Region", value: $model.settings.immersiveRegion, in: 1...10, step: 0.5,
                             format: { String(format: "%.1f×", $0) },
                             hint: "How far past the volume-sized square to stream. Floor modes only.")

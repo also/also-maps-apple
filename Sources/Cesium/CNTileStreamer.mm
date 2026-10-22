@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -47,26 +48,46 @@ using CesiumGeospatial::Ellipsoid;
 @interface CNPrimitive ()
 - (instancetype)initWithPositions:(NSData *)positions
                         texcoords:(nullable NSData *)texcoords
+                          normals:(nullable NSData *)normals
                           indices:(NSData *)indices
                              rgba:(nullable NSData *)rgba
                             width:(NSInteger)width
-                           height:(NSInteger)height;
+                           height:(NSInteger)height
+                        baseColor:(simd_float4)baseColor;
 @end
 
 @implementation CNPrimitive
 - (instancetype)initWithPositions:(NSData *)positions
                         texcoords:(NSData *)texcoords
+                          normals:(NSData *)normals
                           indices:(NSData *)indices
                              rgba:(NSData *)rgba
                             width:(NSInteger)width
-                           height:(NSInteger)height {
+                           height:(NSInteger)height
+                        baseColor:(simd_float4)baseColor {
   if ((self = [super init])) {
     _positions = positions;
     _texcoords = texcoords;
+    _normals = normals;
     _indices = indices;
     _rgba = rgba;
     _textureWidth = width;
     _textureHeight = height;
+    _baseColor = baseColor;
+  }
+  return self;
+}
+@end
+
+@interface CNCredit ()
+- (instancetype)initWithText:(NSString *)text imageURL:(nullable NSString *)imageURL;
+@end
+
+@implementation CNCredit
+- (instancetype)initWithText:(NSString *)text imageURL:(NSString *)imageURL {
+  if ((self = [super init])) {
+    _text = text;
+    _imageURL = imageURL;
   }
   return self;
 }
@@ -101,7 +122,7 @@ using CesiumGeospatial::Ellipsoid;
 @property (nonatomic, readwrite) NSArray<CNTileMesh *> *tilesToRender;
 @property (nonatomic, readwrite) NSData *tileTransforms;
 @property (nonatomic, readwrite) NSArray<NSNumber *> *freedTileIDs;
-@property (nonatomic, readwrite) NSArray<NSString *> *credits;
+@property (nonatomic, readwrite) NSArray<CNCredit *> *credits;
 @property (nonatomic, readwrite) float loadProgress;
 @end
 
@@ -430,6 +451,81 @@ CNTileMesh* _Nullable buildTileMesh(
           return;
         }
 
+        simd_float4 baseColor = simd_make_float4(1, 1, 1, 1);
+        if (const Material* pMaterial =
+                Model::getSafe(&gltf.materials, primitive.material)) {
+          if (pMaterial->pbrMetallicRoughness &&
+              pMaterial->pbrMetallicRoughness->baseColorFactor.size() == 4) {
+            const auto& factor = pMaterial->pbrMetallicRoughness->baseColorFactor;
+            baseColor = simd_make_float4(
+                float(factor[0]), float(factor[1]), float(factor[2]), float(factor[3]));
+          }
+        }
+
+        // Untextured content (e.g. OSM buildings) is drawn lit, so it needs
+        // normals: the glTF's, rotated into ECEF axes, or else flat ones.
+        // Flat normals need each triangle to have its own vertices.
+        NSMutableData* normalData = nil;
+        if (!rgba) {
+          auto normalIt = primitive.attributes.find("NORMAL");
+          std::optional<AccessorView<glm::vec3>> normals;
+          if (normalIt != primitive.attributes.end()) {
+            normals.emplace(gltf, normalIt->second);
+            if (normals->status() != AccessorViewStatus::Valid ||
+                size_t(normals->size()) != vertexCount) {
+              normals.reset();
+            }
+          }
+          if (normals) {
+            const glm::dmat3 rotation(transform);
+            normalData =
+                [NSMutableData dataWithLength:vertexCount * 4 * sizeof(float)];
+            float* n = static_cast<float*>(normalData.mutableBytes);
+            for (size_t i = 0; i < vertexCount; ++i) {
+              const glm::dvec3 v = glm::normalize(
+                  rotation * glm::dvec3((*normals)[int64_t(i)]));
+              n[i * 4 + 0] = float(v.x);
+              n[i * 4 + 1] = float(v.y);
+              n[i * 4 + 2] = float(v.z);
+              n[i * 4 + 3] = 0.0f;
+            }
+          } else {
+            const float* source = static_cast<const float*>(positionData.bytes);
+            const size_t triangles = indices.size() / 3;
+            NSMutableData* flatPositions = [NSMutableData
+                dataWithLength:triangles * 3 * 4 * sizeof(float)];
+            normalData = [NSMutableData
+                dataWithLength:triangles * 3 * 4 * sizeof(float)];
+            float* fp = static_cast<float*>(flatPositions.mutableBytes);
+            float* fn = static_cast<float*>(normalData.mutableBytes);
+            std::vector<uint32_t> flatIndices(triangles * 3);
+            for (size_t t = 0; t < triangles; ++t) {
+              glm::vec3 corner[3];
+              for (int k = 0; k < 3; ++k) {
+                const float* q = source + size_t(indices[t * 3 + k]) * 4;
+                corner[k] = glm::vec3(q[0], q[1], q[2]);
+              }
+              glm::vec3 normal = glm::cross(corner[1] - corner[0], corner[2] - corner[0]);
+              const float length = glm::length(normal);
+              normal = length > 0 ? normal / length : glm::vec3(0, 0, 1);
+              for (int k = 0; k < 3; ++k) {
+                const size_t out = t * 3 + size_t(k);
+                fp[out * 4 + 0] = corner[k].x;
+                fp[out * 4 + 1] = corner[k].y;
+                fp[out * 4 + 2] = corner[k].z;
+                fp[out * 4 + 3] = 0.0f;
+                fn[out * 4 + 0] = normal.x;
+                fn[out * 4 + 1] = normal.y;
+                fn[out * 4 + 2] = normal.z;
+                fn[out * 4 + 3] = 0.0f;
+                flatIndices[out] = uint32_t(out);
+              }
+            }
+            positionData = flatPositions;
+            indices = std::move(flatIndices);
+          }
+        }
+
         NSData* indexData =
             [NSData dataWithBytes:indices.data()
                            length:indices.size() * sizeof(uint32_t)];
@@ -437,10 +533,12 @@ CNTileMesh* _Nullable buildTileMesh(
         NSInteger height = rgba && pImage ? pImage->height : 0;
         [primitives addObject:[[CNPrimitive alloc] initWithPositions:positionData
                                                            texcoords:texcoordData
+                                                             normals:normalData
                                                              indices:indexData
                                                                 rgba:rgba
                                                                width:width
-                                                              height:height]];
+                                                              height:height
+                                                           baseColor:baseColor]];
       });
 
   if (primitives.count == 0 || !center) {
@@ -589,6 +687,28 @@ public:
   }
 };
 
+/// The src of the first <img> in a credit's HTML, if any (e.g. the
+/// Cesium ion logo).
+NSString* _Nullable firstImageSource(const std::string& html) {
+  const size_t img = html.find("<img");
+  if (img == std::string::npos) {
+    return nil;
+  }
+  const size_t src = html.find("src=", img);
+  if (src == std::string::npos || src + 5 >= html.size()) {
+    return nil;
+  }
+  const char quote = html[src + 4];
+  if (quote != '"' && quote != '\'') {
+    return nil;
+  }
+  const size_t end = html.find(quote, src + 5);
+  if (end == std::string::npos) {
+    return nil;
+  }
+  return @(html.substr(src + 5, end - src - 5).c_str());
+}
+
 NSString* stripHTML(const std::string& html) {
   std::string text;
   text.reserve(html.size());
@@ -612,6 +732,13 @@ NSString* stripHTML(const std::string& html) {
 
 // ── CNTileStreamer ───────────────────────────────────────────────────────────
 
+@interface CNTileStreamer ()
+- (instancetype)initWithTilesetMaker:
+    (std::function<std::unique_ptr<Tileset>(
+         const TilesetExternals&,
+         const TilesetOptions&)>)makeTileset NS_DESIGNATED_INITIALIZER;
+@end
+
 @implementation CNTileStreamer {
   // AsyncSystem has no default constructor; constructed in init.
   std::optional<AsyncSystem> _asyncSystem;
@@ -622,6 +749,28 @@ NSString* stripHTML(const std::string& html) {
 }
 
 - (instancetype)initWithTilesetURL:(NSString*)url {
+  std::string tilesetURL = url.UTF8String;
+  return [self initWithTilesetMaker:[tilesetURL](
+                                        const TilesetExternals& externals,
+                                        const TilesetOptions& options) {
+    return std::make_unique<Tileset>(externals, tilesetURL, options);
+  }];
+}
+
+- (instancetype)initWithIonAssetID:(int64_t)assetID
+                       accessToken:(NSString*)accessToken {
+  std::string token = accessToken.UTF8String;
+  return [self initWithTilesetMaker:[assetID, token](
+                                        const TilesetExternals& externals,
+                                        const TilesetOptions& options) {
+    return std::make_unique<Tileset>(externals, assetID, token, options);
+  }];
+}
+
+- (instancetype)initWithTilesetMaker:
+    (std::function<std::unique_ptr<Tileset>(
+         const TilesetExternals&,
+         const TilesetOptions&)>)makeTileset {
   if ((self = [super init])) {
     // Without this, b3dm/glb/i3dm/pnts content is not recognised and the
     // loader falls back to parsing it as an external tileset.json.
@@ -656,7 +805,7 @@ NSString* stripHTML(const std::string& html) {
             details.message.c_str());
     };
 
-    _tileset = std::make_unique<Tileset>(externals, url.UTF8String, options);
+    _tileset = makeTileset(externals, options);
 
     _focusRadius = 500.0;
     _viewerDistance = 1200.0;
@@ -810,12 +959,14 @@ NSString* stripHTML(const std::string& html) {
     [freed addObject:@(identifier)];
   }
 
-  NSMutableArray<NSString*>* credits = [NSMutableArray array];
+  NSMutableArray<CNCredit*>* credits = [NSMutableArray array];
   const CesiumUtility::CreditsSnapshot& snapshot = _creditSystem->getSnapshot();
   for (const CesiumUtility::Credit& credit : snapshot.currentCredits) {
-    NSString* text = stripHTML(_creditSystem->getHtml(credit));
-    if (text.length > 0) {
-      [credits addObject:text];
+    const std::string& html = _creditSystem->getHtml(credit);
+    NSString* text = stripHTML(html);
+    NSString* image = firstImageSource(html);
+    if (text.length > 0 || image) {
+      [credits addObject:[[CNCredit alloc] initWithText:text imageURL:image]];
     }
   }
 

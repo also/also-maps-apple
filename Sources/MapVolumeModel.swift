@@ -32,6 +32,9 @@ final class MapVolumeModel {
         didSet {
             guard settings != oldValue else { return }
             settings.save()
+            if settings.tileSource != oldValue.tileSource {
+                restartStreaming()
+            }
             if radius != clampRadius(radius) {
                 radius = clampRadius(radius)
                 sampleGround()
@@ -59,7 +62,15 @@ final class MapVolumeModel {
         }
     }
 
-    private(set) var credits: [String] = []
+    struct Credit: Hashable {
+        var text: String
+        /// A provider logo, e.g. Cesium ion's.
+        var imageURL: URL?
+    }
+    private(set) var credits: [Credit] = []
+    /// Google's terms need its logo shown with its tiles; other sources bring
+    /// their own logos in their credits.
+    private(set) var showsGoogleLogo = false
     private(set) var loadProgress: Float = 0
     private(set) var statusMessage: String?
     private(set) var keyboardConnected = false
@@ -175,8 +186,11 @@ final class MapVolumeModel {
         gestureTarget.position = presentation.groundPosition
     }
 
+    private var started = false
+
     private func start() {
-        guard streamer == nil, statusMessage == nil else { return }
+        guard !started else { return }
+        started = true
 
         // Debug overrides: MAPVOLUME_LAT/_LON/_RADIUS pick the starting view, and
         // MAPVOLUME_TILESET_URL streams any 3D Tiles tileset instead of
@@ -191,29 +205,61 @@ final class MapVolumeModel {
         focus = GeoMath.offset(GeoCoordinate(latitude: location.latitude, longitude: location.longitude),
                                east: (env["MAPVOLUME_FOCUS_EAST_KM"].flatMap(Double.init) ?? 0) * 1000,
                                north: (env["MAPVOLUME_FOCUS_NORTH_KM"].flatMap(Double.init) ?? 0) * 1000)
-        let url: String
-        if let override = env["MAPVOLUME_TILESET_URL"], !override.isEmpty {
-            url = override
-        } else if let key = Self.apiKey() {
-            url = "https://tile.googleapis.com/v1/3dtiles/root.json?key=\(key)"
-        } else {
-            statusMessage = "Set GOOGLE_MAPS_API_KEY in Config/Secrets.xcconfig (or the scheme environment)."
-            return
-        }
         radius = location.radius
+        startStreaming()
 
-        let streamer = CNTileStreamer(tilesetURL: url)
+        // Debug: MAPVOLUME_PLACE=<id from Places.json> starts at that place.
+        if let id = env["MAPVOLUME_PLACE"], let place = PlaceLibrary.all.first(where: { $0.id == id }) {
+            go(to: place)
+        }
+    }
+
+    // MARK: Streaming
+
+    /// Creates the streamer for the current tile source, or explains which
+    /// secret is missing.
+    private func startStreaming() {
+        let env = ProcessInfo.processInfo.environment
+        let streamer: CNTileStreamer
+        showsGoogleLogo = false
+        // Debug: MAPVOLUME_TILESET_URL streams any 3D Tiles tileset, no key.
+        if let override = env["MAPVOLUME_TILESET_URL"], !override.isEmpty {
+            streamer = CNTileStreamer(tilesetURL: override)
+        } else if let assetID = settings.tileSource.ionAssetID {
+            guard let token = Self.secret(environment: "CESIUM_ION_TOKEN", infoKey: "CesiumIonToken") else {
+                statusMessage = "Set CESIUM_ION_TOKEN in Config/Secrets.xcconfig (or the scheme environment)."
+                return
+            }
+            streamer = CNTileStreamer(ionAssetID: assetID, accessToken: token)
+        } else {
+            guard let key = Self.secret(environment: "GOOGLE_MAPS_API_KEY", infoKey: "GoogleMapsAPIKey") else {
+                statusMessage = "Set GOOGLE_MAPS_API_KEY in Config/Secrets.xcconfig (or the scheme environment)."
+                return
+            }
+            streamer = CNTileStreamer(tilesetURL: "https://tile.googleapis.com/v1/3dtiles/root.json?key=\(key)")
+            showsGoogleLogo = true
+        }
+        statusMessage = nil
         // Before the first update, so every tile goes through it.
         streamer.tileLoadHandler = tileUploader.handler
         self.streamer = streamer
         applySettings()
         applyFocus()
         sampleGround()
+    }
 
-        // Debug: MAPVOLUME_PLACE=<id from Places.json> starts at that place.
-        if let id = env["MAPVOLUME_PLACE"], let place = PlaceLibrary.all.first(where: { $0.id == id }) {
-            go(to: place)
-        }
+    /// Drops everything loaded from the old source and streams the new one
+    /// at the same view.
+    private func restartStreaming() {
+        guard started else { return }
+        if isFlying { cancelFlying() }
+        for entity in tileEntities.values { entity.removeFromParent() }
+        tileEntities = [:]
+        credits = []
+        loadProgress = 0
+        stats = Stats()
+        streamer = nil
+        startStreaming()
     }
 
     // MARK: Places
@@ -367,7 +413,8 @@ final class MapVolumeModel {
             entity.isEnabled = visible.contains(id)
         }
 
-        if credits != frame.credits { credits = frame.credits }
+        let newCredits = frame.credits.map { Credit(text: $0.text, imageURL: $0.imageURL.flatMap(URL.init(string:))) }
+        if credits != newCredits { credits = newCredits }
         loadProgress = frame.loadProgress
         let newStats = Stats(renderedTiles: frame.tilesToRender.count, entities: tileEntities.count)
         if stats != newStats { stats = newStats }
@@ -736,12 +783,14 @@ final class MapVolumeModel {
         applyFocus()
     }
 
-    private static func apiKey() -> String? {
+    /// A secret from the scheme environment or, via Info.plist, from
+    /// Config/Secrets.xcconfig; nil if unset or still a placeholder.
+    private static func secret(environment: String, infoKey: String) -> String? {
         let candidates = [
-            ProcessInfo.processInfo.environment["GOOGLE_MAPS_API_KEY"],
-            Bundle.main.object(forInfoDictionaryKey: "GoogleMapsAPIKey") as? String,
+            ProcessInfo.processInfo.environment[environment],
+            Bundle.main.object(forInfoDictionaryKey: infoKey) as? String,
         ]
         return candidates.compactMap { $0?.trimmingCharacters(in: .whitespaces) }
-            .first { !$0.isEmpty && !$0.hasPrefix("$(") && $0 != "YOUR_KEY_HERE" }
+            .first { !$0.isEmpty && !$0.hasPrefix("$(") && !$0.hasPrefix("YOUR_") }
     }
 }

@@ -35,6 +35,8 @@ struct StreamingSettings: Codable, Equatable {
     var keyboardTurnPivot = TurnPivot.center
     /// Largest view half-width zoom-out allows, kilometres.
     var zoomOutLimitKilometres = 20.0
+    /// Where the tiles come from.
+    var tileSource = TileSource.googlePhotorealistic
 
     static let `default` = StreamingSettings()
 
@@ -54,6 +56,7 @@ struct StreamingSettings: Codable, Equatable {
         forbidHoles = try c.decodeIfPresent(Bool.self, forKey: .forbidHoles) ?? d.forbidHoles
         keyboardTurnPivot = try c.decodeIfPresent(TurnPivot.self, forKey: .keyboardTurnPivot) ?? d.keyboardTurnPivot
         zoomOutLimitKilometres = try c.decodeIfPresent(Double.self, forKey: .zoomOutLimitKilometres) ?? d.zoomOutLimitKilometres
+        tileSource = (try? c.decodeIfPresent(TileSource.self, forKey: .tileSource)) ?? d.tileSource
     }
 
     private static let defaultsKey = "StreamingSettings"

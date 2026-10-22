@@ -38,6 +38,7 @@ targets:
       properties:
         CFBundleDisplayName: Map Volume
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
+        CesiumIonToken: $(CESIUM_ION_TOKEN)
         # Game controllers drive the map (MapInput) rather than system navigation.
         GCSupportsControllerUserInteraction: true
         GCSupportedGameControllers:
