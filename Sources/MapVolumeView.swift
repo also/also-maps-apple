@@ -5,6 +5,7 @@ struct MapVolumeView: View {
     static let windowID = "volume"
 
     @Environment(MapVolumeModel.self) private var model
+    @Environment(Soundtrack.self) private var soundtrack
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @Environment(\.openWindow) private var openWindow
@@ -33,6 +34,13 @@ struct MapVolumeView: View {
                     }
                     .labelStyle(.iconOnly)
                     .help("Streaming settings")
+                    if soundtrack.isAvailable {
+                        Button(soundtrack.isMuted ? "Unmute Soundtrack" : "Mute Soundtrack",
+                               systemImage: soundtrack.isMuted ? "speaker.slash" : "speaker.wave.2") {
+                            soundtrack.isMuted.toggle()
+                        }
+                        .labelStyle(.iconOnly)
+                    }
                 }
                 if model.presentation.host == .volume {
                     AttributionView()

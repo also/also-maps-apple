@@ -34,6 +34,8 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 
    Run on the Apple Vision Pro simulator or a device running visionOS 26 or later.
 
+**Optional soundtrack:** put an MP3 at `Local/soundtrack.mp3`. `Local/` is gitignored, for assets that can't be published. If the file is there, the build bundles it and the app loops it quietly while active, with a mute button in the ornament. Without it, the app simply has no soundtrack.
+
 To test without a key, tick the `MAPVOLUME_*` variables in the scheme. They stream a public Cesium sample tileset instead. `MAPVOLUME_LAT`, `MAPVOLUME_LON`, `MAPVOLUME_RADIUS` and `MAPVOLUME_HEADING` also work on their own, to start somewhere other than the Ferry Building.
 
 ## Controls

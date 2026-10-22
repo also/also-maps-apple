@@ -3,3 +3,4 @@ MapVolume.xcodeproj/
 build/
 DerivedData/
 Vendor/CesiumNative.xcframework/
+Local/

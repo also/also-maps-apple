@@ -45,8 +45,23 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
           UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleVolumetricApplication
+    postBuildScripts:
+      # Local/ is gitignored, for assets that can't be published. Bundle the
+      # soundtrack only if it's there; without it the app has no soundtrack.
+      - name: Copy optional soundtrack
+        basedOnDependencyAnalysis: false
+        script: |
+          src="${SRCROOT}/Local/soundtrack.mp3"
+          dst="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/soundtrack.mp3"
+          if [ -f "$src" ]; then
+            cp "$src" "$dst"
+          else
+            rm -f "$dst"
+          fi
     settings:
       base:
+        # The soundtrack script reads an optional, undeclared file.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/MapVolume-Bridging-Header.h
         CLANG_CXX_LANGUAGE_STANDARD: c++20
