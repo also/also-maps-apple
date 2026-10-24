@@ -5,8 +5,10 @@ options:
     visionOS: "26.0"
     macOS: "26.0"
 packages:
+  # cesium-native, prebuilt: https://github.com/also/cesium-native-xcframework
   CesiumNative:
-    path: ../cesium-native-xcframework
+    url: https://github.com/also/cesium-native-xcframework
+    exactVersion: 0.64.0-1
 settingGroups:
   # Compiling against cesium-native: its headers, and the targets that include
   # CNTileStreamer.mm.
@@ -89,9 +91,8 @@ targets:
 
   # The macOS app: same bundle ID as the visionOS app, so both ship as one App
   # Store listing (universal purchase). A window only for now; it shares the
-  # platform-neutral sources and will gain the rest as they're made to build on
-  # macOS. Not linked against CesiumNative yet: Vendor/ needs a macOS slice
-  # (see the cesium-native-xcframework `macos` branch).
+  # platform-neutral sources and the cesium-native bridge, and will gain the
+  # rest as they're made to build on macOS.
   MapVolumeMac:
     type: application
     platform: macOS
