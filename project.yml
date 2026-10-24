@@ -4,6 +4,27 @@ options:
   deploymentTarget:
     visionOS: "26.0"
     macOS: "26.0"
+packages:
+  CesiumNative:
+    path: ../cesium-native-xcframework
+settingGroups:
+  # Compiling against cesium-native: its headers, and the targets that include
+  # CNTileStreamer.mm.
+  CesiumBridge:
+    CLANG_CXX_LANGUAGE_STANDARD: c++20
+    # cesium-native's headers trip -Wdocumentation; not ours to fix.
+    CLANG_WARN_DOCUMENTATION_COMMENTS: NO
+    # cesium-native's exported INTERFACE_COMPILE_DEFINITIONS; its headers
+    # (and glm/spdlog/async++ layouts) must be seen the same way here.
+    GCC_PREPROCESSOR_DEFINITIONS:
+      - $(inherited)
+      - GLM_FORCE_XYZW_ONLY
+      - GLM_FORCE_EXPLICIT_CTOR
+      - GLM_FORCE_INTRINSICS
+      - GLM_ENABLE_EXPERIMENTAL
+      - LIBASYNC_STATIC
+      - SPDLOG_COMPILED_LIB
+      - SPDLOG_FMT_EXTERNAL
 configFiles:
   Debug: Config/App.xcconfig
   Release: Config/App.xcconfig
@@ -29,9 +50,7 @@ targets:
     sources:
       - path: Sources
     dependencies:
-      # Not committed; see README for how to build it.
-      - framework: Vendor/CesiumNative.xcframework
-        embed: false
+      - package: CesiumNative
       - sdk: libsqlite3.tbd
       - sdk: libc++.tbd
     info:
@@ -61,25 +80,12 @@ targets:
             rm -f "$dst"
           fi
     settings:
+      groups: [CesiumBridge]
       base:
         # The soundtrack script reads an optional, undeclared file.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/MapVolume-Bridging-Header.h
-        CLANG_CXX_LANGUAGE_STANDARD: c++20
-        # cesium-native's headers trip -Wdocumentation; not ours to fix.
-        CLANG_WARN_DOCUMENTATION_COMMENTS: NO
-        # cesium-native's exported INTERFACE_COMPILE_DEFINITIONS; its headers
-        # (and glm/spdlog/async++ layouts) must be seen the same way here.
-        GCC_PREPROCESSOR_DEFINITIONS:
-          - $(inherited)
-          - GLM_FORCE_XYZW_ONLY
-          - GLM_FORCE_EXPLICIT_CTOR
-          - GLM_FORCE_INTRINSICS
-          - GLM_ENABLE_EXPERIMENTAL
-          - LIBASYNC_STATIC
-          - SPDLOG_COMPILED_LIB
-          - SPDLOG_FMT_EXTERNAL
 
   # The macOS app: same bundle ID as the visionOS app, so both ship as one App
   # Store listing (universal purchase). A window only for now; it shares the
@@ -97,6 +103,12 @@ targets:
           - StreamingSettings.swift
           - TileSource.swift
           - Places
+          - Cesium/CNTileStreamer.h
+          - Cesium/CNTileStreamer.mm
+    dependencies:
+      - package: CesiumNative
+      - sdk: libsqlite3.tbd
+      - sdk: libc++.tbd
     entitlements:
       path: SourcesMac/MapVolumeMac.entitlements
       properties:
@@ -110,6 +122,7 @@ targets:
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         LSApplicationCategoryType: public.app-category.navigation
     settings:
+      groups: [CesiumBridge]
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ryanberdeen.MapVolume
         PRODUCT_NAME: MapVolume
