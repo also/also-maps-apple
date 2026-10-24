@@ -15,18 +15,9 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 
 ## Setup
 
-1. **Build the xcframework.** Use the `visionos` branch of [also/cesium-native-xcframework](https://github.com/also/cesium-native-xcframework/tree/visionos), checked out next to this repo, then copy the result in:
+1. **Add an API key.** Copy `Config/Secrets.example.xcconfig` to `Config/Secrets.xcconfig` and set `GOOGLE_MAPS_API_KEY`. The key needs the Map Tiles API enabled. Restrict it to iOS apps with bundle ID `com.ryanberdeen.MapVolume`; the app sends `X-Ios-Bundle-Identifier`. You can also set `GOOGLE_MAPS_API_KEY` in the scheme's environment.
 
-   ```
-   ../cesium-native-xcframework/build-xcframework.sh --slices "visionos visionos-simulator"
-   cp -R ~/.cache/cesium-native-xcframework/out/CesiumNative.xcframework Vendor/
-   ```
-
-   The build needs cmake and ninja, plus Xcode with the visionOS SDK. If `xcode-select` points at the Command Line Tools, prefix the command with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
-
-2. **Add an API key.** Copy `Config/Secrets.example.xcconfig` to `Config/Secrets.xcconfig` and set `GOOGLE_MAPS_API_KEY`. The key needs the Map Tiles API enabled. Restrict it to iOS apps with bundle ID `com.ryanberdeen.MapVolume`; the app sends `X-Ios-Bundle-Identifier`. You can also set `GOOGLE_MAPS_API_KEY` in the scheme's environment.
-
-3. **Generate the project and run it.**
+2. **Generate the project and run it.**
 
    ```
    xcodegen generate
@@ -36,6 +27,8 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
    Run on the Apple Vision Pro simulator or a device running visionOS 26 or later.
 
 **Optional Cesium ion token:** to use the Cesium ion tile sources, add `CESIUM_ION_TOKEN` to `Config/Secrets.xcconfig`. Create the token with only the `assets:read` scope, restricted to the assets the app uses (1, Cesium World Terrain, and 96188, Cesium OSM Buildings).
+
+**cesium-native** comes prebuilt as a Swift package ([also/cesium-native-xcframework](https://github.com/also/cesium-native-xcframework)); Xcode downloads it on first build. To work on it locally, build it there (see its README), symlink the result next to its `Package.swift`, and change `CesiumNative` under `packages:` in `project.yml` to `path: ../cesium-native-xcframework`.
 
 **Optional soundtrack:** put an MP3 at `Local/soundtrack.mp3`. `Local/` is gitignored, for assets that can't be published. If the file is there, the build bundles it and the app loops it quietly while active, with a mute button in the ornament. Without it, the app simply has no soundtrack.
 

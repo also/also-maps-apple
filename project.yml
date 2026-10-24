@@ -3,6 +3,11 @@ options:
   bundleIdPrefix: com.ryanberdeen
   deploymentTarget:
     visionOS: "26.0"
+packages:
+  # cesium-native, prebuilt: https://github.com/also/cesium-native-xcframework
+  CesiumNative:
+    url: https://github.com/also/cesium-native-xcframework
+    exactVersion: 0.64.0-1
 configFiles:
   Debug: Config/App.xcconfig
   Release: Config/App.xcconfig
@@ -28,9 +33,7 @@ targets:
     sources:
       - path: Sources
     dependencies:
-      # Not committed; see README for how to build it.
-      - framework: Vendor/CesiumNative.xcframework
-        embed: false
+      - package: CesiumNative
       - sdk: libsqlite3.tbd
       - sdk: libc++.tbd
     info:
