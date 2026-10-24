@@ -1,7 +1,6 @@
 import CoreGraphics
 import Foundation
 import RealityKit
-import UIKit
 
 /// Turns tiles cesium-native has loaded into RealityKit entities without
 /// stalling the main thread, and only then lets cesium-native count them as
@@ -87,10 +86,11 @@ final class TileUploader: @unchecked Sendable {
         tile.renderObject = entity
     }
 
-    /// glTF base colours are linear; UIColor components are sRGB.
-    private static func color(_ linear: SIMD4<Float>) -> UIColor {
+    /// glTF base colours are linear; Material.Color (UIColor or NSColor)
+    /// components are sRGB.
+    private static func color(_ linear: SIMD4<Float>) -> Material.Color {
         func encode(_ c: Float) -> CGFloat { CGFloat(pow(max(c, 0), 1 / 2.2)) }
-        return UIColor(red: encode(linear.x), green: encode(linear.y), blue: encode(linear.z), alpha: CGFloat(linear.w))
+        return Material.Color(red: encode(linear.x), green: encode(linear.y), blue: encode(linear.z), alpha: CGFloat(linear.w))
     }
 
     private static func descriptor(for primitive: CNPrimitive) -> MeshDescriptor {

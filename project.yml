@@ -90,9 +90,9 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: Sources/MapVolume-Bridging-Header.h
 
   # The macOS app: same bundle ID as the visionOS app, so both ship as one App
-  # Store listing (universal purchase). A window only for now; it shares the
-  # platform-neutral sources and the cesium-native bridge, and will gain the
-  # rest as they're made to build on macOS.
+  # Store listing (universal purchase). For now a static view of the map; it
+  # shares the streaming layer (TileStreaming and below) and the cesium-native
+  # bridge, and will gain the rest as they're made to build on macOS.
   MapVolumeMac:
     type: application
     platform: macOS
@@ -100,9 +100,12 @@ targets:
       - path: SourcesMac
       - path: Sources
         includes:
+          - Assets.xcassets
           - GeoMath.swift
           - StreamingSettings.swift
           - TileSource.swift
+          - TileStreaming.swift
+          - TileUploader.swift
           - Places
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
@@ -128,3 +131,4 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ryanberdeen.MapVolume
         PRODUCT_NAME: MapVolume
         SWIFT_VERSION: "5.0"
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/MapVolume-Bridging-Header.h
