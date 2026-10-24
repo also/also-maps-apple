@@ -4,8 +4,8 @@ import RealityKit
 import SwiftUI
 import UIKit
 
-/// Owns the cesium-native streamer and mirrors its selected tiles as
-/// RealityKit entities under `root`.
+/// Navigation and presentation for the map: where it's focused, how it's
+/// turned, zoomed and placed in each host scene. Tiles come from `streaming`.
 @MainActor
 @Observable
 final class MapVolumeModel {
@@ -28,28 +28,28 @@ final class MapVolumeModel {
     /// Invisible box that receives drag / magnify gestures.
     let gestureTarget = Entity()
 
-    var settings = StreamingSettings.load() {
+    /// The tiles, their credits and stats.
+    let streaming: TileStreaming
+
+    var settings: StreamingSettings {
         didSet {
             guard settings != oldValue else { return }
             settings.save()
-            if settings.tileSource != oldValue.tileSource {
-                restartStreaming()
+            let sourceChanged = settings.tileSource != oldValue.tileSource
+            // Restarting drops the scene Fly was moving.
+            if sourceChanged, isFlying { cancelFlying() }
+            streaming.settings = settings
+            if sourceChanged {
+                sampleGround()
             }
             if radius != clampRadius(radius) {
                 radius = clampRadius(radius)
                 sampleGround()
             }
-            applySettings()
             layOutGestureTarget()
             applyFocus()
         }
     }
-
-    struct Stats: Equatable {
-        var renderedTiles = 0
-        var entities = 0
-    }
-    private(set) var stats = Stats()
 
     var presentation = MapPresentation.volume {
         didSet {
@@ -62,17 +62,6 @@ final class MapVolumeModel {
         }
     }
 
-    struct Credit: Hashable {
-        var text: String
-        /// A provider logo, e.g. Cesium ion's.
-        var imageURL: URL?
-    }
-    private(set) var credits: [Credit] = []
-    /// Google's terms need its logo shown with its tiles; other sources bring
-    /// their own logos in their credits.
-    private(set) var showsGoogleLogo = false
-    private(set) var loadProgress: Float = 0
-    private(set) var statusMessage: String?
     private(set) var keyboardConnected = false
     /// Name of the connected game controller, if any.
     private(set) var controllerName: String?
@@ -80,17 +69,10 @@ final class MapVolumeModel {
     /// it can be closed while the immersive space stays up.
     var volumeIsOpen = false
 
-    private var streamer: CNTileStreamer?
-    private let tileUploader = TileUploader()
-    private let tilesRoot = Entity()
-    private var tileEntities: [UInt64: Entity] = [:]
     /// One anchor per host scene; `root` moves between them.
     private var anchors: [MapPresentation.Host: Entity] = [:]
     /// Both scenes deliver frame updates; only the presented host's are used.
     private var updateSubscriptions: [MapPresentation.Host: EventSubscription] = [:]
-    private var debugLogElapsed: Float = 0
-    /// Longest main-thread frame update in the current debug-log second.
-    private var debugSlowestTick: TimeInterval = 0
 
     // Gesture state.
     private var dragStartFocus: GeoCoordinate?
@@ -132,10 +114,14 @@ final class MapVolumeModel {
     private var currentPlaceIndex: Int?
 
     init() {
+        let settings = StreamingSettings.load()
+        self.settings = settings
+        let start = GeoCoordinate(latitude: Self.defaultLocation.latitude, longitude: Self.defaultLocation.longitude)
+        streaming = TileStreaming(anchor: .init(coordinate: start), settings: settings)
         root.addChild(debugMarkers)
         debugMarkers.isEnabled = false
         root.addChild(flyRoot)
-        flyRoot.addChild(tilesRoot)
+        flyRoot.addChild(streaming.tilesRoot)
         // Indirect only (look + pinch). Allowing direct input meant hands that
         // were merely inside the map's area counted as touching it and
         // dragged the map with no pinch at all.
@@ -208,62 +194,14 @@ final class MapVolumeModel {
                                east: (env["MAPVOLUME_FOCUS_EAST_KM"].flatMap(Double.init) ?? 0) * 1000,
                                north: (env["MAPVOLUME_FOCUS_NORTH_KM"].flatMap(Double.init) ?? 0) * 1000)
         radius = location.radius
-        startStreaming()
+        streaming.start()
+        applyFocus()
+        sampleGround()
 
         // Debug: MAPVOLUME_PLACE=<id from Places.json> starts at that place.
         if let id = env["MAPVOLUME_PLACE"], let place = PlaceLibrary.all.first(where: { $0.id == id }) {
             go(to: place)
         }
-    }
-
-    // MARK: Streaming
-
-    /// Creates the streamer for the current tile source, or explains which
-    /// secret is missing.
-    private func startStreaming() {
-        let env = ProcessInfo.processInfo.environment
-        let streamer: CNTileStreamer
-        showsGoogleLogo = false
-        // Debug: MAPVOLUME_TILESET_URL streams any 3D Tiles tileset, no key.
-        if let override = env["MAPVOLUME_TILESET_URL"], !override.isEmpty {
-            streamer = CNTileStreamer(tilesetURL: override)
-        } else if let assetID = settings.tileSource.ionAssetID {
-            guard let token = Self.secret(environment: "CESIUM_ION_TOKEN", infoKey: "CesiumIonToken") else {
-                statusMessage = "Set CESIUM_ION_TOKEN in Config/Secrets.xcconfig (or the scheme environment)."
-                return
-            }
-            streamer = CNTileStreamer(ionAssetID: assetID, accessToken: token,
-                                      smoothNormals: settings.tileSource.smoothNormals)
-        } else {
-            guard let key = Self.secret(environment: "GOOGLE_MAPS_API_KEY", infoKey: "GoogleMapsAPIKey") else {
-                statusMessage = "Set GOOGLE_MAPS_API_KEY in Config/Secrets.xcconfig (or the scheme environment)."
-                return
-            }
-            streamer = CNTileStreamer(tilesetURL: "https://tile.googleapis.com/v1/3dtiles/root.json?key=\(key)")
-            showsGoogleLogo = true
-        }
-        statusMessage = nil
-        tileUploader.untexturedColor = settings.tileSource.untexturedColor
-        // Before the first update, so every tile goes through it.
-        streamer.tileLoadHandler = tileUploader.handler
-        self.streamer = streamer
-        applySettings()
-        applyFocus()
-        sampleGround()
-    }
-
-    /// Drops everything loaded from the old source and streams the new one
-    /// at the same view.
-    private func restartStreaming() {
-        guard started else { return }
-        if isFlying { cancelFlying() }
-        for entity in tileEntities.values { entity.removeFromParent() }
-        tileEntities = [:]
-        credits = []
-        loadProgress = 0
-        stats = Stats()
-        streamer = nil
-        startStreaming()
     }
 
     // MARK: Places
@@ -386,53 +324,10 @@ final class MapVolumeModel {
     // MARK: Frame loop
 
     private func tick(deltaTime: Float) {
-        guard let streamer else { return }
-        #if DEBUG
-        let tickStart = Date()
-        defer { debugSlowestTick = max(debugSlowestTick, Date().timeIntervalSince(tickStart)) }
-        #endif
+        guard streaming.isStreaming else { return }
         applyInput(deltaTime: Double(deltaTime))
         easeFocusHeight(deltaTime: Double(deltaTime))
-        let frame = streamer.update(withDeltaTime: deltaTime)
-
-        for id in frame.freedTileIDs {
-            tileEntities.removeValue(forKey: id.uint64Value)?.removeFromParent()
-        }
-
-        var visible = Set<UInt64>()
-        frame.tileTransforms.withUnsafeBytes { buffer in
-            let placements = buffer.bindMemory(to: simd_float4x4.self)
-            for (index, tile) in frame.tilesToRender.enumerated() {
-                visible.insert(tile.identifier)
-                // Built off the main thread before cesium-native counted the
-                // tile as loaded; here it only needs adding.
-                if tileEntities[tile.identifier] == nil, let entity = tile.renderObject as? Entity {
-                    tileEntities[tile.identifier] = entity
-                    tilesRoot.addChild(entity)
-                }
-                // Placed relative to the current focus every frame, so there's
-                // no fixed origin for precision to drift away from.
-                tileEntities[tile.identifier]?.transform = Transform(matrix: placements[index])
-            }
-        }
-        for (id, entity) in tileEntities {
-            entity.isEnabled = visible.contains(id)
-        }
-
-        let newCredits = frame.credits.map { Credit(text: $0.text, imageURL: $0.imageURL.flatMap(URL.init(string:))) }
-        if credits != newCredits { credits = newCredits }
-        loadProgress = frame.loadProgress
-        let newStats = Stats(renderedTiles: frame.tilesToRender.count, entities: tileEntities.count)
-        if stats != newStats { stats = newStats }
-
-        #if DEBUG
-        debugLogElapsed += deltaTime
-        if debugLogElapsed > 1 {
-            debugLogElapsed = 0
-            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, focus \(String(format: "%.4f, %.4f", focus.latitude, focus.longitude)), height \(Int(focusHeight)) m, slowest update \(String(format: "%.1f", debugSlowestTick * 1000)) ms")
-            debugSlowestTick = 0
-        }
-        #endif
+        streaming.update(deltaTime: deltaTime)
     }
 
     // MARK: Keyboard and controller
@@ -839,16 +734,18 @@ final class MapVolumeModel {
     private var sceneScale: Double { streamingScale * presentation.magnification }
 
     private func applyFocus() {
-        guard let streamer else { return }
-        streamer.focusLatitude = focus.latitude
-        streamer.focusLongitude = focus.longitude
-        streamer.focusHeight = focusHeight
-        streamer.focusRadius = radius
-        // Only the floor modes stream past the volume-sized square; the volume
-        // would clip the extra away anyway.
-        streamer.streamingRadius = presentation.host == .immersive ? radius * settings.immersiveRegion : 0
-        streamer.viewerDistance = Self.viewerDistanceInScene / streamingScale
-        streamer.viewHeading = heading
+        guard streaming.isStreaming else { return }
+        streaming.anchor = .init(coordinate: focus, height: focusHeight)
+        streaming.view = .init(
+            heading: heading,
+            // The LOD camera looks down more steeply as the map turns to face
+            // you: 45° when flat, straight down when fully tilted.
+            elevation: .pi / 4 + .pi / 4 * Double(farTilt),
+            distance: Self.viewerDistanceInScene / streamingScale,
+            radius: radius,
+            // Only the floor modes stream past the volume-sized square; the
+            // volume would clip the extra away anyway.
+            streamingRadius: presentation.host == .immersive ? radius * settings.immersiveRegion : 0)
 
         // Each tile entity is placed by the streamer in the focus's level
         // frame (x east, y up, z south, focus ground point at 0). Here that
@@ -859,23 +756,10 @@ final class MapVolumeModel {
         let placement = Transform(scale: SIMD3(repeating: s),
                                   rotation: tiltRotation * rotation,
                                   translation: tiltedGroundPosition)
-        tilesRoot.transform = placement
+        streaming.tilesRoot.transform = placement
         gestureTarget.orientation = tiltRotation * rotation
         gestureTarget.position = tiltedGroundPosition
-        // The LOD camera looks down more steeply as the map turns to face
-        // you: 45° when flat, straight down when fully tilted.
-        streamer.viewElevation = .pi / 4 + .pi / 4 * Double(farTilt)
         updateDebugMarkers()
-    }
-
-    private func applySettings() {
-        guard let streamer else { return }
-        streamer.maximumScreenSpaceError = settings.detail
-        streamer.culledScreenSpaceError = settings.outerDetail
-        streamer.maximumSimultaneousTileLoads = Int(settings.simultaneousLoads)
-        streamer.maximumCachedBytes = Int64(settings.cacheMegabytes * 1024 * 1024)
-        streamer.forbidHoles = settings.forbidHoles
-        tileUploader.setConcurrency(Int(settings.uploadConcurrency))
     }
 
     private func clampRadius(_ value: Double) -> Double {
@@ -910,7 +794,7 @@ final class MapVolumeModel {
         }
         groundSampleGeneration += 1
         let generation = groundSampleGeneration
-        streamer?.sampleGroundHeightInFocusRegion { [weak self] height in
+        streaming.sampleGroundHeight { [weak self] height in
             MainActor.assumeIsolated {
                 guard let self, height.isFinite,
                       generation == self.groundSampleGeneration else { return }
@@ -935,16 +819,5 @@ final class MapVolumeModel {
             focusHeight += remaining * min(1, deltaTime * 6)
         }
         applyFocus()
-    }
-
-    /// A secret from the scheme environment or, via Info.plist, from
-    /// Config/Secrets.xcconfig; nil if unset or still a placeholder.
-    private static func secret(environment: String, infoKey: String) -> String? {
-        let candidates = [
-            ProcessInfo.processInfo.environment[environment],
-            Bundle.main.object(forInfoDictionaryKey: infoKey) as? String,
-        ]
-        return candidates.compactMap { $0?.trimmingCharacters(in: .whitespaces) }
-            .first { !$0.isEmpty && !$0.hasPrefix("$(") && !$0.hasPrefix("YOUR_") }
     }
 }

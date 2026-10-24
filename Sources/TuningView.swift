@@ -15,9 +15,9 @@ struct TuningView: View {
         NavigationStack {
             Form {
                 Section {
-                    LabeledContent("Tiles drawn", value: "\(model.stats.renderedTiles)")
-                    LabeledContent("Entities loaded", value: "\(model.stats.entities)")
-                    LabeledContent("Load progress", value: "\(Int(model.loadProgress))%")
+                    LabeledContent("Tiles drawn", value: "\(model.streaming.stats.renderedTiles)")
+                    LabeledContent("Entities loaded", value: "\(model.streaming.stats.entities)")
+                    LabeledContent("Load progress", value: "\(Int(model.streaming.loadProgress))%")
                 }
 
                 Section {
