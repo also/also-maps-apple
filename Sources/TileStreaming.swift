@@ -1,0 +1,234 @@
+import Foundation
+import Observation
+import RealityKit
+
+/// Streams a tile source through cesium-native and mirrors its selected tiles
+/// as RealityKit entities under `tilesRoot`. Knows nothing about navigation or
+/// presentation: it's told where the map is anchored and how the view sees it,
+/// and reports what's drawn, the credits to show and how loading is going.
+@MainActor
+@Observable
+final class TileStreaming {
+    /// Where the map is anchored on the globe. Tiles are placed in this
+    /// point's level frame (x east, y up, z south, metres, the point at 0).
+    struct Anchor: Equatable {
+        var coordinate: GeoCoordinate
+        /// Metres above the WGS84 ellipsoid.
+        var height = 0.0
+    }
+
+    /// The camera level of detail is selected for, and the region streamed.
+    /// The camera looks at the anchor from `distance` away, `elevation` above
+    /// its horizon, facing `heading`. See CNTileStreamer.h.
+    struct LODView: Equatable {
+        /// Radians clockwise from north.
+        var heading = 0.0
+        /// Radians above the anchor's horizon.
+        var elevation = Double.pi / 4
+        /// Metres of world.
+        var distance = 1200.0
+        /// Half-width of the square region shown, metres.
+        var radius = 500.0
+        /// Half-width of the square streamed, metres; 0 means `radius`.
+        var streamingRadius = 0.0
+    }
+
+    struct Stats: Equatable {
+        var renderedTiles = 0
+        var entities = 0
+    }
+
+    struct Credit: Hashable {
+        var text: String
+        /// A provider logo, e.g. Cesium ion's.
+        var imageURL: URL?
+    }
+
+    /// Holds every tile entity, each placed in the anchor's level frame. The
+    /// owner places this in its scene.
+    let tilesRoot = Entity()
+
+    var anchor: Anchor {
+        didSet { if anchor != oldValue { applyAnchorAndView() } }
+    }
+    var view = LODView() {
+        didSet { if view != oldValue { applyAnchorAndView() } }
+    }
+    /// A different tile source restarts streaming; anything else applies live.
+    var settings: StreamingSettings {
+        didSet {
+            guard settings != oldValue else { return }
+            if settings.tileSource != oldValue.tileSource {
+                restart()
+            }
+            applySettings()
+        }
+    }
+
+    private(set) var stats = Stats()
+    private(set) var credits: [Credit] = []
+    /// Google's terms need its logo shown with its tiles; other sources bring
+    /// their own logos in their credits.
+    private(set) var showsGoogleLogo = false
+    private(set) var loadProgress: Float = 0
+    private(set) var statusMessage: String?
+    var isStreaming: Bool { streamer != nil }
+
+    private var streamer: CNTileStreamer?
+    private let tileUploader = TileUploader()
+    private var tileEntities: [UInt64: Entity] = [:]
+    private var started = false
+    private var debugLogElapsed: Float = 0
+    /// Longest main-thread update in the current debug-log second.
+    private var debugSlowestUpdate: TimeInterval = 0
+
+    init(anchor: Anchor, settings: StreamingSettings) {
+        self.anchor = anchor
+        self.settings = settings
+    }
+
+    /// Creates the streamer for the current tile source, or explains which
+    /// secret is missing. Only the first call does anything.
+    func start() {
+        guard !started else { return }
+        started = true
+        startStreamer()
+    }
+
+    private func startStreamer() {
+        let env = ProcessInfo.processInfo.environment
+        let streamer: CNTileStreamer
+        showsGoogleLogo = false
+        // Debug: MAPVOLUME_TILESET_URL streams any 3D Tiles tileset, no key.
+        if let override = env["MAPVOLUME_TILESET_URL"], !override.isEmpty {
+            streamer = CNTileStreamer(tilesetURL: override)
+        } else if let assetID = settings.tileSource.ionAssetID {
+            guard let token = Self.secret(environment: "CESIUM_ION_TOKEN", infoKey: "CesiumIonToken") else {
+                statusMessage = "Set CESIUM_ION_TOKEN in Config/Secrets.xcconfig (or the scheme environment)."
+                return
+            }
+            streamer = CNTileStreamer(ionAssetID: assetID, accessToken: token,
+                                      smoothNormals: settings.tileSource.smoothNormals)
+        } else {
+            guard let key = Self.secret(environment: "GOOGLE_MAPS_API_KEY", infoKey: "GoogleMapsAPIKey") else {
+                statusMessage = "Set GOOGLE_MAPS_API_KEY in Config/Secrets.xcconfig (or the scheme environment)."
+                return
+            }
+            streamer = CNTileStreamer(tilesetURL: "https://tile.googleapis.com/v1/3dtiles/root.json?key=\(key)")
+            showsGoogleLogo = true
+        }
+        statusMessage = nil
+        tileUploader.untexturedColor = settings.tileSource.untexturedColor
+        // Before the first update, so every tile goes through it.
+        streamer.tileLoadHandler = tileUploader.handler
+        self.streamer = streamer
+        applySettings()
+        applyAnchorAndView()
+    }
+
+    /// Drops everything loaded from the old source and streams the new one
+    /// at the same view.
+    private func restart() {
+        guard started else { return }
+        for entity in tileEntities.values { entity.removeFromParent() }
+        tileEntities = [:]
+        credits = []
+        loadProgress = 0
+        stats = Stats()
+        streamer = nil
+        startStreamer()
+    }
+
+    // MARK: Frame loop
+
+    /// One selection and load pass; call once per rendered frame.
+    func update(deltaTime: Float) {
+        guard let streamer else { return }
+        #if DEBUG
+        let updateStart = Date()
+        defer { debugSlowestUpdate = max(debugSlowestUpdate, Date().timeIntervalSince(updateStart)) }
+        #endif
+        let frame = streamer.update(withDeltaTime: deltaTime)
+
+        for id in frame.freedTileIDs {
+            tileEntities.removeValue(forKey: id.uint64Value)?.removeFromParent()
+        }
+
+        var visible = Set<UInt64>()
+        frame.tileTransforms.withUnsafeBytes { buffer in
+            let placements = buffer.bindMemory(to: simd_float4x4.self)
+            for (index, tile) in frame.tilesToRender.enumerated() {
+                visible.insert(tile.identifier)
+                // Built off the main thread before cesium-native counted the
+                // tile as loaded; here it only needs adding.
+                if tileEntities[tile.identifier] == nil, let entity = tile.renderObject as? Entity {
+                    tileEntities[tile.identifier] = entity
+                    tilesRoot.addChild(entity)
+                }
+                // Placed relative to the current anchor every frame, so there's
+                // no fixed origin for precision to drift away from.
+                tileEntities[tile.identifier]?.transform = Transform(matrix: placements[index])
+            }
+        }
+        for (id, entity) in tileEntities {
+            entity.isEnabled = visible.contains(id)
+        }
+
+        let newCredits = frame.credits.map { Credit(text: $0.text, imageURL: $0.imageURL.flatMap(URL.init(string:))) }
+        if credits != newCredits { credits = newCredits }
+        loadProgress = frame.loadProgress
+        let newStats = Stats(renderedTiles: frame.tilesToRender.count, entities: tileEntities.count)
+        if stats != newStats { stats = newStats }
+
+        #if DEBUG
+        debugLogElapsed += deltaTime
+        if debugLogElapsed > 1 {
+            debugLogElapsed = 0
+            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, focus \(String(format: "%.4f, %.4f", anchor.coordinate.latitude, anchor.coordinate.longitude)), height \(Int(anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms")
+            debugSlowestUpdate = 0
+        }
+        #endif
+    }
+
+    /// Samples the most detailed surface loaded across the shown region and
+    /// reports the lowest hit, metres above the ellipsoid (NaN if none), on
+    /// the main thread during a later update.
+    func sampleGroundHeight(_ completion: @escaping (Double) -> Void) {
+        streamer?.sampleGroundHeightInFocusRegion(completion: completion)
+    }
+
+    // MARK: Applying
+
+    private func applyAnchorAndView() {
+        guard let streamer else { return }
+        streamer.focusLatitude = anchor.coordinate.latitude
+        streamer.focusLongitude = anchor.coordinate.longitude
+        streamer.focusHeight = anchor.height
+        streamer.focusRadius = view.radius
+        streamer.streamingRadius = view.streamingRadius
+        streamer.viewerDistance = view.distance
+        streamer.viewHeading = view.heading
+        streamer.viewElevation = view.elevation
+    }
+
+    private func applySettings() {
+        guard let streamer else { return }
+        streamer.maximumScreenSpaceError = settings.detail
+        streamer.culledScreenSpaceError = settings.outerDetail
+        streamer.maximumSimultaneousTileLoads = Int(settings.simultaneousLoads)
+        streamer.maximumCachedBytes = Int64(settings.cacheMegabytes * 1024 * 1024)
+        streamer.forbidHoles = settings.forbidHoles
+        tileUploader.setConcurrency(Int(settings.uploadConcurrency))
+    }
+
+    /// A secret from the scheme environment or, via Info.plist, from
+    /// Config/Secrets.xcconfig; nil if unset or still a placeholder.
+    private static func secret(environment: String, infoKey: String) -> String? {
+        let candidates = [
+            ProcessInfo.processInfo.environment[environment],
+            Bundle.main.object(forInfoDictionaryKey: infoKey) as? String,
+        ]
+        return candidates.compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty && !$0.hasPrefix("$(") && !$0.hasPrefix("YOUR_") }
+    }
+}

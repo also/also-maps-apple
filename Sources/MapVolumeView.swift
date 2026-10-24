@@ -174,10 +174,10 @@ struct AttributionView: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            if let message = model.statusMessage {
+            if let message = model.streaming.statusMessage {
                 Text(message).font(.callout)
-            } else if model.loadProgress < 100 {
-                ProgressView(value: Double(model.loadProgress), total: 100)
+            } else if model.streaming.loadProgress < 100 {
+                ProgressView(value: Double(model.streaming.loadProgress), total: 100)
                     .frame(width: 200)
             }
             if model.isFlying {
@@ -195,12 +195,12 @@ struct AttributionView: View {
                     .foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
-                if model.showsGoogleLogo {
+                if model.streaming.showsGoogleLogo {
                     Image("GoogleMapsLogo")
                         .accessibilityLabel("Google Maps")
                 }
                 // Providers' own logos (e.g. Cesium ion) come in their credits.
-                ForEach(model.credits.compactMap(\.imageURL), id: \.self) { url in
+                ForEach(model.streaming.credits.compactMap(\.imageURL), id: \.self) { url in
                     AsyncImage(url: url) { image in
                         image.resizable().scaledToFit()
                     } placeholder: {
@@ -208,7 +208,7 @@ struct AttributionView: View {
                     }
                     .frame(height: 18)
                 }
-                Text(model.credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
+                Text(model.streaming.credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption)
                     .lineLimit(1)
             }
