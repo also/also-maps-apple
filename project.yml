@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.ryanberdeen
   deploymentTarget:
     visionOS: "26.0"
+    macOS: "15.0"
 configFiles:
   Debug: Config/App.xcconfig
   Release: Config/App.xcconfig
@@ -79,3 +80,37 @@ targets:
           - LIBASYNC_STATIC
           - SPDLOG_COMPILED_LIB
           - SPDLOG_FMT_EXTERNAL
+
+  # The macOS app: same bundle ID as the visionOS app, so both ship as one App
+  # Store listing (universal purchase). A window only for now; it shares the
+  # platform-neutral sources and will gain the rest as they're made to build on
+  # macOS. Not linked against CesiumNative yet: Vendor/ needs a macOS slice
+  # (see the cesium-native-xcframework `macos` branch).
+  MapVolumeMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: SourcesMac
+      - path: Sources
+        includes:
+          - GeoMath.swift
+          - StreamingSettings.swift
+          - TileSource.swift
+          - Places
+    entitlements:
+      path: SourcesMac/MapVolumeMac.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+    info:
+      path: SourcesMac/Info.plist
+      properties:
+        CFBundleDisplayName: Map Volume
+        GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
+        CesiumIonToken: $(CESIUM_ION_TOKEN)
+        LSApplicationCategoryType: public.app-category.navigation
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ryanberdeen.MapVolume
+        PRODUCT_NAME: MapVolume
+        SWIFT_VERSION: "5.0"
