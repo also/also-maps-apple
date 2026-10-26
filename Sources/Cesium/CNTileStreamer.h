@@ -67,6 +67,26 @@ NS_ASSUME_NONNULL_BEGIN
 /// native keeps its parent instead of leaving a gap.
 typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 
+/// How tile requests have been satisfied since the streamer started, from
+/// URLSessionTaskMetrics.
+@interface CNFetchStats : NSObject
+/// Served from the HTTP cache with no network.
+@property (nonatomic, readonly) uint64_t cacheHits;
+/// Cache entry was stale; the server answered 304 and the cached body was used.
+@property (nonatomic, readonly) uint64_t revalidated;
+/// Full downloads (no usable cache entry).
+@property (nonatomic, readonly) uint64_t networkLoads;
+@property (nonatomic, readonly) uint64_t other;
+/// Response body bytes received over the network.
+@property (nonatomic, readonly) uint64_t networkBytes;
+- (instancetype)initWithCacheHits:(uint64_t)cacheHits
+                      revalidated:(uint64_t)revalidated
+                     networkLoads:(uint64_t)networkLoads
+                            other:(uint64_t)other
+                     networkBytes:(uint64_t)networkBytes NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
 @interface CNFrame : NSObject
 @property (nonatomic, readonly) NSArray<CNTileMesh *> *tilesToRender;
 /// One simd_float4x4 per tilesToRender entry, same order: the tile's
@@ -130,6 +150,9 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 @property (nonatomic) int64_t maximumCachedBytes;
 /// Keep parents until all children have loaded. Default NO.
 @property (nonatomic) BOOL forbidHoles;
+
+/// Request counters since this streamer started; safe from any thread.
+- (CNFetchStats *)fetchStats;
 
 /// Runs one selection + load pass. Call once per frame on the main thread.
 - (CNFrame *)updateWithDeltaTime:(float)deltaTime;

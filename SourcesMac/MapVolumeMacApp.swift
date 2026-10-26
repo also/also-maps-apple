@@ -2,6 +2,12 @@ import SwiftUI
 
 @main
 struct MapVolumeMacApp: App {
+    init() {
+        // print() goes to a pipe or file when launched from a tool; make it
+        // line-buffered so the log is live and survives being killed.
+        setvbuf(stdout, nil, _IOLBF, 0)
+    }
+
     var body: some Scene {
         WindowGroup {
             MapWindowView()

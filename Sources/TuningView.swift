@@ -17,6 +17,8 @@ struct TuningView: View {
                 Section {
                     LabeledContent("Tiles drawn", value: "\(model.streaming.stats.renderedTiles)")
                     LabeledContent("Entities loaded", value: "\(model.streaming.stats.entities)")
+                    LabeledContent("Requests", value: "\(model.streaming.stats.cacheHits) cached, \(model.streaming.stats.revalidated) revalidated, \(model.streaming.stats.networkLoads) downloaded")
+                    LabeledContent("Downloaded", value: String(format: "%.1f MB", model.streaming.stats.networkMegabytes))
                     LabeledContent("Load progress", value: "\(Int(model.streaming.loadProgress))%")
                 }
 

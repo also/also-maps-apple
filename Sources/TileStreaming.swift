@@ -13,6 +13,16 @@ final class TileStreaming {
     struct Stats: Equatable {
         var renderedTiles = 0
         var entities = 0
+        var cacheHits = 0
+        var revalidated = 0
+        var networkLoads = 0
+        var networkMegabytes = 0.0
+
+        /// Share of requests answered without a full download.
+        var cacheHitRate: Double? {
+            let total = cacheHits + revalidated + networkLoads
+            return total == 0 ? nil : Double(cacheHits + revalidated) / Double(total)
+        }
     }
 
     struct Credit: Hashable {
@@ -155,14 +165,18 @@ final class TileStreaming {
         let newCredits = frame.credits.map { Credit(text: $0.text, imageURL: $0.imageURL.flatMap(URL.init(string:))) }
         if credits != newCredits { credits = newCredits }
         loadProgress = frame.loadProgress
-        let newStats = Stats(renderedTiles: frame.tilesToRender.count, entities: tileEntities.count)
+        let fetch = streamer.fetchStats()
+        let newStats = Stats(renderedTiles: frame.tilesToRender.count, entities: tileEntities.count,
+                             cacheHits: Int(fetch.cacheHits), revalidated: Int(fetch.revalidated),
+                             networkLoads: Int(fetch.networkLoads),
+                             networkMegabytes: Double(fetch.networkBytes) / 1_048_576)
         if stats != newStats { stats = newStats }
 
         #if DEBUG
         debugLogElapsed += deltaTime
         if debugLogElapsed > 1 {
             debugLogElapsed = 0
-            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms")
+            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB)")
             debugSlowestUpdate = 0
         }
         #endif

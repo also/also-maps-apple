@@ -114,11 +114,6 @@ targets:
       - package: CesiumNative
       - sdk: libsqlite3.tbd
       - sdk: libc++.tbd
-    entitlements:
-      path: SourcesMac/MapVolumeMac.entitlements
-      properties:
-        com.apple.security.app-sandbox: true
-        com.apple.security.network.client: true
     info:
       path: SourcesMac/Info.plist
       properties:
@@ -133,6 +128,14 @@ targets:
         PRODUCT_NAME: MapVolume
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/MapVolume-Bridging-Header.h
+      configs:
+        # Debug builds run unsandboxed so tools and agents can launch the
+        # binary with MAPVOLUME_* variables, read its stdout, and inspect its
+        # caches under ~/Library/Caches. Release keeps the sandbox.
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: SourcesMac/MapVolumeMac.Debug.entitlements
+        Release:
+          CODE_SIGN_ENTITLEMENTS: SourcesMac/MapVolumeMac.entitlements
 
   # The platform-neutral navigation core (Sources/Navigation), tested on
   # macOS without a scene, cesium-native or the network.

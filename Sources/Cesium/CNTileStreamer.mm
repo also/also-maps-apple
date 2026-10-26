@@ -155,6 +155,23 @@ static double radialHeight(const glm::dvec3& p) {
 @implementation CNFrame
 @end
 
+@implementation CNFetchStats
+- (instancetype)initWithCacheHits:(uint64_t)cacheHits
+                      revalidated:(uint64_t)revalidated
+                     networkLoads:(uint64_t)networkLoads
+                            other:(uint64_t)other
+                     networkBytes:(uint64_t)networkBytes {
+  if ((self = [super init])) {
+    _cacheHits = cacheHits;
+    _revalidated = revalidated;
+    _networkLoads = networkLoads;
+    _other = other;
+    _networkBytes = networkBytes;
+  }
+  return self;
+}
+@end
+
 // ── cesium-native externals ──────────────────────────────────────────────────
 
 namespace {
@@ -200,16 +217,149 @@ private:
   HttpHeaders _headers;
 };
 
+} // namespace
+
+/// How each request was satisfied, counted from URLSessionTaskMetrics.
+struct FetchCounters {
+  std::atomic<uint64_t> cacheHits{0};      // fresh entry from NSURLCache
+  std::atomic<uint64_t> revalidated{0};    // network round trip, answered 304
+  std::atomic<uint64_t> networkLoads{0};   // full download
+  std::atomic<uint64_t> other{0};
+  std::atomic<uint64_t> networkBytes{0};   // response body bytes off the wire
+};
+
+/// Google sends `Cache-Control: private, max-age=14400, must-revalidate`.
+/// By the HTTP spec must-revalidate only applies once a response is stale, but
+/// CFNetwork revalidates on every request (a 304 round trip per tile). Drop
+/// the directive as the response is stored, so max-age is honoured as sent:
+/// tiles are served from disk for four hours, then revalidated by ETag.
+@interface CNTileCache : NSURLCache
+@end
+
+@implementation CNTileCache
+- (void)storeCachedResponse:(NSCachedURLResponse*)cachedResponse
+                 forRequest:(NSURLRequest*)request {
+  NSHTTPURLResponse* http = (NSHTTPURLResponse*)cachedResponse.response;
+  NSString* control = [http isKindOfClass:NSHTTPURLResponse.class]
+                          ? http.allHeaderFields[@"Cache-Control"]
+                          : nil;
+  if (![control isKindOfClass:NSString.class] ||
+      [control rangeOfString:@"must-revalidate"
+                     options:NSCaseInsensitiveSearch]
+              .location == NSNotFound) {
+    [super storeCachedResponse:cachedResponse forRequest:request];
+    return;
+  }
+  NSMutableArray<NSString*>* kept = [NSMutableArray array];
+  for (NSString* part in [control componentsSeparatedByString:@","]) {
+    NSString* directive =
+        [part stringByTrimmingCharactersInSet:NSCharacterSet
+                                                  .whitespaceCharacterSet];
+    if ([directive caseInsensitiveCompare:@"must-revalidate"] !=
+        NSOrderedSame) {
+      [kept addObject:directive];
+    }
+  }
+  NSMutableDictionary* headers = [http.allHeaderFields mutableCopy];
+  headers[@"Cache-Control"] = [kept componentsJoinedByString:@", "];
+  NSHTTPURLResponse* rewritten =
+      [[NSHTTPURLResponse alloc] initWithURL:http.URL
+                                  statusCode:http.statusCode
+                                 HTTPVersion:@"HTTP/1.1"
+                                headerFields:headers];
+  if (!rewritten) {
+    [super storeCachedResponse:cachedResponse forRequest:request];
+    return;
+  }
+  [super storeCachedResponse:[[NSCachedURLResponse alloc]
+                                 initWithResponse:rewritten
+                                             data:cachedResponse.data
+                                         userInfo:cachedResponse.userInfo
+                                    storagePolicy:cachedResponse.storagePolicy]
+                  forRequest:request];
+}
+@end
+
+@interface CNMetricsDelegate : NSObject <NSURLSessionTaskDelegate>
+- (instancetype)initWithCounters:(std::shared_ptr<FetchCounters>)counters;
+@end
+
+@implementation CNMetricsDelegate {
+  std::shared_ptr<FetchCounters> _counters;
+}
+
+- (instancetype)initWithCounters:(std::shared_ptr<FetchCounters>)counters {
+  if ((self = [super init])) {
+    _counters = std::move(counters);
+  }
+  return self;
+}
+
+// Called for completion-handler tasks too.
+- (void)URLSession:(NSURLSession*)session
+                          task:(NSURLSessionTask*)task
+    didFinishCollectingMetrics:(NSURLSessionTaskMetrics*)metrics {
+  NSURLSessionTaskTransactionMetrics* last = metrics.transactionMetrics.lastObject;
+  if (!last) {
+    return;
+  }
+  switch (last.resourceFetchType) {
+    case NSURLSessionTaskMetricsResourceFetchTypeLocalCache:
+      ++_counters->cacheHits;
+      break;
+    case NSURLSessionTaskMetricsResourceFetchTypeNetworkLoad: {
+      NSInteger status = [last.response isKindOfClass:NSHTTPURLResponse.class]
+                             ? ((NSHTTPURLResponse*)last.response).statusCode
+                             : 0;
+      if (status == 304) {
+        ++_counters->revalidated;
+      } else {
+        ++_counters->networkLoads;
+      }
+      _counters->networkBytes += uint64_t(last.countOfResponseBodyBytesReceived);
+      break;
+    }
+    default:
+      ++_counters->other;
+  }
+}
+@end
+
+namespace {
+
 /// IAssetAccessor over NSURLSession. cesium-native is built with curl
 /// disabled, so this is its only network path. NSURLCache gives us a basic
 /// HTTP cache for free (within Google's caching terms).
 class URLSessionAssetAccessor final : public IAssetAccessor {
 public:
-  URLSessionAssetAccessor() {
+  explicit URLSessionAssetAccessor(std::shared_ptr<FetchCounters> counters) {
     NSURLSessionConfiguration* config =
         [NSURLSessionConfiguration defaultSessionConfiguration];
     config.HTTPMaximumConnectionsPerHost = 12;
-    _session = [NSURLSession sessionWithConfiguration:config];
+    // The shared cache is ~10 MB on disk, far less than one scene (~56 MB), so
+    // tiles were evicted before the next load. Responses over 5% of the disk
+    // capacity aren't stored, so this stays well above the largest tile.
+    NSURL* cachesDir = [NSFileManager.defaultManager
+        URLForDirectory:NSCachesDirectory
+               inDomain:NSUserDomainMask
+      appropriateForURL:nil
+                 create:YES
+                  error:nil];
+    // Unsandboxed builds share ~/Library/Caches, so namespace by bundle.
+    NSString* bundleName = NSBundle.mainBundle.bundleIdentifier ?: @"MapVolume";
+    NSURL* tilesDir = [[cachesDir URLByAppendingPathComponent:bundleName
+                                                  isDirectory:YES]
+        URLByAppendingPathComponent:@"tiles"
+                        isDirectory:YES];
+    config.URLCache = [[CNTileCache alloc] initWithMemoryCapacity:64ull * 1024 * 1024
+                                                     diskCapacity:1024ull * 1024 * 1024
+                                                     directoryURL:tilesDir];
+    config.requestCachePolicy = NSURLRequestUseProtocolCachePolicy;
+    _session = [NSURLSession
+        sessionWithConfiguration:config
+                        delegate:[[CNMetricsDelegate alloc]
+                                     initWithCounters:std::move(counters)]
+                   delegateQueue:nil];
     // An API key restricted to iOS apps is checked against this header.
     NSString* bundleID = NSBundle.mainBundle.bundleIdentifier;
     if (bundleID) {
@@ -783,6 +933,7 @@ NSString* stripHTML(const std::string& html) {
   std::shared_ptr<RealityKitPrepareRendererResources> _resources;
   std::shared_ptr<AreaOfInterestExcluder> _excluder;
   std::unique_ptr<Tileset> _tileset;
+  std::shared_ptr<FetchCounters> _fetchCounters;
   CNFrame* _lastFrame;
 }
 
@@ -821,13 +972,15 @@ NSString* stripHTML(const std::string& html) {
     });
 
     _asyncSystem.emplace(std::make_shared<GCDTaskProcessor>());
+    _fetchCounters = std::make_shared<FetchCounters>();
 
     _creditSystem = std::make_shared<CesiumUtility::CreditSystem>();
     _resources = std::make_shared<RealityKitPrepareRendererResources>();
     _excluder = std::make_shared<AreaOfInterestExcluder>();
 
     TilesetExternals externals{
-        .pAssetAccessor = std::make_shared<URLSessionAssetAccessor>(),
+        .pAssetAccessor =
+            std::make_shared<URLSessionAssetAccessor>(_fetchCounters),
         .pPrepareRendererResources = _resources,
         .asyncSystem = *_asyncSystem,
         .pCreditSystem = _creditSystem,
@@ -890,6 +1043,14 @@ NSString* stripHTML(const std::string& html) {
 - (void)setMaximumSimultaneousTileLoads:(NSInteger)value {
   _tileset->getOptions().maximumSimultaneousTileLoads =
       uint32_t(std::max<NSInteger>(1, value));
+}
+
+- (CNFetchStats*)fetchStats {
+  return [[CNFetchStats alloc] initWithCacheHits:_fetchCounters->cacheHits
+                                     revalidated:_fetchCounters->revalidated
+                                    networkLoads:_fetchCounters->networkLoads
+                                           other:_fetchCounters->other
+                                    networkBytes:_fetchCounters->networkBytes];
 }
 
 - (int64_t)maximumCachedBytes {

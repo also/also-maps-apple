@@ -78,7 +78,7 @@ struct MapWindowView: View {
         .frame(width: 900, height: 900)
         .background(Color(red: 0.55, green: 0.7, blue: 0.85))
         .overlay(alignment: .topLeading) {
-            Text("\(map.streaming.stats.renderedTiles) tiles · \(Int(map.streaming.loadProgress))% · \(map.framesPerSecond) fps")
+            Text("\(map.streaming.stats.renderedTiles) tiles · \(Int(map.streaming.loadProgress))% · \(map.framesPerSecond) fps · cache \(map.streaming.stats.cacheHits)/\(map.streaming.stats.revalidated)/\(map.streaming.stats.networkLoads)")
                 .font(.caption.monospacedDigit())
                 .padding(6)
                 .background(.black.opacity(0.5), in: .rect(cornerRadius: 6))

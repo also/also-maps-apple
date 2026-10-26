@@ -84,6 +84,24 @@ The slider button next to the mode picker opens a Tuning window with live stats 
 
 At launch, `MAPVOLUME_STATE=<that JSON>` restores a state and `MAPVOLUME_MARKERS=1` shows the markers.
 
+## Running and inspecting the Mac app (for tools and agents)
+
+The macOS target's **Debug** build is unsandboxed (`SourcesMac/MapVolumeMac.Debug.entitlements`: network client only), so you can launch the binary directly, pass `MAPVOLUME_*` variables, capture its stdout, and read its on-disk state. **Release** keeps the sandbox (`SourcesMac/MapVolumeMac.entitlements`). The sandboxed build keeps its files in `~/Library/Containers/com.ryanberdeen.MapVolume/`, which the shell can't list ("Operation not permitted").
+
+```
+xcodebuild -scheme MapVolumeMac -configuration Debug -destination 'platform=macOS' -derivedDataPath build build
+MAPVOLUME_LAT=37.7955 MAPVOLUME_LON=-122.3937 MAPVOLUME_RADIUS=800 \
+  build/Build/Products/Debug/MapVolume.app/Contents/MacOS/MapVolume > run.log 2>&1 &
+```
+
+It needs a logged-in macOS session, since it opens a window. Kill it by PID when done. The API key comes from `Config/Secrets.xcconfig` via Info.plist, or from `GOOGLE_MAPS_API_KEY` in the environment.
+
+Where things land when unsandboxed:
+- **HTTP cache**: `~/Library/Caches/com.ryanberdeen.MapVolume/tiles/`. Delete it for a cold run. See [docs/tile-caching.md](docs/tile-caching.md).
+- **Defaults**: `~/Library/Preferences/com.ryanberdeen.MapVolume.plist`.
+
+Tile caching, the request counters in the Tuning stats, and how to measure them are in [docs/tile-caching.md](docs/tile-caching.md).
+
 ## Known gaps
 
 - The main thread still spends 2–3 ms per frame on tile selection and on re-placing every tile, even when the view isn't moving (#2).
