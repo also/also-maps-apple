@@ -379,9 +379,16 @@ final class MapVolumeModel {
         let dt = Double(deltaTime)
         applyInput(deltaTime: dt)
         if settlesPitch, manipulation == nil {
-            let settled = easedPitch(navigation.camera, deltaTime: dt)
-            settlesPitch = abs(settled.pitch - navigation.camera.pitch) > 1e-5
-            navigation.camera = settled
+            // Until the pitch reaches the new host's target: a new scene's
+            // first frames can have almost no time step, so a small step
+            // doesn't mean it's done.
+            navigation.camera = easedPitch(navigation.camera, deltaTime: dt)
+            settlesPitch = abs(pitchTarget(for: navigation.camera) - navigation.camera.pitch) > 1e-4
+            #if DEBUG
+            if !settlesPitch {
+                print("[MapVolume] pitch settled at \(String(format: "%.2f", navigation.camera.pitch * 180 / .pi))° for \(presentation.id)")
+            }
+            #endif
         }
         updateGround(deltaTime: dt)
         applyView()
@@ -450,13 +457,16 @@ final class MapVolumeModel {
 
     /// The pitch policy's step: toward θ_target for the altitude, swinging
     /// the camera about the georeference point so what's on the table stays.
+    private func pitchTarget(for camera: CameraPose) -> Double {
+        min(AdaptiveModel.pitchTarget(altitude: camera.height - cameraGround.value, levelPitch: room.levelPitch),
+            pitchLimit(for: camera))
+    }
+
     private func easedPitch(_ camera: CameraPose, deltaTime: Double) -> CameraPose {
-        let target = AdaptiveModel.pitchTarget(altitude: camera.height - cameraGround.value,
-                                               levelPitch: room.levelPitch)
+        let target = pitchTarget(for: camera)
         guard abs(target - camera.pitch) > 1e-6 else { return camera }
         let pitch = camera.pitch + (target - camera.pitch) * min(1, deltaTime * 6)
-        guard
-              let current = AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
+        guard let current = AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
                                                   envelopeHeight: effectiveEnvelope)
         else { return camera }
         var turned = camera
