@@ -34,5 +34,12 @@
     "latitude": 36.0995,
     "longitude": -112.1130,
     "radius": 8000
+  },
+  {
+    "id": "puente-nuevo",
+    "name": "Puente Nuevo, Ronda",
+    "latitude": 36.7418,
+    "longitude": -5.1670,
+    "radius": 500
   }
 ]
