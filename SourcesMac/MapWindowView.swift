@@ -8,13 +8,15 @@ import SwiftUI
 final class StaticMap {
     /// The Ferry Building.
     static let focus = GeoCoordinate(latitude: 37.7955, longitude: -122.3937)
-    /// Over the bay, looking west at downtown.
-    static let view = TileStreaming.LODView(heading: 3 * .pi / 2,
-                                            elevation: 35 * .pi / 180,
-                                            distance: 2500,
-                                            radius: 3000)
+    /// Over the bay, looking west at downtown, streaming 3 km around.
+    static let inputs = StreamingInputs(anchor: StreamingAnchor(coordinate: focus),
+                                        lod: .orbit(heading: 3 * .pi / 2,
+                                                    elevation: 35 * .pi / 180,
+                                                    distance: 2500),
+                                        regionHeading: 3 * .pi / 2,
+                                        streamingRadius: 3000)
 
-    let streaming = TileStreaming(anchor: .init(coordinate: focus), settings: .default)
+    let streaming = TileStreaming(inputs: inputs, settings: .default)
     private(set) var framesPerSecond = 0
     @ObservationIgnored private var subscription: EventSubscription?
     @ObservationIgnored private var frameCount = 0
@@ -22,12 +24,11 @@ final class StaticMap {
 
     func attach(_ content: inout RealityViewCameraContent) {
         content.camera = .virtual
-        // Tiles come placed in the focus's level frame (x east, y up, z
+        // Tiles come placed in the anchor's level frame (x east, y up, z
         // south, metres), so the scene is that frame, unscaled.
         content.add(streaming.tilesRoot)
         content.add(Self.makeCamera())
 
-        streaming.view = Self.view
         streaming.start()
         subscription = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             MainActor.assumeIsolated {
@@ -50,22 +51,19 @@ final class StaticMap {
         }
     }
 
-    /// The camera CNTileStreamer builds from `view`: looking at the focus
-    /// from `distance` away, `elevation` above its horizon, facing `heading`.
-    /// The bridge's camera has a 60° field of view each way.
+    /// A RealityKit camera at the LOD camera, with the same 60° vertical
+    /// field of view (the window is square).
     private static func makeCamera() -> Entity {
-        let heading = Float(view.heading), elevation = Float(view.elevation)
-        // In the bridge's ENU terms, (sin h cos e, cos h cos e, −sin e); here
-        // north is −z.
-        let forward = SIMD3(sin(heading) * cos(elevation), -sin(elevation), -cos(heading) * cos(elevation))
-        let right = simd_normalize(simd_cross(forward, [0, 1, 0]))
-        let up = simd_cross(right, forward)
+        let lod = inputs.lod
+        let forward = SIMD3<Float>(lod.direction), up = SIMD3<Float>(lod.up)
+        let right = simd_cross(forward, up)
 
         let camera = Entity()
-        camera.components.set(PerspectiveCameraComponent(near: 1, far: 100_000, fieldOfViewInDegrees: 60))
+        camera.components.set(PerspectiveCameraComponent(near: 1, far: 100_000,
+                                                         fieldOfViewInDegrees: Float(lod.fieldOfView * 180 / .pi)))
         // A camera looks down its −z.
         camera.orientation = simd_quatf(simd_float3x3(right, up, -forward))
-        camera.position = -forward * Float(view.distance)
+        camera.position = SIMD3<Float>(lod.position)
         return camera
     }
 }

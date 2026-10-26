@@ -7,10 +7,13 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 - `Sources/Cesium/CNTileStreamer.{h,mm}`: an Objective-C++ bridge that owns a cesium-native `Tileset`. It provides:
   - networking over `NSURLSession` (cesium-native is built without curl)
   - a GCD task processor
-  - an `IPrepareRendererResources` that flattens each tile's glTF into float positions (small offsets from the tile's own centre), UVs, indices and RGBA. Every frame each drawn tile gets a transform, computed in double, that places it relative to the current focus. There's no global origin, so precision is the same anywhere on Earth
-  - an excluder that limits streaming to the square region shown, measured in the focus's own frame. The focus is a latitude/longitude, moved along the globe
+  - an `IPrepareRendererResources` that flattens each tile's glTF into float positions (small offsets from the tile's own centre), UVs, indices and RGBA. Every frame each drawn tile gets a transform, computed in double, that places it relative to the current anchor. There's no global origin, so precision is the same anywhere on Earth
+  - an excluder that limits streaming to the area of interest, a square around the anchor measured in the anchor's own frame
+  - a level-of-detail camera given as position, direction and up in the anchor's frame
 - `Sources/TileUploader.swift`: builds each loaded tile's RealityKit meshes and textures asynchronously, a few at a time, before cesium-native counts the tile as loaded. Meshes are built off the main thread.
-- `Sources/MapVolumeModel.swift`: runs one cesium-native update per RealityKit frame, adds ready tile entities, hides tiles that aren't selected, removes freed ones, and handles navigation.
+- `Sources/TileStreaming.swift`: runs one cesium-native update per RealityKit frame from its streaming inputs (anchor, area of interest, LOD camera), adds ready tile entities, hides tiles that aren't selected and removes freed ones.
+- `Sources/Navigation/`: the platform-neutral navigation core, being introduced in stages (see [docs/camera-core.md](docs/camera-core.md)): WGS84 geodesy and surface queries, camera pose and navigation state, the georeference (world → map frame), streaming inputs, and prototype control styles. `MapVolumeCoreTests` tests it on macOS without a scene or network: `xcodebuild -scheme MapVolumeCoreTests -destination 'platform=macOS' test`.
+- `Sources/MapVolumeModel.swift`: navigation and presentation. It still stores a focus-centric state, placed through the core's georeference so tiles are positioned relative to whichever anchor is streaming.
 - The Shared Space provides no head pose, so a synthetic camera in front of the volume, 45° up, drives level of detail.
 
 ## Setup

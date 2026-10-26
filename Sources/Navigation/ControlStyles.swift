@@ -1,0 +1,128 @@
+import Foundation
+import simd
+
+/// Rates and inputs shared by the control styles: per-second rates, each
+/// −1…1 (move is a vector of length ≤ 1).
+struct ControlInput: Equatable {
+    var move = SIMD2<Double>.zero
+    var turn = 0.0
+    var climb = 0.0
+    var dolly = 0.0
+    var fast = false
+
+    var boost: Double { fast ? 3 : 1 }
+}
+
+/// Model flight, today's controls on the camera core: forward/right along
+/// the movement heading (linked to the view heading), climb straight up,
+/// turn in place, dolly along the view. Rates are starting values for
+/// tuning (docs/camera-core.md §12.2).
+struct ModelFlightStyle {
+    /// Fraction of height above ground travelled per second.
+    var moveRate = 0.75
+    /// Radians per second.
+    var turnRate = Double.pi / 3
+    /// e-folds of height above ground per second.
+    var climbRate = 1.0
+    /// e-folds of range per second.
+    var dollyRate = 1.0
+    /// Surface the dolly target is found on, metres above the ellipsoid.
+    var dollySurfaceHeight = 0.0
+
+    /// Takes over from another style: the view is unchanged, and movement
+    /// heading follows the view from here on.
+    func activate(_ state: NavigationState) -> NavigationState {
+        var state = state
+        state.headingLink = .linked
+        state.movementHeading = state.camera.heading
+        return state
+    }
+
+    func step(_ state: NavigationState, input: ControlInput, deltaTime: Double,
+              context: NavigationContext) -> NavigationState {
+        var state = state
+        let boost = input.boost
+        if input.turn != 0 {
+            state = NavigationOperations.turn(state, by: input.turn * turnRate * boost * deltaTime)
+        }
+        if input.climb != 0 {
+            let altitude = context.altitude(of: state.camera)
+            let target = altitude * exp(input.climb * climbRate * boost * deltaTime)
+            state = NavigationOperations.climb(state, by: target - altitude, context: context)
+        }
+        if input.dolly != 0 {
+            let camera = state.camera
+            let ray = Ray(origin: camera.position, direction: camera.basis.forward)
+            // Declines on a miss: there's nothing to approach.
+            if case let .hit(point, _) = Geodesy.intersect(ray: ray, surfaceHeight: dollySurfaceHeight) {
+                let fraction = 1 - exp(-input.dolly * dollyRate * boost * deltaTime)
+                state = NavigationOperations.dolly(state, toward: point, fraction: fraction, context: context)
+            }
+        }
+        if input.move != .zero {
+            let metres = context.altitude(of: state.camera) * moveRate * boost * deltaTime
+            state = NavigationOperations.move(state, forward: input.move.y * metres, right: input.move.x * metres)
+        }
+        return state
+    }
+}
+
+/// Orbit, pan and zoom about a pivot, as on a Mac. Owns its pivot; movement
+/// heading is left alone (independent), and pans follow the view heading.
+struct OrbitStyle {
+    /// ECEF.
+    var pivot: SIMD3<Double>
+    /// Radians per second.
+    var orbitRate = Double.pi / 3
+    /// e-folds of distance to the pivot per second.
+    var zoomRate = 1.0
+
+    /// Takes over from another style without moving the view: the pivot is
+    /// where the view ray meets the surface at `surfaceHeight`, or, on a
+    /// miss, the declared fallback, the ground beneath the camera.
+    static func activate(_ state: NavigationState, surfaceHeight: Double) -> (NavigationState, OrbitStyle) {
+        var state = state
+        state.headingLink = .independent
+        let camera = state.camera
+        let ray = Ray(origin: camera.position, direction: camera.basis.forward)
+        let pivot: SIMD3<Double>
+        if case let .hit(point, _) = Geodesy.intersect(ray: ray, surfaceHeight: surfaceHeight) {
+            pivot = point
+        } else {
+            pivot = Geodesy.ecef(camera.coordinate, height: min(surfaceHeight, camera.height))
+        }
+        return (state, OrbitStyle(pivot: pivot))
+    }
+
+    /// `input.turn` orbits, `input.dolly` zooms toward the pivot and
+    /// `input.move` pans camera and pivot together.
+    mutating func step(_ state: NavigationState, input: ControlInput, deltaTime: Double,
+                       context: NavigationContext) -> NavigationState {
+        var state = state
+        let boost = input.boost
+        if input.turn != 0 {
+            state = NavigationOperations.orbit(state, about: pivot,
+                                               by: input.turn * orbitRate * boost * deltaTime, context: context)
+        }
+        if input.dolly != 0 {
+            let fraction = 1 - exp(-input.dolly * zoomRate * boost * deltaTime)
+            state = NavigationOperations.dolly(state, toward: pivot, fraction: fraction, context: context)
+        }
+        if input.move != .zero {
+            let metres = simd_distance(state.camera.position, pivot) * 0.75 * boost * deltaTime
+            let (pivotCoordinate, pivotHeight) = Geodesy.geodetic(pivot)
+            // Pan along the view heading, whatever the movement heading is.
+            var panning = state
+            panning.movementHeading = state.camera.heading
+            let moved = NavigationOperations.move(panning, forward: input.move.y * metres,
+                                                  right: input.move.x * metres)
+            let bearing = state.camera.heading + atan2(input.move.x, input.move.y)
+            let pivotEnd = GeoMath.destination(from: pivotCoordinate, bearing: bearing, distance: metres * simd_length(input.move))
+            pivot = Geodesy.ecef(pivotEnd, height: pivotHeight)
+            let movementChange = moved.movementHeading - panning.movementHeading
+            state.camera = moved.camera
+            state.movementHeading = NavigationOperations.wrapped(state.movementHeading + movementChange)
+        }
+        return state
+    }
+}

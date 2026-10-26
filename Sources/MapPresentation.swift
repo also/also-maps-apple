@@ -47,4 +47,17 @@ struct MapPresentation: Identifiable, Hashable {
     }
 
     static let all: [MapPresentation] = [.volume, .floor(3), .floor(5), .floor(10)]
+
+    /// The same placement as host geometry for the camera core: the viewer
+    /// position is the design eye point, and the georeference point goes on
+    /// the ground position when the map is level, or on the facing tilt's
+    /// raised centre when looking straight down.
+    var geometry: HostGeometry {
+        let level = SIMD3<Double>(groundPosition)
+        let downHeight = host == .volume ? 0 : Double(viewerPosition.y) - 0.3
+        return .room(RoomGeometry(designEye: SIMD3<Double>(viewerPosition),
+                                  placementLevel: level,
+                                  placementDown: SIMD3(level.x, downHeight, level.z),
+                                  contentHalfWidth: MapVolumeModel.volumeSize.x / 2 * magnification))
+    }
 }

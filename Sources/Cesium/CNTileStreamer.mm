@@ -323,7 +323,7 @@ bool appendIndices(
 /// Flattens a tile's glTF into CNPrimitives whose positions are ECEF offsets
 /// (metres, ECEF axes) from a centre point on the tile. Offsets stay small,
 /// so 32-bit floats keep them precise anywhere on Earth; the centre itself is
-/// kept in double and placed relative to the focus every frame.
+/// kept in double and placed relative to the anchor every frame.
 CNTileMesh* _Nullable buildTileMesh(
     const CesiumGltf::Model& model,
     const glm::dmat4& tileTransform,
@@ -659,29 +659,29 @@ private:
   std::vector<uint64_t> _freed;
 };
 
-/// Skips tiles whose bounding sphere lies entirely outside the square focus
-/// region, so the volume only streams what it can show. The square is
-/// measured in the focus's own east-north-up frame, so it stays true however
-/// far the focus is from where the tileset was opened.
-class FocusRegionExcluder final : public ITileExcluder {
+/// Skips tiles whose bounding sphere lies entirely outside the area of
+/// interest, a square around the anchor, so only what can be shown streams.
+/// The square is measured in the anchor's own east-north-up frame, so it
+/// stays true however far the anchor is from where the tileset was opened.
+class AreaOfInterestExcluder final : public ITileExcluder {
 public:
-  /// ECEF → focus east-north-up; updated every frame.
-  glm::dmat4 ecefToFocusEnu{1.0};
+  /// ECEF → anchor east-north-up; updated every frame.
+  glm::dmat4 ecefToAnchorEnu{1.0};
   double radius = 500.0;
-  /// Unit up at the focus (ECEF). At hemisphere-scale zoom the tangent-plane
+  /// Unit up at the anchor (ECEF). At hemisphere-scale zoom the tangent-plane
   /// square also covers the far side of the Earth; anything entirely on the
-  /// hemisphere opposite the focus is skipped.
-  glm::dvec3 focusUp{0.0, 0.0, 1.0};
+  /// hemisphere opposite the anchor is skipped.
+  glm::dvec3 anchorUp{0.0, 0.0, 1.0};
 
   bool shouldExclude(const Tile& tile) const noexcept override {
     const CesiumGeometry::BoundingSphere sphere =
         getOrientedBoundingBoxFromBoundingVolume(tile.getBoundingVolume())
             .toSphere();
-    if (glm::dot(sphere.getCenter(), focusUp) + sphere.getRadius() < 0.0) {
+    if (glm::dot(sphere.getCenter(), anchorUp) + sphere.getRadius() < 0.0) {
       return true;
     }
     const glm::dvec3 center =
-        glm::dvec3(ecefToFocusEnu * glm::dvec4(sphere.getCenter(), 1.0));
+        glm::dvec3(ecefToAnchorEnu * glm::dvec4(sphere.getCenter(), 1.0));
     const double r = sphere.getRadius();
     return std::abs(center.x) - r > radius || std::abs(center.y) - r > radius;
   }
@@ -744,7 +744,7 @@ NSString* stripHTML(const std::string& html) {
   std::optional<AsyncSystem> _asyncSystem;
   std::shared_ptr<CesiumUtility::CreditSystem> _creditSystem;
   std::shared_ptr<RealityKitPrepareRendererResources> _resources;
-  std::shared_ptr<FocusRegionExcluder> _excluder;
+  std::shared_ptr<AreaOfInterestExcluder> _excluder;
   std::unique_ptr<Tileset> _tileset;
   CNFrame* _lastFrame;
 }
@@ -787,7 +787,7 @@ NSString* stripHTML(const std::string& html) {
 
     _creditSystem = std::make_shared<CesiumUtility::CreditSystem>();
     _resources = std::make_shared<RealityKitPrepareRendererResources>();
-    _excluder = std::make_shared<FocusRegionExcluder>();
+    _excluder = std::make_shared<AreaOfInterestExcluder>();
 
     TilesetExternals externals{
         .pAssetAccessor = std::make_shared<URLSessionAssetAccessor>(),
@@ -811,8 +811,13 @@ NSString* stripHTML(const std::string& html) {
 
     _tileset = makeTileset(externals, options);
 
-    _focusRadius = 500.0;
-    _viewerDistance = 1200.0;
+    _streamingRadius = 500.0;
+    // Looking at the anchor from 1.2 km away, 45° up, facing north.
+    _viewPosition = simd_make_double3(0, 848.5, 848.5);
+    _viewDirection = simd_make_double3(0, -M_SQRT1_2, -M_SQRT1_2);
+    _viewUp = simd_make_double3(0, M_SQRT1_2, -M_SQRT1_2);
+    _viewFieldOfView = M_PI / 3;
+    _viewAspect = 1;
   }
   return self;
 }
@@ -866,61 +871,77 @@ NSString* stripHTML(const std::string& html) {
   _tileset->getOptions().forbidHoles = value;
 }
 
-/// The focus's ground point: focusHeight above the ellipsoid at the focus's
-/// latitude/longitude.
-- (glm::dvec3)focusECEF {
+/// The anchor point: anchorHeight above the ellipsoid at its latitude and
+/// longitude.
+- (glm::dvec3)anchorECEF {
   return Ellipsoid::WGS84.cartographicToCartesian(Cartographic::fromDegrees(
-      _focusLongitude,
-      _focusLatitude,
-      _focusHeight));
+      _anchorLongitude,
+      _anchorLatitude,
+      _anchorHeight));
 }
 
-/// Local east-north-up at the focus, as a transform to ECEF.
-- (glm::dmat4)focusEnuToEcef {
+/// Local east-north-up at the anchor, as a transform to ECEF.
+- (glm::dmat4)anchorEnuToEcef {
   return CesiumGeospatial::GlobeTransforms::eastNorthUpToFixedFrame(
-      [self focusECEF]);
+      [self anchorECEF]);
+}
+
+/// The anchor frame's RealityKit axes (x east, y up, z south) as
+/// east-north-up.
+static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
+  return glm::dvec3(v.x, -v.z, v.y);
+}
+
+/// The last frame again, with no new selection: for an update that can't
+/// run. Loads already in flight keep going.
+- (CNFrame*)repeatLastFrame {
+  _asyncSystem->dispatchMainThreadTasks();
+  CNFrame* frame = [[CNFrame alloc] init];
+  frame.tilesToRender = _lastFrame.tilesToRender ?: @[];
+  frame.tileTransforms = _lastFrame.tileTransforms ?: [NSData data];
+  frame.freedTileIDs = @[];
+  frame.credits = _lastFrame.credits ?: @[];
+  frame.loadProgress = _lastFrame.loadProgress;
+  return frame;
 }
 
 - (CNFrame*)updateWithDeltaTime:(float)deltaTime {
-  // The excluder's square is axis-aligned in east/north; when the view is
-  // turned, grow it to the square that encloses the rotated visible one.
-  const double sinHeading = std::sin(_viewHeading);
-  const double cosHeading = std::cos(_viewHeading);
-  const double streamingRadius =
-      _streamingRadius > 0.0 ? _streamingRadius : _focusRadius;
+  // The excluder's square is axis-aligned in east/north; when the region is
+  // turned, grow it to the square that encloses the rotated one.
+  const double sinHeading = std::sin(_regionHeading);
+  const double cosHeading = std::cos(_regionHeading);
   _excluder->radius =
-      streamingRadius * (std::abs(sinHeading) + std::abs(cosHeading));
+      _streamingRadius * (std::abs(sinHeading) + std::abs(cosHeading));
 
-  // No head pose in the Shared Space, so LOD comes from a synthetic camera
-  // looking at the focus from the front of the volume, 45° up, facing the
-  // view heading.
-  const double elevation =
-      std::clamp(_viewElevation > 0 ? _viewElevation : M_PI / 4.0, 0.05, M_PI / 2);
-  const double sinElevation = std::sin(elevation);
-  const double cosElevation = std::cos(elevation);
-  // Built in the focus's own east-north-up frame, so the camera stays level
-  // with the ground however far the focus is from the origin. Direction and
-  // up are written down directly so they stay perpendicular unit vectors at
-  // any elevation; deriving up from the vertical degenerates when looking
-  // straight down (as the facing tilt does far away), which made cesium-
-  // native throw "normal must be normalized".
-  const glm::dvec3 directionEnu(
-      sinHeading * cosElevation,
-      cosHeading * cosElevation,
-      -sinElevation);
-  const glm::dvec3 upEnu(
-      sinHeading * sinElevation,
-      cosHeading * sinElevation,
-      cosElevation);
-  const glm::dmat4 focusFrame = [self focusEnuToEcef];
-  const glm::dmat3 enuToEcefRotation(focusFrame);
-  _excluder->focusUp = glm::normalize(glm::dvec3(focusFrame[2]));
-  _excluder->ecefToFocusEnu = glm::inverse(focusFrame);
-  const glm::dvec3 target = glm::dvec3(focusFrame[3]);
-  const glm::dvec3 direction = glm::normalize(enuToEcefRotation * directionEnu);
-  const glm::dvec3 up = glm::normalize(enuToEcefRotation * upEnu);
-  const glm::dvec3 position = target - direction * _viewerDistance;
-  const double fov = glm::radians(60.0);
+  // The LOD camera arrives in the anchor's frame, so it stays level with the
+  // ground however far the anchor is from the origin.
+  const glm::dmat4 anchorFrame = [self anchorEnuToEcef];
+  const glm::dmat3 enuToEcefRotation(anchorFrame);
+  _excluder->anchorUp = glm::normalize(glm::dvec3(anchorFrame[2]));
+  _excluder->ecefToAnchorEnu = glm::inverse(anchorFrame);
+  const glm::dvec3 position = glm::dvec3(
+      anchorFrame * glm::dvec4(enuFromAnchorAxes(_viewPosition), 1.0));
+  glm::dvec3 direction = enuToEcefRotation * enuFromAnchorAxes(_viewDirection);
+  glm::dvec3 up = enuToEcefRotation * enuFromAnchorAxes(_viewUp);
+  // cesium-native throws unless direction and up are perpendicular unit
+  // vectors ("normal must be normalized"): normalise, and remove any part of
+  // up along direction. A degenerate camera skips the view update.
+  const double directionLength = glm::length(direction);
+  if (!(directionLength > 1e-9) || !std::isfinite(directionLength) ||
+      !std::isfinite(position.x + position.y + position.z)) {
+    return [self repeatLastFrame];
+  }
+  direction /= directionLength;
+  up -= direction * glm::dot(up, direction);
+  const double upLength = glm::length(up);
+  if (!(upLength > 1e-9) || !std::isfinite(upLength)) {
+    return [self repeatLastFrame];
+  }
+  up /= upLength;
+  const double verticalFieldOfView = std::clamp(_viewFieldOfView, 0.01, M_PI - 0.01);
+  const double aspect = std::clamp(_viewAspect, 0.01, 100.0);
+  const double horizontalFieldOfView =
+      2.0 * std::atan(std::tan(verticalFieldOfView / 2.0) * aspect);
 
   const ViewUpdateResult* pResult = nullptr;
   try {
@@ -928,9 +949,9 @@ NSString* stripHTML(const std::string& html) {
         position,
         direction,
         up,
-        glm::dvec2(2048.0, 2048.0),
-        fov,
-        fov);
+        glm::dvec2(2048.0 * aspect, 2048.0),
+        horizontalFieldOfView,
+        verticalFieldOfView);
     pResult = &_tileset->updateViewGroup(
         _tileset->getDefaultViewGroup(),
         {view},
@@ -940,23 +961,16 @@ NSString* stripHTML(const std::string& html) {
     // Don't take the app down over one bad view: log it, keep loads moving
     // and show the last good frame.
     NSLog(@"[cesium] update failed: %s", error.what());
-    _asyncSystem->dispatchMainThreadTasks();
-    CNFrame* frame = [[CNFrame alloc] init];
-    frame.tilesToRender = _lastFrame.tilesToRender ?: @[];
-    frame.tileTransforms = _lastFrame.tileTransforms ?: [NSData data];
-    frame.freedTileIDs = @[];
-    frame.credits = _lastFrame.credits ?: @[];
-    frame.loadProgress = _lastFrame.loadProgress;
-    return frame;
+    return [self repeatLastFrame];
   }
   const ViewUpdateResult& result = *pResult;
   _asyncSystem->dispatchMainThreadTasks();
 
-  // Each drawn tile's placement in the focus's level frame (RealityKit axes,
-  // focus ground point at the origin): computed in double from the tile's
+  // Each drawn tile's placement in the anchor's level frame (RealityKit axes,
+  // the anchor at the origin): computed in double from the tile's
   // full-precision centre, so only small, nearby numbers reach Float.
-  const glm::dmat4 ecefToFocusRealityKit =
-      kEnuToRealityKit * glm::inverse(focusFrame);
+  const glm::dmat4 ecefToAnchorRealityKit =
+      kEnuToRealityKit * glm::inverse(anchorFrame);
   NSMutableArray<CNTileMesh*>* tiles =
       [NSMutableArray arrayWithCapacity:result.tilesToRenderThisFrame.size()];
   NSMutableData* transforms = [NSMutableData
@@ -969,7 +983,7 @@ NSString* stripHTML(const std::string& html) {
     }
     CNTileMesh* mesh = (__bridge CNTileMesh*)pRender->getRenderResources();
     const glm::dmat4 m =
-        glm::translate(ecefToFocusRealityKit, mesh.center);
+        glm::translate(ecefToAnchorRealityKit, mesh.center);
     simd_float4x4 placement;
     for (int column = 0; column < 4; ++column) {
       placement.columns[column] = simd_make_float4(
@@ -1008,17 +1022,18 @@ NSString* stripHTML(const std::string& html) {
   return frame;
 }
 
-- (void)sampleGroundHeightInFocusRegion:(void (^)(double height))completion {
+- (void)sampleGroundHeightAroundAnchorWithRadius:(double)radius
+                                      completion:(void (^)(double height))completion {
   // A 3×3 grid spanning most of the visible square. A single sample at the
-  // focus lands on whatever is there (a hilltop, a roof) and sinks the rest of
+  // anchor lands on whatever is there (a hilltop, a roof) and sinks the rest of
   // the region below the volume floor; the lowest hit keeps it all above.
-  const double reach = 0.8 * _focusRadius;
-  const glm::dmat4 focusFrame = [self focusEnuToEcef];
+  const double reach = 0.8 * radius;
+  const glm::dmat4 anchorFrame = [self anchorEnuToEcef];
   std::vector<Cartographic> positions;
   for (int row = -1; row <= 1; ++row) {
     for (int column = -1; column <= 1; ++column) {
       const glm::dvec3 ecef = glm::dvec3(
-          focusFrame * glm::dvec4(column * reach, row * reach, 0.0, 1.0));
+          anchorFrame * glm::dvec4(column * reach, row * reach, 0.0, 1.0));
       if (std::optional<Cartographic> cartographic =
               Ellipsoid::WGS84.cartesianToCartographic(ecef)) {
         positions.push_back(*cartographic);
@@ -1032,7 +1047,7 @@ NSString* stripHTML(const std::string& html) {
 
   // sampleHeightMostDetailed ignores the input heights and reports the
   // highest surface hit at each longitude/latitude, as height above the
-  // ellipsoid, which is what focusHeight is measured in.
+  // ellipsoid, which is what anchorHeight is measured in.
   _tileset->sampleHeightMostDetailed(positions)
       .thenInMainThread([completion](SampleHeightResult&& result) {
         double lowest = INFINITY;

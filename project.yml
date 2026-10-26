@@ -101,7 +101,8 @@ targets:
       - path: Sources
         includes:
           - Assets.xcassets
-          - GeoMath.swift
+          - Navigation
+          - NavigationRealityKit.swift
           - StreamingSettings.swift
           - TileSource.swift
           - TileStreaming.swift
@@ -132,3 +133,19 @@ targets:
         PRODUCT_NAME: MapVolume
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/MapVolume-Bridging-Header.h
+
+  # The platform-neutral navigation core (Sources/Navigation), tested on
+  # macOS without a scene, cesium-native or the network.
+  MapVolumeCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Sources/Navigation
+      - path: Tests/Navigation
+    scheme:
+      testTargets: [MapVolumeCoreTests]
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.ryanberdeen.MapVolumeCoreTests

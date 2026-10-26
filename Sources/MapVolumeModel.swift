@@ -10,9 +10,7 @@ import UIKit
 @Observable
 final class MapVolumeModel {
     /// Volume extents in metres (width, height, depth).
-    static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
-    /// How far a typical viewer stands from the volume; drives LOD.
-    private static let viewerDistanceInScene = 1.2
+    nonisolated static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
 
     struct Location {
         var latitude: Double
@@ -22,8 +20,10 @@ final class MapVolumeModel {
 
     static let defaultLocation = Location(latitude: 37.7955, longitude: -122.3937, radius: 600)
 
-    /// The whole map: tiles plus the gesture target. Lives under whichever
-    /// host's anchor matches the current presentation.
+    /// The room placement: map frame → the host's reference space. Lives
+    /// under whichever host's anchor matches the current presentation.
+    let placementRoot = Entity()
+    /// The map frame: tiles plus the gesture target.
     let root = Entity()
     /// Invisible box that receives drag / magnify gestures.
     let gestureTarget = Entity()
@@ -47,7 +47,7 @@ final class MapVolumeModel {
                 sampleGround()
             }
             layOutGestureTarget()
-            applyFocus()
+            applyView()
         }
     }
 
@@ -58,8 +58,14 @@ final class MapVolumeModel {
             if isFlying { cancelFlying() }
             reparentRoot()
             layOutGestureTarget()
-            applyFocus()
+            applyView()
         }
+    }
+
+    /// Map frame → reference space. Identity until room placement controls
+    /// exist; navigation never changes it.
+    var roomPlacement = RoomPlacement.identity {
+        didSet { applyRoomPlacement() }
     }
 
     private(set) var keyboardConnected = false
@@ -103,7 +109,6 @@ final class MapVolumeModel {
     private var flyScale: Float = 1
     private var flyYaw: Float = 0
     private var flyTranslation = SIMD3<Float>.zero
-    private let flyRoot = Entity()
     // Last value seen per gesture, so simultaneous pinch and twist compose.
     private var flyDragLast: SIMD3<Float>?
     private var flyMagnifyLast: Double?
@@ -117,11 +122,12 @@ final class MapVolumeModel {
         let settings = StreamingSettings.load()
         self.settings = settings
         let start = GeoCoordinate(latitude: Self.defaultLocation.latitude, longitude: Self.defaultLocation.longitude)
-        streaming = TileStreaming(anchor: .init(coordinate: start), settings: settings)
+        streaming = TileStreaming(inputs: StreamingInputs(anchor: StreamingAnchor(coordinate: start)),
+                                  settings: settings)
+        placementRoot.addChild(root)
         root.addChild(debugMarkers)
         debugMarkers.isEnabled = false
-        root.addChild(flyRoot)
-        flyRoot.addChild(streaming.tilesRoot)
+        root.addChild(streaming.tilesRoot)
         // Indirect only (look + pinch). Allowing direct input meant hands that
         // were merely inside the map's area counted as touching it and
         // dragged the map with no pinch at all.
@@ -155,9 +161,13 @@ final class MapVolumeModel {
     }
 
     private func reparentRoot() {
-        if let anchor = anchors[presentation.host], root.parent !== anchor {
-            anchor.addChild(root)
+        if let anchor = anchors[presentation.host], placementRoot.parent !== anchor {
+            anchor.addChild(placementRoot)
         }
+    }
+
+    private func applyRoomPlacement() {
+        placementRoot.transform = Transform(roomPlacement.similarity)
     }
 
     /// The gesture target is a thin slab at ground level covering the
@@ -195,7 +205,7 @@ final class MapVolumeModel {
                                north: (env["MAPVOLUME_FOCUS_NORTH_KM"].flatMap(Double.init) ?? 0) * 1000)
         radius = location.radius
         streaming.start()
-        applyFocus()
+        applyView()
         sampleGround()
 
         // Debug: MAPVOLUME_PLACE=<id from Places.json> starts at that place.
@@ -222,7 +232,7 @@ final class MapVolumeModel {
         focus = place.coordinate
         radius = clampRadius(place.radius)
         heading = place.heading * .pi / 180
-        applyFocus()
+        applyView()
         sampleGround()
     }
 
@@ -241,7 +251,7 @@ final class MapVolumeModel {
             let horizontal = SIMD3<Float>(translation.x, 0, translation.z)
             flyTranslation += horizontal - (flyDragLast ?? .zero)
             flyDragLast = horizontal
-            applyFly()
+            applyView()
             return
         }
         guard let startFocus = dragStartFocus else { return }
@@ -254,7 +264,7 @@ final class MapVolumeModel {
         moveFocus(to: GeoMath.offset(startFocus,
                                      east: -local.x * metresPerScene,
                                      north: local.y * metresPerScene))
-        applyFocus()
+        applyView()
     }
 
     func endDrag() {
@@ -276,13 +286,13 @@ final class MapVolumeModel {
             guard magnification > 0 else { return }
             flyAboutPivot(scale: Float(magnification / (flyMagnifyLast ?? 1)))
             flyMagnifyLast = magnification
-            applyFly()
+            applyView()
             return
         }
         guard let start = magnifyStartRadius, magnification > 0 else { return }
         zoom(to: start / magnification)
         updateCurvatureAnchor()
-        applyFocus()
+        applyView()
     }
 
     func endMagnify() {
@@ -308,11 +318,11 @@ final class MapVolumeModel {
             // The frozen scene turns with the hands, as the map does.
             flyAboutPivot(turn: Float(yaw - (flyRotateLast ?? 0)))
             flyRotateLast = yaw
-            applyFly()
+            applyView()
             return
         }
         turn(to: startHeading + yaw)
-        applyFocus()
+        applyView()
     }
 
     func endRotate() {
@@ -389,7 +399,7 @@ final class MapVolumeModel {
             let metres = radius * 0.8 * boost * deltaTime
             moveFocus(to: GeoMath.offset(focus, east: local.x * metres, north: -local.y * metres))
         }
-        applyFocus()
+        applyView()
     }
 
     private func perform(_ action: MapInput.Action) {
@@ -404,10 +414,10 @@ final class MapVolumeModel {
         case .faceNorth where isFlying:
             // North is up when the scene's turn cancels the map's heading.
             flyAboutPivot(turn: -(Float(heading) + flyYaw))
-            applyFly()
+            applyView()
         case .faceNorth:
             heading = 0
-            applyFocus()
+            applyView()
         case .toggleFly:
             setFlying(!isFlying)
         default:
@@ -449,7 +459,7 @@ final class MapVolumeModel {
         focusHeight = state.focusHeight
         radius = state.radius
         heading = state.headingDegrees * .pi / 180
-        applyFocus()
+        applyView()
 
         if state.flying {
             setFlying(true)
@@ -458,7 +468,7 @@ final class MapVolumeModel {
             if state.flyTranslation.count == 3 {
                 flyTranslation = SIMD3(state.flyTranslation[0], state.flyTranslation[1], state.flyTranslation[2])
             }
-            applyFly()
+            applyView()
         }
         #if DEBUG
         print("[MapVolume] restored view state: \(captureState().json())")
@@ -529,14 +539,7 @@ final class MapVolumeModel {
         flyScale = 1
         flyYaw = 0
         flyTranslation = .zero
-        applyFly()
-    }
-
-    private func applyFly() {
-        flyRoot.transform = Transform(scale: SIMD3(repeating: flyScale),
-                                      rotation: simd_quatf(angle: flyYaw, axis: [0, 1, 0]),
-                                      translation: flyTranslation)
-        updateDebugMarkers()
+        applyView()
     }
 
     /// The same point outside Fly turns and zooms pivot on: the ground beneath
@@ -580,7 +583,7 @@ final class MapVolumeModel {
             let speed = Float(0.8 * MapVolumeModel.volumeSize.x / 2 * presentation.magnification * boost * deltaTime)
             flyTranslation += SIMD3(Float(-input.move.x), 0, Float(input.move.y)) * speed
         }
-        applyFly()
+        applyView()
     }
 
     /// Ends Fly by streaming again from where it left you: the scene's pose
@@ -605,17 +608,29 @@ final class MapVolumeModel {
         moveFocus(to: GeoMath.offset(beneath, east: -referenceLocal.x, north: referenceLocal.y))
 
         cancelFlying()
-        applyFocus()
+        applyView()
         sampleGround()
     }
 
-    // MARK: Facing tilt
+    // MARK: Facing tilt and legacy placement
+
+    /// Today's focus-centric state, as the extracted legacy mapping takes it.
+    private var legacyState: LegacyMapping.State {
+        LegacyMapping.State(focus: focus, focusHeight: focusHeight, radius: radius, heading: heading)
+    }
+
+    private var legacyPresentation: LegacyMapping.Presentation {
+        LegacyMapping.Presentation(isVolume: presentation.host == .volume,
+                                   magnification: presentation.magnification,
+                                   groundPosition: SIMD3<Double>(presentation.groundPosition),
+                                   viewerPosition: SIMD3<Double>(presentation.viewerPosition))
+    }
 
     /// 0 up close, 1 far away: the same 50–500 km log-scale fade as the pivot
     /// (viewerPivotWeight). As it rises the map tilts to face the viewer, as
     /// Google Earth VR turns the globe toward you, so far away your line of
     /// sight meets the surface at the centre head-on instead of skimming it.
-    private var farTilt: Float { Float(1 - viewerPivotWeight) }
+    private var farTilt: Float { Float(LegacyMapping.farTilt(radius: radius)) }
 
     /// The map's centre, rising with the tilt from the floor toward a little
     /// below eye level (the volume's middle in the volume), so far away you
@@ -623,21 +638,22 @@ final class MapVolumeModel {
     /// modes the lower part of a fully tilted map then reaches below the
     /// floor; Floor 3× keeps it near the floor.
     private var tiltedGroundPosition: SIMD3<Float> {
-        let ground = presentation.groundPosition
-        let target: Float = presentation.host == .volume ? 0 : presentation.viewerPosition.y - 0.3
-        return ground + [0, (target - ground.y) * farTilt, 0]
+        SIMD3<Float>(LegacyMapping.tiltedGroundPosition(legacyState, legacyPresentation))
     }
 
-    /// Tilt that points the map's up from its (raised) centre at the
-    /// viewer's eyes, scaled by how far away you are, so at full tilt your
-    /// line of sight meets the centre perpendicularly.
-    private var tiltAngle: Float {
-        let toEye = presentation.viewerPosition - tiltedGroundPosition
-        return atan2(toEye.z, toEye.y) * farTilt
+    /// Tips the map's up toward the viewer (+z), about a horizontal axis, so
+    /// at full tilt your line of sight meets the centre perpendicularly.
+    private var tiltRotation: simd_quatf {
+        simd_quatf(angle: Float(LegacyMapping.tiltAngle(legacyState, legacyPresentation)), axis: [1, 0, 0])
     }
 
-    /// Tips the map's up toward the viewer (+z), about a horizontal axis.
-    private var tiltRotation: simd_quatf { simd_quatf(angle: tiltAngle, axis: [1, 0, 0]) }
+    /// Fly's scene pose, applied after the map's placement.
+    private var flySimilarity: Similarity {
+        guard isFlying else { return .identity }
+        return Similarity(scale: Double(flyScale),
+                          rotation: simd_quatd(angle: Double(flyYaw), axis: SIMD3(0, 1, 0)),
+                          translation: SIMD3<Double>(flyTranslation))
+    }
 
     // MARK: Pivot
 
@@ -657,11 +673,7 @@ final class MapVolumeModel {
     /// the far side of the planet. Full strength up to 50 km (where curvature
     /// starts to matter, as for ground anchoring), fading smoothly, in log
     /// scale, to pivoting at the centre by 500 km.
-    private var viewerPivotWeight: Double {
-        let t = log(radius / 50_000) / log(500_000 / 50_000.0)
-        let clamped = min(max(t, 0), 1)
-        return 1 - clamped * clamped * (3 - 2 * clamped)
-    }
+    private var viewerPivotWeight: Double { LegacyMapping.viewerPivotWeight(radius: radius) }
 
     private var pivotsAtViewer: Bool { settings.keyboardTurnPivot == .viewer }
 
@@ -726,38 +738,24 @@ final class MapVolumeModel {
         return SIMD2(v.x * c - v.y * s, v.x * s + v.y * c)
     }
 
-    /// Scene metres per world metre as the volume shows it. Streaming always
-    /// uses this, so every presentation gets the same tiles at the same detail.
-    private var streamingScale: Double { (Self.volumeSize.x / 2) / radius }
-
     /// Scene metres per world metre as currently displayed.
-    private var sceneScale: Double { streamingScale * presentation.magnification }
+    private var sceneScale: Double { LegacyMapping.sceneScale(legacyState, legacyPresentation) }
 
-    private func applyFocus() {
+    /// Places everything from the current state. While flying, streaming
+    /// keeps the inputs it had when Fly started, and the tiles root follows
+    /// Fly's pose on top of the map's.
+    private func applyView() {
         guard streaming.isStreaming else { return }
-        streaming.anchor = .init(coordinate: focus, height: focusHeight)
-        streaming.view = .init(
-            heading: heading,
-            // The LOD camera looks down more steeply as the map turns to face
-            // you: 45° when flat, straight down when fully tilted.
-            elevation: .pi / 4 + .pi / 4 * Double(farTilt),
-            distance: Self.viewerDistanceInScene / streamingScale,
-            radius: radius,
-            // Only the floor modes stream past the volume-sized square; the
-            // volume would clip the extra away anyway.
-            streamingRadius: presentation.host == .immersive ? radius * settings.immersiveRegion : 0)
-
-        // Each tile entity is placed by the streamer in the focus's level
-        // frame (x east, y up, z south, focus ground point at 0). Here that
-        // frame is turned by the heading, scaled, and set on the
-        // presentation's ground point.
-        let s = Float(sceneScale)
-        let rotation = simd_quatf(angle: Float(heading), axis: [0, 1, 0])
-        let placement = Transform(scale: SIMD3(repeating: s),
-                                  rotation: tiltRotation * rotation,
-                                  translation: tiltedGroundPosition)
-        streaming.tilesRoot.transform = placement
-        gestureTarget.orientation = tiltRotation * rotation
+        if !isFlying {
+            streaming.inputs = LegacyMapping.streamingInputs(legacyState, legacyPresentation,
+                                                             immersiveRegion: settings.immersiveRegion)
+        }
+        // The streamer places each tile in its anchor's level frame; the
+        // georeference puts the world in the map frame, so together they
+        // place that frame.
+        let georeference = LegacyMapping.georeference(legacyState, legacyPresentation, fly: flySimilarity)
+        streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
+        gestureTarget.orientation = tiltRotation * simd_quatf(angle: Float(heading), axis: [0, 1, 0])
         gestureTarget.position = tiltedGroundPosition
         updateDebugMarkers()
     }
@@ -794,7 +792,7 @@ final class MapVolumeModel {
         }
         groundSampleGeneration += 1
         let generation = groundSampleGeneration
-        streaming.sampleGroundHeight { [weak self] height in
+        streaming.sampleGroundHeight(radius: radius) { [weak self] height in
             MainActor.assumeIsolated {
                 guard let self, height.isFinite,
                       generation == self.groundSampleGeneration else { return }
@@ -818,6 +816,6 @@ final class MapVolumeModel {
             // Exponential approach: about 95% of the way in half a second.
             focusHeight += remaining * min(1, deltaTime * 6)
         }
-        applyFocus()
+        applyView()
     }
 }

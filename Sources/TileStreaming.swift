@@ -4,35 +4,12 @@ import RealityKit
 
 /// Streams a tile source through cesium-native and mirrors its selected tiles
 /// as RealityKit entities under `tilesRoot`. Knows nothing about navigation or
-/// presentation: it's told where the map is anchored and how the view sees it,
-/// and reports what's drawn, the credits to show and how loading is going.
+/// presentation: it's told its streaming inputs (anchor, area of interest and
+/// LOD camera), and reports what's drawn, the credits to show and how loading
+/// is going.
 @MainActor
 @Observable
 final class TileStreaming {
-    /// Where the map is anchored on the globe. Tiles are placed in this
-    /// point's level frame (x east, y up, z south, metres, the point at 0).
-    struct Anchor: Equatable {
-        var coordinate: GeoCoordinate
-        /// Metres above the WGS84 ellipsoid.
-        var height = 0.0
-    }
-
-    /// The camera level of detail is selected for, and the region streamed.
-    /// The camera looks at the anchor from `distance` away, `elevation` above
-    /// its horizon, facing `heading`. See CNTileStreamer.h.
-    struct LODView: Equatable {
-        /// Radians clockwise from north.
-        var heading = 0.0
-        /// Radians above the anchor's horizon.
-        var elevation = Double.pi / 4
-        /// Metres of world.
-        var distance = 1200.0
-        /// Half-width of the square region shown, metres.
-        var radius = 500.0
-        /// Half-width of the square streamed, metres; 0 means `radius`.
-        var streamingRadius = 0.0
-    }
-
     struct Stats: Equatable {
         var renderedTiles = 0
         var entities = 0
@@ -44,15 +21,13 @@ final class TileStreaming {
         var imageURL: URL?
     }
 
-    /// Holds every tile entity, each placed in the anchor's level frame. The
-    /// owner places this in its scene.
+    /// Holds every tile entity, each placed in the anchor's level frame
+    /// (x east, y up, z south, metres, the anchor at 0). The owner places
+    /// this in its scene.
     let tilesRoot = Entity()
 
-    var anchor: Anchor {
-        didSet { if anchor != oldValue { applyAnchorAndView() } }
-    }
-    var view = LODView() {
-        didSet { if view != oldValue { applyAnchorAndView() } }
+    var inputs: StreamingInputs {
+        didSet { if inputs != oldValue { applyInputs() } }
     }
     /// A different tile source restarts streaming; anything else applies live.
     var settings: StreamingSettings {
@@ -82,8 +57,8 @@ final class TileStreaming {
     /// Longest main-thread update in the current debug-log second.
     private var debugSlowestUpdate: TimeInterval = 0
 
-    init(anchor: Anchor, settings: StreamingSettings) {
-        self.anchor = anchor
+    init(inputs: StreamingInputs, settings: StreamingSettings) {
+        self.inputs = inputs
         self.settings = settings
     }
 
@@ -123,7 +98,7 @@ final class TileStreaming {
         streamer.tileLoadHandler = tileUploader.handler
         self.streamer = streamer
         applySettings()
-        applyAnchorAndView()
+        applyInputs()
     }
 
     /// Drops everything loaded from the old source and streams the new one
@@ -184,31 +159,33 @@ final class TileStreaming {
         debugLogElapsed += deltaTime
         if debugLogElapsed > 1 {
             debugLogElapsed = 0
-            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, focus \(String(format: "%.4f, %.4f", anchor.coordinate.latitude, anchor.coordinate.longitude)), height \(Int(anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms")
+            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms")
             debugSlowestUpdate = 0
         }
         #endif
     }
 
-    /// Samples the most detailed surface loaded across the shown region and
-    /// reports the lowest hit, metres above the ellipsoid (NaN if none), on
-    /// the main thread during a later update.
-    func sampleGroundHeight(_ completion: @escaping (Double) -> Void) {
-        streamer?.sampleGroundHeightInFocusRegion(completion: completion)
+    /// Samples the most detailed surface across 0.8 × `radius` metres around
+    /// the anchor and reports the lowest hit, metres above the ellipsoid
+    /// (NaN if none), on the main thread during a later update.
+    func sampleGroundHeight(radius: Double, _ completion: @escaping (Double) -> Void) {
+        streamer?.sampleGroundHeightAroundAnchor(radius: radius, completion: completion)
     }
 
     // MARK: Applying
 
-    private func applyAnchorAndView() {
+    private func applyInputs() {
         guard let streamer else { return }
-        streamer.focusLatitude = anchor.coordinate.latitude
-        streamer.focusLongitude = anchor.coordinate.longitude
-        streamer.focusHeight = anchor.height
-        streamer.focusRadius = view.radius
-        streamer.streamingRadius = view.streamingRadius
-        streamer.viewerDistance = view.distance
-        streamer.viewHeading = view.heading
-        streamer.viewElevation = view.elevation
+        streamer.anchorLatitude = inputs.anchor.coordinate.latitude
+        streamer.anchorLongitude = inputs.anchor.coordinate.longitude
+        streamer.anchorHeight = inputs.anchor.height
+        streamer.streamingRadius = inputs.streamingRadius
+        streamer.regionHeading = inputs.regionHeading
+        streamer.viewPosition = inputs.lod.position
+        streamer.viewDirection = inputs.lod.direction
+        streamer.viewUp = inputs.lod.up
+        streamer.viewFieldOfView = inputs.lod.fieldOfView
+        streamer.viewAspect = inputs.lod.aspect
     }
 
     private func applySettings() {

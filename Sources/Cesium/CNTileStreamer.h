@@ -3,8 +3,8 @@
 //
 // Coordinates: there is no global origin. Each tile's vertices are small
 // offsets from its own centre; every frame the bridge hands Swift a transform
-// per drawn tile that places it in the focus's level frame, in metres and
-// RealityKit axes (x = east, y = up, z = south, focus ground point at 0).
+// per drawn tile that places it in the anchor's level frame, in metres and
+// RealityKit axes (x = east, y = up, z = south, the anchor at 0).
 
 #import <Foundation/Foundation.h>
 #import <simd/simd.h>
@@ -62,7 +62,7 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 @interface CNFrame : NSObject
 @property (nonatomic, readonly) NSArray<CNTileMesh *> *tilesToRender;
 /// One simd_float4x4 per tilesToRender entry, same order: the tile's
-/// placement in the focus's level frame (see the coordinates note above).
+/// placement in the anchor's level frame (see the coordinates note above).
 @property (nonatomic, readonly) NSData *tileTransforms;
 @property (nonatomic, readonly) NSArray<NSNumber *> *freedTileIDs;
 /// Attributions that must be shown on screen.
@@ -83,27 +83,29 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 /// without any (terrain); otherwise flat ones are computed (buildings).
 - (instancetype)init NS_UNAVAILABLE;
 
-/// Centre of the region to stream, degrees. The streamed square, ground
-/// sampling and LOD camera are all built in the local frame here.
-@property (nonatomic) double focusLatitude;
-@property (nonatomic) double focusLongitude;
-/// Height of the ground at the focus, metres above the WGS84 ellipsoid.
-@property (nonatomic) double focusHeight;
-/// Half-width of the square region to stream, metres.
-@property (nonatomic) double focusRadius;
-/// Distance of the synthetic LOD camera from the focus, metres of world.
-@property (nonatomic) double viewerDistance;
-/// Compass bearing the viewer faces, radians clockwise from north (0 = the
-/// volume's front looks north). Steers the LOD camera and streamed region.
-@property (nonatomic) double viewHeading;
-/// Angle of the LOD camera above the focus's horizon, radians: π/4 for the
-/// usual oblique view, up to π/2 (straight down) when the map is tilted to
-/// face the viewer.
-@property (nonatomic) double viewElevation;
-/// Half-width of the square actually streamed, metres. 0 means use
-/// focusRadius; larger streams beyond what the volume shows (ground sampling
-/// still uses focusRadius).
+/// The anchor: the origin of the frame tiles are placed in, and the centre
+/// of the area of interest. Degrees.
+@property (nonatomic) double anchorLatitude;
+@property (nonatomic) double anchorLongitude;
+/// Metres above the WGS84 ellipsoid.
+@property (nonatomic) double anchorHeight;
+/// Half-width of the area of interest: the square, centred on the anchor,
+/// whose tiles may stream. Metres.
 @property (nonatomic) double streamingRadius;
+/// Rotation of that square, radians clockwise from north.
+@property (nonatomic) double regionHeading;
+
+/// The LOD camera (the frustum detail is selected for), in the anchor's
+/// frame (x east, y up, z south, metres). Direction and up should be
+/// perpendicular unit vectors; the bridge normalises them and skips the
+/// view update if they're degenerate.
+@property (nonatomic) simd_double3 viewPosition;
+@property (nonatomic) simd_double3 viewDirection;
+@property (nonatomic) simd_double3 viewUp;
+/// Vertical field of view, radians. Default π/3.
+@property (nonatomic) double viewFieldOfView;
+/// Width over height. Default 1.
+@property (nonatomic) double viewAspect;
 
 /// Prepares each tile's renderer resources off the main thread. Set it before
 /// the first update; without one, tiles count as loaded immediately.
@@ -124,12 +126,13 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 /// Runs one selection + load pass. Call once per frame on the main thread.
 - (CNFrame *)updateWithDeltaTime:(float)deltaTime;
 
-/// Samples the most detailed surface on a 3×3 grid across the focus region
-/// and reports the lowest hit in metres above the ellipsoid, or NAN if
-/// every sample failed. Completion runs on the main thread during a later
-/// updateWithDeltaTime: call.
-- (void)sampleGroundHeightInFocusRegion:(void (^)(double height))completion
-    NS_SWIFT_NAME(sampleGroundHeightInFocusRegion(completion:));
+/// Samples the most detailed surface on a 3×3 grid spanning 0.8 × `radius`
+/// metres around the anchor and reports the lowest hit in metres above the
+/// ellipsoid, or NAN if every sample failed. Completion runs on the main
+/// thread during a later updateWithDeltaTime: call.
+- (void)sampleGroundHeightAroundAnchorWithRadius:(double)radius
+                                      completion:(void (^)(double height))completion
+    NS_SWIFT_NAME(sampleGroundHeightAroundAnchor(radius:completion:));
 
 @end
 
