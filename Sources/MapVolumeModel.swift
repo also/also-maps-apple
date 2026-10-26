@@ -90,10 +90,12 @@ final class MapVolumeModel {
     private var cameraGround = EasedHeight(0)
     /// Bumped per sample request so a slow, older result can't win.
     private var groundSampleGeneration = 0
-    private var groundRefreshElapsed = 0.0
     private var wasMoving = false
     /// Easing pitch to the new host's level map after a host switch.
     private var settlesPitch = false
+    /// A place's framing assumes ground at 0 m until the first sample there;
+    /// that sample moves the camera with the ground instead of rescaling.
+    private var placeAwaitsGround = true
 
     /// The last valid adaptive-model framing, kept when the view ray misses.
     private var framing: AdaptiveModel.Framing?
@@ -150,7 +152,7 @@ final class MapVolumeModel {
         place.longitude = env["MAPVOLUME_LON"].flatMap(Double.init) ?? place.longitude
         place.radius = env["MAPVOLUME_RADIUS"].flatMap(Double.init) ?? place.radius
         place.heading = env["MAPVOLUME_HEADING"].flatMap(Double.init) ?? place.heading
-        let camera = Self.framing(place, groundHeight: 0)
+        let camera = Self.framing(place, in: .volume, groundHeight: 0)
         navigation = ModelFlightStyle().activate(NavigationState(camera: camera))
 
         streaming = TileStreaming(inputs: StreamingInputs(anchor: StreamingAnchor(coordinate: place.coordinate)),
@@ -232,15 +234,17 @@ final class MapVolumeModel {
 
     // MARK: Places
 
-    /// The camera that frames `place` in the volume's geometry: its centre
-    /// on the table, `radius` metres of world across half the volume.
-    private static func framing(_ place: Place, groundHeight: Double) -> CameraPose {
-        guard case let .room(volume) = MapPresentation.volume.geometry else {
-            preconditionFailure("the volume is a room host")
+    /// The camera that frames `place` in a host: its centre on the table or
+    /// floor, `radius` metres of world across the host's half-width (half
+    /// the volume, or the floor map's magnified equivalent), level.
+    private static func framing(_ place: Place, in presentation: MapPresentation,
+                                groundHeight: Double) -> CameraPose {
+        guard case let .room(room) = presentation.geometry else {
+            preconditionFailure("visionOS hosts are rooms")
         }
         return AdaptiveModel.framePlace(centre: place.coordinate, radius: place.radius,
                                         heading: place.heading * .pi / 180,
-                                        room: volume, groundHeight: groundHeight)
+                                        room: room, groundHeight: groundHeight)
     }
 
     /// Jumps to `place`: a camera framing its position, size and facing.
@@ -249,12 +253,15 @@ final class MapVolumeModel {
     func go(to place: Place) {
         if tilesHeld { setTilesHeld(false) }
         endManipulation()
+        // Framed level for this host already.
+        settlesPitch = false
+        placeAwaitsGround = true
         currentPlaceIndex = PlaceLibrary.all.firstIndex(of: place)
         rayHeight.reset(to: 0)
         envelopeHeight.reset(to: 0)
         cameraGround.reset(to: 0)
         framing = nil
-        var camera = Self.framing(place, groundHeight: 0)
+        var camera = Self.framing(place, in: presentation, groundHeight: 0)
         camera.height = context.clampHeight(camera.height)
         navigation = flight.activate(NavigationState(camera: camera))
         applyView()
@@ -541,38 +548,36 @@ final class MapVolumeModel {
     /// The envelope used for placement, never above the ray surface.
     private var effectiveEnvelope: Double { min(envelopeHeight.value, rayHeight.value) }
 
-    /// Ground under the camera every frame; the georeference ground at
-    /// 4 Hz while moving. Nothing re-anchors or eases while tiles are held,
-    /// except the camera ground, which reads the held tiles; nor during a
-    /// gesture, so the grabbed point stays under the hand (it refreshes
-    /// when the gesture ends).
+    /// The ground under the camera, every frame, from loaded tiles detailed
+    /// enough to trust: coarse tiles' lowest vertices can be kilometres
+    /// below the real ground. It sets speed and limits only; it never moves
+    /// the view.
+    ///
+    /// The georeference ground (where the map sits on the table or floor)
+    /// comes only from the 3×3 surface sample once motion settles, plus the
+    /// Earth's curve far out. Reading it from the loaded tiles continuously
+    /// fed back on itself: a new height rescaled the map, which moved the LOD
+    /// camera, which changed the tiles, which changed the height. Nothing
+    /// changes it while tiles are held or during a gesture.
+
     private func updateGround(deltaTime: Double) {
-        let tiles = streaming.renderedHeightRanges()
         let camera = navigation.camera
-        let footprint = GeoCoordinate(latitude: camera.latitude, longitude: camera.longitude)
-        if let ground = GroundEstimates.envelope(tiles, around: footprint,
-                                                 radius: max(20, 0.05 * (camera.height - cameraGround.value)),
-                                                 statistic: .minimum) {
-            cameraGround.aim(at: ground)
+        let altitude = max(camera.height - cameraGround.value, 0)
+        let detailed = streaming.renderedHeightRanges().filter { $0.radius <= max(2 * altitude, 500) }
+        if let ground = GroundEstimates.envelope(detailed, around: camera.coordinate,
+                                                 radius: max(20, 0.05 * altitude), statistic: .minimum) {
+            cameraGround.aim(at: min(max(ground, -500), 9_000))
         }
         cameraGround.ease(deltaTime: deltaTime, halfLife95: 0.3)
 
         guard !tilesHeld, manipulation == nil, let framing else { return }
-        groundRefreshElapsed += deltaTime
-        if groundRefreshElapsed >= 0.25 {
-            groundRefreshElapsed = 0
-            let g = Geodesy.geodetic(framing.georeferencePoint).coordinate
-            let shown = framing.shownRadius(room)
-            let hysteresis = max(0.5, 0.002 * shown)
-            if let height = GroundEstimates.columnHeight(tiles, at: g) {
-                rayHeight.aim(at: min(max(height, -500), 9_000), hysteresis: hysteresis)
-            }
-            if shown >= Self.curvatureAnchorRadius {
-                // Far out the Earth's curve, not the terrain, decides: sea
-                // level at the view's edges meets the floor.
-                envelopeHeight.aim(at: rayHeight.value - GroundEstimates.curvatureDrop(shown),
-                                   hysteresis: hysteresis)
-            }
+        let shown = framing.shownRadius(room)
+        if shown >= Self.curvatureAnchorRadius {
+            // Far out the Earth's curve, not the terrain, decides: sea level
+            // at the view's edges meets the floor. Smooth in the camera, so
+            // it follows continuously.
+            envelopeHeight.aim(at: rayHeight.value - GroundEstimates.curvatureDrop(shown),
+                               hysteresis: 0.002 * shown)
         }
         rayHeight.ease(deltaTime: deltaTime)
         envelopeHeight.ease(deltaTime: deltaTime)
@@ -582,9 +587,10 @@ final class MapVolumeModel {
     /// where the ground sits: the edges fall away by ~200 m at 50 km.
     private static let curvatureAnchorRadius = 50_000.0
 
-    /// Today's floor placement: the lowest of a 3×3 sample across the shown
-    /// region once motion settles (live only; it may load tiles). Falls back
-    /// to the loaded tiles' envelope if sampling fails.
+    /// Where the map sits: the lowest of a 3×3 sample across the shown region
+    /// once motion settles (live only; it may load tiles), for both the
+    /// surface the view ray meets and the ground placed on the table or
+    /// floor. A failed sample keeps the last estimate.
     private func requestGroundSample() {
         guard !tilesHeld, let framing else { return }
         let shown = framing.shownRadius(room)
@@ -595,16 +601,21 @@ final class MapVolumeModel {
         streaming.sampleGroundHeight(around: centre, radius: shown) { [weak self] height in
             MainActor.assumeIsolated {
                 guard let self, generation == self.groundSampleGeneration, !self.tilesHeld else { return }
-                var envelope = height
-                if !envelope.isFinite {
-                    envelope = GroundEstimates.envelope(self.streaming.renderedHeightRanges(), around: centre,
-                                                        radius: 0.8 * shown, statistic: .minimum) ?? .nan
-                }
-                guard envelope.isFinite else { return }
+                guard height.isFinite else { return }
+                let ground = min(max(height, -500), 9_000)
                 #if DEBUG
-                print("[MapVolume] ground sample \(Int(envelope)) m (was \(Int(self.envelopeHeight.value)) m)")
+                print("[MapVolume] ground sample \(Int(ground)) m (was \(Int(self.envelopeHeight.value)) m)")
                 #endif
-                self.envelopeHeight.aim(at: envelope)
+                if self.placeAwaitsGround {
+                    // Places are framed relative to the ground.
+                    self.placeAwaitsGround = false
+                    self.navigation.camera.height += ground - self.rayHeight.value
+                    self.rayHeight.reset(to: ground)
+                    self.envelopeHeight.reset(to: ground)
+                } else {
+                    self.rayHeight.aim(at: ground)
+                    self.envelopeHeight.aim(at: ground)
+                }
             }
         }
     }
@@ -711,6 +722,7 @@ final class MapVolumeModel {
         endManipulation()
         settings = state.settings
         groundSampleGeneration += 1  // Drop any sample in flight.
+        placeAwaitsGround = false
         rayHeight.reset(to: state.groundEstimate.ray)
         envelopeHeight.reset(to: state.groundEstimate.envelope)
         roomPlacement = state.roomPlacement.placement
