@@ -3,7 +3,7 @@ import simd
 
 /// The origin of the bridge's anchor frame A, where it places every tile:
 /// RealityKit axes (x east, y up, z south), metres, the anchor at 0.
-struct StreamingAnchor: Equatable {
+struct StreamingAnchor: Codable, Equatable {
     var coordinate: GeoCoordinate
     /// Metres above the WGS84 ellipsoid.
     var height = 0.0
@@ -19,7 +19,7 @@ struct StreamingAnchor: Equatable {
 
 /// The view frustum level of detail is selected for (the culling camera),
 /// in anchor frame A.
-struct LODCamera: Equatable {
+struct LODCamera: Codable, Equatable {
     var position = SIMD3<Double>(0, 849, 849)
     /// Unit.
     var direction = SIMD3<Double>(0, -0.5.squareRoot(), -0.5.squareRoot())
@@ -48,7 +48,7 @@ struct LODCamera: Equatable {
 /// What cesium-native is told: where tiles are placed from, what's eligible
 /// to stream and the frustum detail is chosen for. Follows the camera while
 /// tiles are live; frozen while held.
-struct StreamingInputs: Equatable {
+struct StreamingInputs: Codable, Equatable {
     /// The area of interest's centre, and frame A's origin.
     var anchor: StreamingAnchor
     var lod = LODCamera()

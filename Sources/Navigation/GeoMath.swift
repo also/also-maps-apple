@@ -1,7 +1,7 @@
 import Foundation
 
 /// A point on the globe, degrees.
-struct GeoCoordinate: Equatable {
+struct GeoCoordinate: Codable, Equatable {
     var latitude: Double
     var longitude: Double
 }
@@ -30,6 +30,14 @@ enum GeoMath {
     /// in that direction for that distance.
     static func offset(_ start: GeoCoordinate, east: Double, north: Double) -> GeoCoordinate {
         destination(from: start, bearing: atan2(east, north), distance: (east * east + north * north).squareRoot())
+    }
+
+    /// Great-circle distance from `a` to `b`, metres.
+    static func distance(from a: GeoCoordinate, to b: GeoCoordinate) -> Double {
+        let lat1 = a.latitude * .pi / 180, lat2 = b.latitude * .pi / 180
+        let dLat = lat2 - lat1, dLon = (b.longitude - a.longitude) * .pi / 180
+        let h = sin(dLat / 2) * sin(dLat / 2) + cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2)
+        return 2 * earthRadius * asin(min(h.squareRoot(), 1))
     }
 
     /// Initial great-circle bearing from `a` to `b`, radians clockwise from north.

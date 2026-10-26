@@ -25,13 +25,13 @@ struct MapVolumeView: View {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
                     presentationPicker
-                    Toggle(isOn: Binding(get: { model.isFlying },
-                                         set: { model.setFlying($0) })) {
+                    Toggle(isOn: Binding(get: { model.tilesHeld },
+                                         set: { model.setTilesHeld($0) })) {
                         Label("Fly", systemImage: "airplane")
                     }
                     .toggleStyle(.button)
                     .labelStyle(.iconOnly)
-                    .help("Fly through the loaded map (streaming frozen)")
+                    .help("Hold tiles: fly through what's loaded without requesting more")
                     Menu("Places", systemImage: "mappin.and.ellipse") {
                         ForEach(PlaceLibrary.all) { place in
                             Button(place.name) { model.go(to: place) }
@@ -63,14 +63,18 @@ struct MapVolumeView: View {
             if ProcessInfo.processInfo.environment["MAPVOLUME_OPEN_TUNING"] == "1" {
                 openWindow(id: TuningView.windowID)
             }
-            // MAPVOLUME_MARKERS=1 shows the pivot and centre markers, and
+            // MAPVOLUME_MARKERS=1 shows the debug markers, and
             // MAPVOLUME_STATE=<JSON from Copy View State> restores that view.
             if ProcessInfo.processInfo.environment["MAPVOLUME_MARKERS"] == "1" {
                 model.showsDebugMarkers = true
             }
-            if let text = ProcessInfo.processInfo.environment["MAPVOLUME_STATE"],
-               let state = MapViewState.parse(text) {
-                await Self.restore(state, model: model, open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
+            if let text = ProcessInfo.processInfo.environment["MAPVOLUME_STATE"] {
+                do {
+                    let state = try MapViewState.parse(text)
+                    await Self.restore(state, model: model, open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
+                } catch {
+                    print("[MapVolume] MAPVOLUME_STATE not restored: \(error.localizedDescription)")
+                }
             } else if let id = ProcessInfo.processInfo.environment["MAPVOLUME_PRESENTATION"],
                let presentation = MapPresentation.all.first(where: { $0.id == id }) {
                 await present(presentation)
@@ -120,7 +124,7 @@ struct MapVolumeView: View {
                         model: MapVolumeModel,
                         open: OpenImmersiveSpaceAction,
                         dismiss: DismissImmersiveSpaceAction) async {
-        if let presentation = MapPresentation.all.first(where: { $0.id == state.presentation }) {
+        if let presentation = MapPresentation.all.first(where: { $0.id == state.host }) {
             await present(presentation, model: model, open: open, dismiss: dismiss)
         }
         model.restore(state)
@@ -147,7 +151,10 @@ extension View {
             .simultaneousGesture(
                 MagnifyGesture()
                     .targetedToEntity(model.gestureTarget)
-                    .onChanged { value in model.magnify(by: value.magnification) }
+                    .onChanged { value in
+                        let start = value.convert(value.startLocation3D, from: .local, to: .scene)
+                        model.magnify(by: value.magnification, startedAt: start)
+                    }
                     .onEnded { _ in model.endMagnify() }
             )
             .simultaneousGesture(
@@ -180,8 +187,8 @@ struct AttributionView: View {
                 ProgressView(value: Double(model.streaming.loadProgress), total: 100)
                     .frame(width: 200)
             }
-            if model.isFlying {
-                Text("Flying · map frozen")
+            if model.tilesHeld {
+                Text("Tiles held · view requests frozen")
                     .font(.caption)
             }
             if model.keyboardConnected {

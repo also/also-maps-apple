@@ -141,6 +141,10 @@ targets:
     platform: macOS
     sources:
       - path: Sources/Navigation
+      # Foundation-only model types, for view-state round trips.
+      - path: Sources/MapViewState.swift
+      - path: Sources/StreamingSettings.swift
+      - path: Sources/TileSource.swift
       - path: Tests/Navigation
     scheme:
       testTargets: [MapVolumeCoreTests]

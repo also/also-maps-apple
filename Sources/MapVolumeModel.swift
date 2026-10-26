@@ -4,28 +4,27 @@ import RealityKit
 import SwiftUI
 import UIKit
 
-/// Navigation and presentation for the map: where it's focused, how it's
-/// turned, zoomed and placed in each host scene. Tiles come from `streaming`.
+/// Navigation and presentation for the map. The camera is the state
+/// (`navigation`); each host shows it through the adaptive model, which
+/// scales the world so the camera sits at the design eye point and what it
+/// looks at sits on the table or floor. Tiles come from `streaming`. See
+/// docs/camera-core.md.
 @MainActor
 @Observable
 final class MapVolumeModel {
     /// Volume extents in metres (width, height, depth).
     nonisolated static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
 
-    struct Location {
-        var latitude: Double
-        var longitude: Double
-        var radius: Double
-    }
-
-    static let defaultLocation = Location(latitude: 37.7955, longitude: -122.3937, radius: 600)
+    /// Where the app starts: the Ferry Building, 600 m across the volume.
+    static let defaultPlace = Place(id: "default", name: "San Francisco",
+                                    latitude: 37.7955, longitude: -122.3937, radius: 600)
 
     /// The room placement: map frame → the host's reference space. Lives
     /// under whichever host's anchor matches the current presentation.
     let placementRoot = Entity()
     /// The map frame: tiles plus the gesture target.
     let root = Entity()
-    /// Invisible box that receives drag / magnify gestures.
+    /// Invisible slab that receives drag, pinch and twist gestures.
     let gestureTarget = Entity()
 
     /// The tiles, their credits and stats.
@@ -35,27 +34,23 @@ final class MapVolumeModel {
         didSet {
             guard settings != oldValue else { return }
             settings.save()
-            let sourceChanged = settings.tileSource != oldValue.tileSource
-            // Restarting drops the scene Fly was moving.
-            if sourceChanged, isFlying { cancelFlying() }
+            // A new source drops every tile, held or not.
+            if settings.tileSource != oldValue.tileSource, tilesHeld { setTilesHeld(false) }
             streaming.settings = settings
-            if sourceChanged {
-                sampleGround()
-            }
-            if radius != clampRadius(radius) {
-                radius = clampRadius(radius)
-                sampleGround()
-            }
             layOutGestureTarget()
+            requestGroundSample()
             applyView()
         }
     }
 
+    /// The host showing the map. Switching keeps the camera (and any hold);
+    /// only the room transform changes.
     var presentation = MapPresentation.volume {
         didSet {
             guard presentation != oldValue else { return }
-            // The drone's pose was relative to the old presentation's scene.
-            if isFlying { cancelFlying() }
+            endManipulation()
+            // Each host's level map has its own pitch; the assist re-targets.
+            settlesPitch = pitchFollowsAltitude
             reparentRoot()
             layOutGestureTarget()
             applyView()
@@ -75,45 +70,69 @@ final class MapVolumeModel {
     /// it can be closed while the immersive space stays up.
     var volumeIsOpen = false
 
-    /// One anchor per host scene; `root` moves between them.
+    // MARK: Navigation state
+
+    /// The camera, movement heading and heading link. The only stored
+    /// navigation state.
+    private(set) var navigation: NavigationState
+    private var flight = ModelFlightStyle()
+    /// The optional framing assist: pitch eases toward the level map up
+    /// close and straight down far away (docs/camera-core.md §12.3).
+    var pitchFollowsAltitude = true
+    /// Lowest camera height above the estimated ground in room hosts.
+    private static let minimumAltitude = 55.0
+
+    // Ground estimates (docs/camera-core.md §8): the terrain height the view
+    // ray meets (h_ray), the low envelope placed on the table or floor
+    // (h_env), and the ground under the camera, for speed and limits.
+    private var rayHeight = EasedHeight(0)
+    private var envelopeHeight = EasedHeight(0)
+    private var cameraGround = EasedHeight(0)
+    /// Bumped per sample request so a slow, older result can't win.
+    private var groundSampleGeneration = 0
+    private var groundRefreshElapsed = 0.0
+    private var wasMoving = false
+    /// Easing pitch to the new host's level map after a host switch.
+    private var settlesPitch = false
+
+    /// The last valid adaptive-model framing, kept when the view ray misses.
+    private var framing: AdaptiveModel.Framing?
+
+    // MARK: Tiles held
+
+    /// Held tiles: streaming keeps the inputs it had when the hold began, so
+    /// you fly through what's loaded while nothing new is requested.
+    private(set) var tilesHeld = false
+    /// The authoritative held snapshot.
+    private var heldInputs: StreamingInputs?
+
+    // MARK: Gestures
+
+    private enum GestureKind: Hashable { case drag, magnify, rotate }
+
+    /// One anchored manipulation: drag, pinch and twist compose into a
+    /// single solve that keeps the grabbed point under the hand.
+    private struct Manipulation {
+        /// Where the first gesture started, map frame.
+        var start: SIMD3<Double>
+        /// The world point that was there, ECEF.
+        var grab: SIMD3<Double>
+        var startPose: CameraPose
+        var startScale: Double
+        /// The latest solution, the next solve's starting guess.
+        var pose: CameraPose
+        var starts: [GestureKind: SIMD3<Float>] = [:]
+        var translation = SIMD3<Double>.zero
+        var magnification = 1.0
+        var twist = 0.0
+    }
+    private var manipulation: Manipulation?
+    private var lastMagnifyUpdate = Date.distantPast
+
+    /// One anchor per host scene; `placementRoot` moves between them.
     private var anchors: [MapPresentation.Host: Entity] = [:]
     /// Both scenes deliver frame updates; only the presented host's are used.
     private var updateSubscriptions: [MapPresentation.Host: EventSubscription] = [:]
-
-    // Gesture state.
-    private var dragStartFocus: GeoCoordinate?
-    /// Identifies the drag in progress. visionOS can cancel a gesture without
-    /// calling onEnded, so a new start location means a new drag.
-    private var dragStartLocation: SIMD3<Float>?
-    private var lastMagnifyUpdate = Date.distantPast
-    private var rotateStartHeading: Double?
-    private var rotateStartLocation: SIMD3<Float>?
-    private var magnifyStartRadius: Double?
-
-    /// Centre of the view. Kept as latitude/longitude and moved along the
-    /// globe, so steering stays true however far it gets from the start.
-    private var focus = GeoCoordinate(latitude: defaultLocation.latitude, longitude: defaultLocation.longitude)
-    private var focusHeight = 0.0
-    /// Where focusHeight is easing toward; set by the latest ground sample.
-    private var targetFocusHeight: Double?
-    /// Bumped per sample request so a slow, older result can't win.
-    private var groundSampleGeneration = 0
-    private var radius = defaultLocation.radius
-    /// Compass bearing the volume's front faces, radians clockwise from north.
-    private var heading = 0.0
-
-    // Fly: streaming frozen; the controls move the loaded scene around you
-    // exactly as they move the map outside Fly. The scene's pose relative to
-    // where it was when Fly started: x ↦ flyScale · R(flyYaw) · x + flyTranslation.
-    private(set) var isFlying = false
-    private var flyScale: Float = 1
-    private var flyYaw: Float = 0
-    private var flyTranslation = SIMD3<Float>.zero
-    // Last value seen per gesture, so simultaneous pinch and twist compose.
-    private var flyDragLast: SIMD3<Float>?
-    private var flyMagnifyLast: Double?
-    private var flyRotateLast: Double?
-    private var inputWasMoving = false
     private var heldActions: Set<MapInput.Action> = []
     /// Index into PlaceLibrary.all of the last place jumped to, for cycling.
     private var currentPlaceIndex: Int?
@@ -121,8 +140,20 @@ final class MapVolumeModel {
     init() {
         let settings = StreamingSettings.load()
         self.settings = settings
-        let start = GeoCoordinate(latitude: Self.defaultLocation.latitude, longitude: Self.defaultLocation.longitude)
-        streaming = TileStreaming(inputs: StreamingInputs(anchor: StreamingAnchor(coordinate: start)),
+
+        // Debug overrides: MAPVOLUME_LAT/_LON/_RADIUS/_HEADING pick the
+        // starting view, and MAPVOLUME_TILESET_URL streams any 3D Tiles
+        // tileset instead of Google's, no key needed.
+        let env = ProcessInfo.processInfo.environment
+        var place = Self.defaultPlace
+        place.latitude = env["MAPVOLUME_LAT"].flatMap(Double.init) ?? place.latitude
+        place.longitude = env["MAPVOLUME_LON"].flatMap(Double.init) ?? place.longitude
+        place.radius = env["MAPVOLUME_RADIUS"].flatMap(Double.init) ?? place.radius
+        place.heading = env["MAPVOLUME_HEADING"].flatMap(Double.init) ?? place.heading
+        let camera = Self.framing(place, groundHeight: 0)
+        navigation = ModelFlightStyle().activate(NavigationState(camera: camera))
+
+        streaming = TileStreaming(inputs: StreamingInputs(anchor: StreamingAnchor(coordinate: place.coordinate)),
                                   settings: settings)
         placementRoot.addChild(root)
         root.addChild(debugMarkers)
@@ -170,18 +201,17 @@ final class MapVolumeModel {
         placementRoot.transform = Transform(roomPlacement.similarity)
     }
 
-    /// The gesture target is a thin slab at ground level covering the
-    /// streamed square. Gaze passes through terrain and buildings (they have no
+    /// The gesture target is a thin slab at ground level covering the shown
+    /// square. Gaze passes through terrain and buildings (they have no
     /// collision) to the slab, while looking past the map's edges or over it
     /// no longer hits an invisible box.
     private func layOutGestureTarget() {
         let region = presentation.host == .immersive ? settings.immersiveRegion : 1
-        let width = Float(Self.volumeSize.x * presentation.magnification * region)
+        let width = Float(2 * room.contentHalfWidth * region)
         let thickness = Float(0.02 * presentation.magnification)
         gestureTarget.components.set(CollisionComponent(shapes: [
             .generateBox(size: [width, thickness, width])
         ]))
-        gestureTarget.position = tiltedGroundPosition
     }
 
     private var started = false
@@ -189,26 +219,12 @@ final class MapVolumeModel {
     private func start() {
         guard !started else { return }
         started = true
-
-        // Debug overrides: MAPVOLUME_LAT/_LON/_RADIUS pick the starting view, and
-        // MAPVOLUME_TILESET_URL streams any 3D Tiles tileset instead of
-        // Google's, no key needed.
-        let env = ProcessInfo.processInfo.environment
-        var location = Self.defaultLocation
-        location.latitude = env["MAPVOLUME_LAT"].flatMap(Double.init) ?? location.latitude
-        location.longitude = env["MAPVOLUME_LON"].flatMap(Double.init) ?? location.longitude
-        location.radius = env["MAPVOLUME_RADIUS"].flatMap(Double.init) ?? location.radius
-        heading = (env["MAPVOLUME_HEADING"].flatMap(Double.init) ?? 0) * .pi / 180
-        // Start the focus away from the tileset origin, e.g. to check curvature.
-        focus = GeoMath.offset(GeoCoordinate(latitude: location.latitude, longitude: location.longitude),
-                               east: (env["MAPVOLUME_FOCUS_EAST_KM"].flatMap(Double.init) ?? 0) * 1000,
-                               north: (env["MAPVOLUME_FOCUS_NORTH_KM"].flatMap(Double.init) ?? 0) * 1000)
-        radius = location.radius
         streaming.start()
         applyView()
-        sampleGround()
+        requestGroundSample()
 
         // Debug: MAPVOLUME_PLACE=<id from Places.json> starts at that place.
+        let env = ProcessInfo.processInfo.environment
         if let id = env["MAPVOLUME_PLACE"], let place = PlaceLibrary.all.first(where: { $0.id == id }) {
             go(to: place)
         }
@@ -216,127 +232,159 @@ final class MapVolumeModel {
 
     // MARK: Places
 
-    /// Jumps the view to `place`: its position, zoom (within the zoom-out
-    /// limit) and facing. Tiles for the old area unload as they fall outside
-    /// the streamed region; the new area streams in.
-    func go(to place: Place) {
-        if isFlying { cancelFlying() }
-        // Any gesture in progress was relative to the old view.
-        dragStartFocus = nil
-        dragStartLocation = nil
-        magnifyStartRadius = nil
-        rotateStartHeading = nil
-        rotateStartLocation = nil
+    /// The camera that frames `place` in the volume's geometry: its centre
+    /// on the table, `radius` metres of world across half the volume.
+    private static func framing(_ place: Place, groundHeight: Double) -> CameraPose {
+        guard case let .room(volume) = MapPresentation.volume.geometry else {
+            preconditionFailure("the volume is a room host")
+        }
+        return AdaptiveModel.framePlace(centre: place.coordinate, radius: place.radius,
+                                        heading: place.heading * .pi / 180,
+                                        room: volume, groundHeight: groundHeight)
+    }
 
+    /// Jumps to `place`: a camera framing its position, size and facing.
+    /// Tiles for the old area unload as they fall outside the streamed
+    /// region; the new area streams in.
+    func go(to place: Place) {
+        if tilesHeld { setTilesHeld(false) }
+        endManipulation()
         currentPlaceIndex = PlaceLibrary.all.firstIndex(of: place)
-        focus = place.coordinate
-        radius = clampRadius(place.radius)
-        heading = place.heading * .pi / 180
+        rayHeight.reset(to: 0)
+        envelopeHeight.reset(to: 0)
+        cameraGround.reset(to: 0)
+        framing = nil
+        var camera = Self.framing(place, groundHeight: 0)
+        camera.height = context.clampHeight(camera.height)
+        navigation = flight.activate(NavigationState(camera: camera))
         applyView()
-        sampleGround()
+        requestGroundSample()
     }
 
     // MARK: Gestures
 
     /// `start` and `current` are the drag's scene positions, in metres.
     func drag(from start: SIMD3<Float>, to current: SIMD3<Float>) {
-        if dragStartLocation != start {
-            dragStartLocation = start
-            dragStartFocus = focus
-            flyDragLast = nil
-        }
-        let translation = current - start
-        if isFlying {
-            // The frozen scene follows the hand horizontally.
-            let horizontal = SIMD3<Float>(translation.x, 0, translation.z)
-            flyTranslation += horizontal - (flyDragLast ?? .zero)
-            flyDragLast = horizontal
-            applyView()
-            return
-        }
-        guard let startFocus = dragStartFocus else { return }
-        // Undo the facing tilt so a drag across a tilted map pans along it.
-        let alongMap = tiltRotation.inverse.act(translation)
-        let local = sceneToLocal(SIMD2(Double(alongMap.x), Double(alongMap.z)))
-        let metresPerScene = 1 / sceneScale
-        // Content follows the hand: dragging right reveals what's to the left,
-        // and (local +z being south) dragging toward you reveals what's ahead.
-        moveFocus(to: GeoMath.offset(startFocus,
-                                     east: -local.x * metresPerScene,
-                                     north: local.y * metresPerScene))
-        applyView()
+        guard beginOrContinue(.drag, at: start) else { return }
+        // Content follows the hand, along the map's surface.
+        var translation = SIMD3<Double>(roomPlacement.similarity.inverse.rotation.act(SIMD3<Double>(current - start)))
+        let up = mapUp(at: manipulation!.grab)
+        translation -= up * simd_dot(translation, up)
+        manipulation?.translation = translation
+        solveManipulation()
     }
 
-    func endDrag() {
-        dragStartFocus = nil
-        dragStartLocation = nil
-        flyDragLast = nil
-        if !isFlying { sampleGround() }
-    }
+    func endDrag() { end(.drag) }
 
-    func magnify(by magnification: Double) {
-        // As with drag, a cancelled pinch never reaches endMagnify; a pause in
-        // updates means this is a new pinch.
-        if magnifyStartRadius == nil || Date().timeIntervalSince(lastMagnifyUpdate) > 0.3 {
-            magnifyStartRadius = radius
-            flyMagnifyLast = nil
-        }
+    /// `magnification` is relative to the pinch's start, which was at
+    /// `start` (scene metres).
+    func magnify(by magnification: Double, startedAt start: SIMD3<Float>) {
+        // A cancelled pinch never reaches endMagnify; a pause in updates
+        // means this is a new pinch.
+        if Date().timeIntervalSince(lastMagnifyUpdate) > 0.3 { manipulation?.starts[.magnify] = nil }
         lastMagnifyUpdate = Date()
-        if isFlying {
-            guard magnification > 0 else { return }
-            flyAboutPivot(scale: Float(magnification / (flyMagnifyLast ?? 1)))
-            flyMagnifyLast = magnification
-            applyView()
-            return
-        }
-        guard let start = magnifyStartRadius, magnification > 0 else { return }
-        zoom(to: start / magnification)
-        updateCurvatureAnchor()
-        applyView()
+        guard magnification > 0, beginOrContinue(.magnify, at: start) else { return }
+        manipulation?.magnification = magnification
+        solveManipulation()
     }
 
-    func endMagnify() {
-        magnifyStartRadius = nil
-        flyMagnifyLast = nil
-        // The sampled region grows and shrinks with the radius.
-        if !isFlying { sampleGround() }
-    }
+    func endMagnify() { end(.magnify) }
 
     /// `rotation` is the two-handed twist since the gesture began, already in
-    /// scene space. The map follows the hands, turning about its focus point.
+    /// scene space. The map turns with the hands, about where they pinched.
     func rotate(by rotation: simd_quatf, startedAt start: SIMD3<Float>) {
-        if rotateStartLocation != start {
-            rotateStartLocation = start
-            rotateStartHeading = heading
-            flyRotateLast = nil
+        guard beginOrContinue(.rotate, at: start) else { return }
+        // Signed angle about +Y (counterclockwise seen from above): the
+        // world turns that way, so the view heading turns clockwise.
+        manipulation?.twist = 2 * atan2(Double(rotation.imag.y), Double(rotation.real))
+        solveManipulation()
+    }
+
+    func endRotate() { end(.rotate) }
+
+    /// Starts a manipulation, joins this gesture to the one in progress, or
+    /// restarts if this kind of gesture began again somewhere new (visionOS
+    /// can cancel a gesture without calling onEnded).
+    private func beginOrContinue(_ kind: GestureKind, at start: SIMD3<Float>) -> Bool {
+        if let existing = manipulation?.starts[kind], existing != start { endManipulation() }
+        if manipulation == nil {
+            guard let framing else { return false }
+            let mapStart = roomPlacement.similarity.inverse.apply(SIMD3<Double>(start))
+            manipulation = Manipulation(start: mapStart,
+                                        grab: framing.georeference.ecef(map: mapStart),
+                                        startPose: navigation.camera,
+                                        startScale: framing.georeference.scale,
+                                        pose: navigation.camera)
         }
-        guard let startHeading = rotateStartHeading else { return }
-        // Signed angle about +Y (counterclockwise seen from above), which is
-        // the same sense as the map's heading rotation.
-        let yaw = 2 * atan2(Double(rotation.imag.y), Double(rotation.real))
-        if isFlying {
-            // The frozen scene turns with the hands, as the map does.
-            flyAboutPivot(turn: Float(yaw - (flyRotateLast ?? 0)))
-            flyRotateLast = yaw
-            applyView()
-            return
-        }
-        turn(to: startHeading + yaw)
+        if manipulation?.starts[kind] == nil { manipulation?.starts[kind] = start }
+        return true
+    }
+
+    private func end(_ kind: GestureKind) {
+        manipulation?.starts[kind] = nil
+        if manipulation?.starts.isEmpty == true { endManipulation() }
+    }
+
+    private func endManipulation() {
+        guard manipulation != nil else { return }
+        manipulation = nil
+        requestGroundSample()
+    }
+
+    /// Solves for the camera that keeps the grabbed point under the hand at
+    /// the pinched scale and twisted heading.
+    private func solveManipulation() {
+        guard let m = manipulation else { return }
+        let room = self.room
+        let levelPitch = room.levelPitch
+        let startPitch = m.startPose.pitch
+        let followsAltitude = pitchFollowsAltitude
+        let target = AdaptiveModel.AnchorTarget(
+            grab: m.grab,
+            target: m.start + m.translation,
+            scale: m.startScale * m.magnification,
+            heading: m.startPose.heading + m.twist,
+            headingOrigin: m.startPose.coordinate,
+            pitch: { altitude in
+                followsAltitude ? AdaptiveModel.pitchTarget(altitude: altitude, levelPitch: levelPitch) : startPitch
+            })
+        let solution = AdaptiveModel.solve(target, from: m.pose, room: room,
+                                           rayHeight: rayHeight.value, envelopeHeight: effectiveEnvelope,
+                                           context: context)
+        guard solution.error.isFinite else { return }
+        var state = navigation
+        let change = GeoMath.bearingChange(from: state.camera.coordinate, to: solution.pose.coordinate)
+        state.camera = solution.pose
+        state.movementHeading = state.headingLink == .linked
+            ? solution.pose.heading
+            : NavigationOperations.wrapped(state.movementHeading + change)
+        guard withinHeldLimits(state) else { return }
+        manipulation?.pose = solution.pose
+        navigation = state
         applyView()
     }
 
-    func endRotate() {
-        rotateStartHeading = nil
-        rotateStartLocation = nil
-        flyRotateLast = nil
+    /// The map frame's up at a world point: the local vertical as shown.
+    private func mapUp(at ecef: SIMD3<Double>) -> SIMD3<Double> {
+        guard let framing else { return SIMD3(0, 1, 0) }
+        let (coordinate, _) = Geodesy.geodetic(ecef)
+        let up = Geodesy.enu(latitude: coordinate.latitude, longitude: coordinate.longitude).up
+        return simd_normalize(framing.georeference.rotation.act(up))
     }
 
     // MARK: Frame loop
 
     private func tick(deltaTime: Float) {
         guard streaming.isStreaming else { return }
-        applyInput(deltaTime: Double(deltaTime))
-        easeFocusHeight(deltaTime: Double(deltaTime))
+        let dt = Double(deltaTime)
+        applyInput(deltaTime: dt)
+        if settlesPitch, manipulation == nil {
+            let settled = easedPitch(navigation.camera, deltaTime: dt)
+            settlesPitch = abs(settled.pitch - navigation.camera.pitch) > 1e-5
+            navigation.camera = settled
+        }
+        updateGround(deltaTime: dt)
+        applyView()
         streaming.update(deltaTime: deltaTime)
     }
 
@@ -361,45 +409,67 @@ final class MapVolumeModel {
         }
         heldActions = input.held
 
-        if isFlying {
-            fly(with: input, deltaTime: deltaTime)
-            return
-        }
-
         guard input.isMoving else {
             // Re-sample once movement settles, like the end of a drag.
-            if inputWasMoving {
-                inputWasMoving = false
-                sampleGround()
+            if wasMoving {
+                wasMoving = false
+                requestGroundSample()
             }
             return
         }
-        inputWasMoving = true
-        steer(with: input, deltaTime: deltaTime)
+        wasMoving = true
+        steer(with: ControlInput(move: input.move, turn: input.turn, climb: input.altitude,
+                                 dolly: input.zoom, fast: input.fast),
+              deltaTime: deltaTime)
     }
 
-    /// Moves, turns and zooms the streaming map; fly(with:) is the frozen
-    /// counterpart and behaves the same.
-    private func steer(with input: MapInput, deltaTime: Double) {
-        let boost = input.fast ? 3.0 : 1.0
+    /// Model flight, then the framing assists: pitch follows altitude (if
+    /// on) about the georeference point, within the horizon limit.
+    private func steer(with input: ControlInput, deltaTime: Double) {
+        flight.dollySurfaceHeight = rayHeight.value
+        // Turning, climbing and zooming first, limited (while held) by how
+        // much of the held region they'd show; then travel, limited by how
+        // far it goes from it.
+        var looking = input
+        looking.move = .zero
+        var state = flight.step(navigation, input: looking, deltaTime: deltaTime, context: context)
+        if pitchFollowsAltitude, input.climb != 0 || input.dolly != 0 {
+            state.camera = easedPitch(state.camera, deltaTime: deltaTime)
+        }
+        state.camera.pitch = min(state.camera.pitch, pitchLimit(for: state.camera))
+        if withinHeldLimits(state, checking: [.size]) { navigation = state }
 
-        if input.turn != 0 {
-            turn(to: heading + input.turn * boost * (.pi / 3) * deltaTime)  // 60°/s
-        }
-        // Altitude is zoom here: climbing zooms out.
-        let zoomRate = input.zoom - input.altitude
-        if zoomRate != 0 {
-            zoom(to: radius * exp(-zoomRate * boost * deltaTime))
-            updateCurvatureAnchor()
-        }
-        if input.move != .zero {
-            // Scene-relative: forward is away from the viewer (−z), right is +x.
-            let local = sceneToLocal(SIMD2(input.move.x, -input.move.y))
-            // Cross most of the visible region per second at any zoom.
-            let metres = radius * 0.8 * boost * deltaTime
-            moveFocus(to: GeoMath.offset(focus, east: local.x * metres, north: -local.y * metres))
-        }
-        applyView()
+        guard input.move != .zero else { return }
+        var moving = ControlInput()
+        moving.move = input.move
+        moving.fast = input.fast
+        state = flight.step(navigation, input: moving, deltaTime: deltaTime, context: context)
+        state.camera.pitch = min(state.camera.pitch, pitchLimit(for: state.camera))
+        if withinHeldLimits(state, checking: [.travel]) { navigation = state }
+    }
+
+    /// The pitch policy's step: toward θ_target for the altitude, swinging
+    /// the camera about the georeference point so what's on the table stays.
+    private func easedPitch(_ camera: CameraPose, deltaTime: Double) -> CameraPose {
+        let target = AdaptiveModel.pitchTarget(altitude: camera.height - cameraGround.value,
+                                               levelPitch: room.levelPitch)
+        guard abs(target - camera.pitch) > 1e-6 else { return camera }
+        let pitch = camera.pitch + (target - camera.pitch) * min(1, deltaTime * 6)
+        guard
+              let current = AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
+                                                  envelopeHeight: effectiveEnvelope)
+        else { return camera }
+        var turned = camera
+        turned.pitch = pitch
+        let forward = turned.basis.forward
+        var swung = CameraPose(position: current.georeferencePoint - forward * current.range,
+                               forward: forward, fallbackHeading: camera.heading)
+        swung.height = context.clampHeight(swung.height)
+        return swung
+    }
+
+    private func pitchLimit(for camera: CameraPose) -> Double {
+        AdaptiveModel.pitchLimit(cameraHeight: camera.height, rayHeight: rayHeight.value, latitude: camera.latitude)
     }
 
     private func perform(_ action: MapInput.Action) {
@@ -411,65 +481,239 @@ final class MapVolumeModel {
         case .previousPlace where !places.isEmpty:
             let index = ((currentPlaceIndex ?? 0) - 1 + places.count) % places.count
             go(to: places[index])
-        case .faceNorth where isFlying:
-            // North is up when the scene's turn cancels the map's heading.
-            flyAboutPivot(turn: -(Float(heading) + flyYaw))
-            applyView()
         case .faceNorth:
-            heading = 0
-            applyView()
+            navigation = NavigationOperations.faceNorth(navigation)
         case .toggleFly:
-            setFlying(!isFlying)
+            setTilesHeld(!tilesHeld)
         default:
             break
         }
     }
 
-    // MARK: View state (debugging)
+    // MARK: Limits
+
+    private var context: NavigationContext {
+        NavigationContext(cameraGround: cameraGround.value,
+                          minimumAltitude: Self.minimumAltitude,
+                          maximumAltitude: settings.zoomOutLimitKilometres * 1_100)
+    }
+
+    private enum HeldLimit { case travel, size }
+
+    /// While tiles are held: travel keeps the georeference point within
+    /// 1.5 × the held region of its centre, and climbing or zooming keeps the
+    /// shown region within 3 × its size. A step that would break a checked
+    /// limit, and make it worse, is refused, so you slide to a stop.
+    private func withinHeldLimits(_ state: NavigationState,
+                                  checking limits: Set<HeldLimit> = [.travel, .size]) -> Bool {
+        guard tilesHeld, let held = heldInputs,
+              let candidate = AdaptiveModel.framing(camera: state.camera, room: room,
+                                                    rayHeight: rayHeight.value, envelopeHeight: effectiveEnvelope)
+        else { return true }
+        func ratio(_ limit: HeldLimit, _ framing: AdaptiveModel.Framing) -> Double {
+            switch limit {
+            case .travel:
+                let g = Geodesy.geodetic(framing.georeferencePoint).coordinate
+                return GeoMath.distance(from: g, to: held.anchor.coordinate) / (1.5 * held.streamingRadius)
+            case .size:
+                return framing.shownRadius(room) / (3 * held.streamingRadius)
+            }
+        }
+        return limits.allSatisfy { limit in
+            let after = ratio(limit, candidate)
+            guard after > 1 else { return true }
+            return framing.map { after < ratio(limit, $0) } ?? false
+        }
+    }
+
+    // MARK: Ground
+
+    /// The envelope used for placement, never above the ray surface.
+    private var effectiveEnvelope: Double { min(envelopeHeight.value, rayHeight.value) }
+
+    /// Ground under the camera every frame; the georeference ground at
+    /// 4 Hz while moving. Nothing re-anchors or eases while tiles are held,
+    /// except the camera ground, which reads the held tiles; nor during a
+    /// gesture, so the grabbed point stays under the hand (it refreshes
+    /// when the gesture ends).
+    private func updateGround(deltaTime: Double) {
+        let tiles = streaming.renderedHeightRanges()
+        let camera = navigation.camera
+        let footprint = GeoCoordinate(latitude: camera.latitude, longitude: camera.longitude)
+        if let ground = GroundEstimates.envelope(tiles, around: footprint,
+                                                 radius: max(20, 0.05 * (camera.height - cameraGround.value)),
+                                                 statistic: .minimum) {
+            cameraGround.aim(at: ground)
+        }
+        cameraGround.ease(deltaTime: deltaTime, halfLife95: 0.3)
+
+        guard !tilesHeld, manipulation == nil, let framing else { return }
+        groundRefreshElapsed += deltaTime
+        if groundRefreshElapsed >= 0.25 {
+            groundRefreshElapsed = 0
+            let g = Geodesy.geodetic(framing.georeferencePoint).coordinate
+            let shown = framing.shownRadius(room)
+            let hysteresis = max(0.5, 0.002 * shown)
+            if let height = GroundEstimates.columnHeight(tiles, at: g) {
+                rayHeight.aim(at: min(max(height, -500), 9_000), hysteresis: hysteresis)
+            }
+            if shown >= Self.curvatureAnchorRadius {
+                // Far out the Earth's curve, not the terrain, decides: sea
+                // level at the view's edges meets the floor.
+                envelopeHeight.aim(at: rayHeight.value - GroundEstimates.curvatureDrop(shown),
+                                   hysteresis: hysteresis)
+            }
+        }
+        rayHeight.ease(deltaTime: deltaTime)
+        envelopeHeight.ease(deltaTime: deltaTime)
+    }
+
+    /// Above this half-width the Earth's curve, not the terrain, decides
+    /// where the ground sits: the edges fall away by ~200 m at 50 km.
+    private static let curvatureAnchorRadius = 50_000.0
+
+    /// Today's floor placement: the lowest of a 3×3 sample across the shown
+    /// region once motion settles (live only; it may load tiles). Falls back
+    /// to the loaded tiles' envelope if sampling fails.
+    private func requestGroundSample() {
+        guard !tilesHeld, let framing else { return }
+        let shown = framing.shownRadius(room)
+        guard shown < Self.curvatureAnchorRadius else { return }
+        groundSampleGeneration += 1
+        let generation = groundSampleGeneration
+        let centre = Geodesy.geodetic(framing.georeferencePoint).coordinate
+        streaming.sampleGroundHeight(around: centre, radius: shown) { [weak self] height in
+            MainActor.assumeIsolated {
+                guard let self, generation == self.groundSampleGeneration, !self.tilesHeld else { return }
+                var envelope = height
+                if !envelope.isFinite {
+                    envelope = GroundEstimates.envelope(self.streaming.renderedHeightRanges(), around: centre,
+                                                        radius: 0.8 * shown, statistic: .minimum) ?? .nan
+                }
+                guard envelope.isFinite else { return }
+                #if DEBUG
+                print("[MapVolume] ground sample \(Int(envelope)) m (was \(Int(self.envelopeHeight.value)) m)")
+                #endif
+                self.envelopeHeight.aim(at: envelope)
+            }
+        }
+    }
+
+    // MARK: Tiles held
+
+    /// Holds the tiles (streaming keeps its current inputs) or releases them
+    /// (streaming follows the camera again). Nothing visibly moves either way.
+    func setTilesHeld(_ held: Bool) {
+        guard held != tilesHeld else { return }
+        if held {
+            heldInputs = streaming.inputs
+            tilesHeld = true
+        } else {
+            tilesHeld = false
+            heldInputs = nil
+            applyView()
+            requestGroundSample()
+        }
+    }
+
+    // MARK: Placement
+
+    private var room: RoomGeometry {
+        guard case let .room(room) = presentation.geometry else {
+            preconditionFailure("visionOS hosts are rooms")
+        }
+        return room
+    }
+
+    /// Places everything from the camera: the georeference, the tiles root
+    /// relative to whichever anchor is streaming, the gesture slab and, while
+    /// live, the streaming inputs. Called every frame.
+    private func applyView() {
+        guard streaming.isStreaming else { return }
+        let room = self.room
+        let camera = navigation.camera
+        if let current = AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
+                                               envelopeHeight: effectiveEnvelope) {
+            framing = current
+        } else if framing == nil {
+            framing = AdaptiveModel.nadirFraming(camera: camera, room: room, rayHeight: rayHeight.value,
+                                                 envelopeHeight: effectiveEnvelope)
+        } else {
+            #if DEBUG
+            print("[MapVolume] view ray missed the surface (pitch \(camera.pitch * 180 / .pi)°); keeping the last framing")
+            #endif
+        }
+        guard let framing else { return }
+
+        if !tilesHeld {
+            streaming.inputs = streamingInputs(for: framing)
+        }
+        let georeference = framing.georeference
+        streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
+
+        // The slab lies on the ground at the placement point, level with the
+        // ground there as shown.
+        let g = Geodesy.geodetic(framing.georeferencePoint).coordinate
+        let level = simd_quatd(Geodesy.anchorFrameRotation(latitude: g.latitude, longitude: g.longitude))
+        gestureTarget.orientation = simd_quatf(vector: SIMD4<Float>((georeference.rotation * level).vector))
+        gestureTarget.position = SIMD3<Float>(framing.placementPoint)
+        updateDebugMarkers()
+    }
+
+    /// The area of interest each host streams by default, and the LOD camera
+    /// at the design eye point.
+    private func streamingInputs(for framing: AdaptiveModel.Framing) -> StreamingInputs {
+        let room = self.room
+        let camera = navigation.camera
+        let policy: AOIPolicy = presentation.host == .immersive
+            ? .blended(reachPerAltitude: 3, regionMultiplier: settings.immersiveRegion)
+            : .georeference(regionMultiplier: 1)
+        let viewer = Geodesy.geodetic(framing.georeference.ecef(map: room.designEye)).coordinate
+        let area = policy.area(viewerNadir: viewer,
+                               altitude: max(camera.height - cameraGround.value, 0),
+                               heading: camera.heading,
+                               georeferencePoint: Geodesy.geodetic(framing.georeferencePoint).coordinate,
+                               shownRadius: framing.shownRadius(room))
+        let anchor = StreamingAnchor(coordinate: area.centre, height: effectiveEnvelope)
+        return StreamingInputs(anchor: anchor,
+                               lod: AdaptiveModel.lodCamera(framing: framing, eye: room.designEye, anchor: anchor),
+                               regionHeading: area.heading,
+                               streamingRadius: area.radius)
+    }
+
+    // MARK: View state
 
     func captureState() -> MapViewState {
-        MapViewState(latitude: focus.latitude,
-                     longitude: focus.longitude,
-                     focusHeight: focusHeight,
-                     radius: radius,
-                     headingDegrees: heading * 180 / .pi,
-                     presentation: presentation.id,
-                     flying: isFlying,
-                     flyScale: flyScale,
-                     flyYawDegrees: flyYaw * 180 / .pi,
-                     flyTranslation: [flyTranslation.x, flyTranslation.y, flyTranslation.z],
+        MapViewState(navigation: navigation,
+                     rayHeight: rayHeight.value,
+                     envelopeHeight: envelopeHeight.value,
+                     host: presentation.id,
+                     roomPlacement: roomPlacement,
+                     heldStreaming: tilesHeld ? heldInputs : nil,
                      settings: settings)
     }
 
-    /// Restores a captured view. The caller switches to its presentation
-    /// first (that may need to open the immersive space). The ground isn't
-    /// re-sampled, so the view comes back exactly as captured.
+    /// Restores a captured view. The caller switches to its host first (that
+    /// may need to open the immersive space). Ground estimates come back as
+    /// captured, so the view does too.
     func restore(_ state: MapViewState) {
-        if isFlying { cancelFlying() }
+        if tilesHeld { setTilesHeld(false) }
+        endManipulation()
         settings = state.settings
-        dragStartFocus = nil
-        dragStartLocation = nil
-        magnifyStartRadius = nil
-        rotateStartHeading = nil
-        rotateStartLocation = nil
         groundSampleGeneration += 1  // Drop any sample in flight.
-        targetFocusHeight = nil
-
-        focus = GeoCoordinate(latitude: state.latitude, longitude: state.longitude)
-        focusHeight = state.focusHeight
-        radius = state.radius
-        heading = state.headingDegrees * .pi / 180
-        applyView()
-
-        if state.flying {
-            setFlying(true)
-            flyScale = state.flyScale
-            flyYaw = state.flyYawDegrees * .pi / 180
-            if state.flyTranslation.count == 3 {
-                flyTranslation = SIMD3(state.flyTranslation[0], state.flyTranslation[1], state.flyTranslation[2])
-            }
-            applyView()
+        rayHeight.reset(to: state.groundEstimate.ray)
+        envelopeHeight.reset(to: state.groundEstimate.envelope)
+        roomPlacement = state.roomPlacement.placement
+        var navigation = state.navigationState
+        navigation.camera.pitch = min(navigation.camera.pitch, pitchLimit(for: navigation.camera))
+        self.navigation = navigation
+        framing = nil
+        if let held = state.heldStreaming {
+            streaming.inputs = held
+            heldInputs = held
+            tilesHeld = true
         }
+        applyView()
         #if DEBUG
         print("[MapVolume] restored view state: \(captureState().json())")
         #endif
@@ -477,345 +721,40 @@ final class MapVolumeModel {
 
     // MARK: Debug markers
 
-    /// Posts at the pivot (red: what turns and zooms rotate around) and the
-    /// map's centre (blue), in the room's coordinates.
+    /// Posts at the ground beneath the camera (red: where you are), the
+    /// georeference point (blue: what's on the placement point) and the
+    /// area of interest's centre (green), in the map frame.
     var showsDebugMarkers = false {
         didSet { updateDebugMarkers() }
     }
     private let debugMarkers = Entity()
 
-    /// Where turns and zooms currently pivot, in scene coordinates.
-    private var displayPivot: SIMD3<Float> {
-        if isFlying { return flyPivot }
-        let ground = tiltedGroundPosition
-        guard pivotsAtViewer else { return ground }
-        let beneathViewer = SIMD3(presentation.viewerPosition.x, ground.y, presentation.viewerPosition.z)
-        return ground + (beneathViewer - ground) * Float(viewerPivotWeight)
-    }
-
     private func updateDebugMarkers() {
         debugMarkers.isEnabled = showsDebugMarkers
-        guard showsDebugMarkers else { return }
+        guard showsDebugMarkers, let framing else { return }
         if debugMarkers.children.isEmpty {
             func post(_ color: UIColor) -> ModelEntity {
                 var material = UnlitMaterial()
                 material.color = .init(tint: color)
                 return ModelEntity(mesh: .generateCylinder(height: 1, radius: 1), materials: [material])
             }
-            debugMarkers.addChild(post(.systemRed))   // pivot
-            debugMarkers.addChild(post(.systemBlue))  // focus
+            debugMarkers.addChild(post(.systemRed))    // beneath the camera
+            debugMarkers.addChild(post(.systemBlue))   // georeference point
+            debugMarkers.addChild(post(.systemGreen))  // area of interest
         }
+        let georeference = framing.georeference
+        let camera = navigation.camera
+        let anchor = streaming.inputs.anchor
+        let points = [
+            Geodesy.ecef(camera.coordinate, height: cameraGround.value),
+            framing.georeferencePoint,
+            Geodesy.ecef(anchor.coordinate, height: anchor.height),
+        ]
         let size = Float(presentation.magnification)
         let height = 0.25 * size
-        let posts = debugMarkers.children
-        for (index, base) in [displayPivot, tiltedGroundPosition].enumerated() {
-            posts[index].scale = [0.006 * size, height, 0.006 * size]
-            posts[index].position = base + [0, height / 2, 0]
+        for (post, point) in zip(debugMarkers.children, points) {
+            post.scale = [0.006 * size, height, 0.006 * size]
+            post.position = SIMD3<Float>(georeference.map(point)) + [0, height / 2, 0]
         }
-    }
-
-    // MARK: Fly
-
-    /// Freezes streaming so the controls move the loaded scene instead, or
-    /// resumes streaming from wherever that left you.
-    func setFlying(_ flying: Bool) {
-        guard flying != isFlying else { return }
-        if flying {
-            isFlying = true
-            resetFlyPose()
-        } else {
-            resumeStreamingAfterFlying()
-        }
-    }
-
-    /// Leaves Fly without carrying the pose over (the scene it was relative
-    /// to is going away).
-    private func cancelFlying() {
-        isFlying = false
-        resetFlyPose()
-    }
-
-    private func resetFlyPose() {
-        flyScale = 1
-        flyYaw = 0
-        flyTranslation = .zero
-        applyView()
-    }
-
-    /// The same point outside Fly turns and zooms pivot on: the ground beneath
-    /// the viewer, or the view's centre, per the "Turn and zoom around" setting.
-    private var flyPivot: SIMD3<Float> {
-        let ground = presentation.groundPosition
-        guard pivotsAtViewer else { return ground }
-        return SIMD3(presentation.viewerPosition.x, ground.y, presentation.viewerPosition.z)
-    }
-
-    /// Scales and/or turns the frozen scene about the pivot. Scale stays
-    /// within the zoom range outside Fly (radius / flyScale is the zoom).
-    private func flyAboutPivot(scale factor: Float = 1, turn angle: Float = 0) {
-        let lower = Float(radius / (settings.zoomOutLimitKilometres * 1000))
-        let upper = Float(radius / 50)
-        let newScale = min(max(flyScale * factor, lower), upper)
-        let k = newScale / flyScale
-        let pivot = flyPivot
-        let rotation = simd_quatf(angle: angle, axis: [0, 1, 0])
-        flyTranslation = pivot + rotation.act((flyTranslation - pivot) * k)
-        flyScale = newScale
-        flyYaw += angle
-    }
-
-    /// The same controls, rates and pivot as outside Fly, applied to the
-    /// frozen scene: the surface stays on the floor and nothing streams.
-    private func fly(with input: MapInput, deltaTime: Double) {
-        guard input.isMoving else { return }
-        let boost = input.fast ? 3.0 : 1.0
-        if input.turn != 0 {
-            flyAboutPivot(turn: Float(input.turn * boost * (.pi / 3) * deltaTime))  // 60°/s
-        }
-        // Altitude is zoom here too: climbing zooms out.
-        let zoomRate = input.zoom - input.altitude
-        if zoomRate != 0 {
-            flyAboutPivot(scale: Float(exp(zoomRate * boost * deltaTime)))
-        }
-        if input.move != .zero {
-            // Outside Fly the map moves 0.8 of the view's half-width per
-            // second; in scene terms that's this, whatever the zoom.
-            let speed = Float(0.8 * MapVolumeModel.volumeSize.x / 2 * presentation.magnification * boost * deltaTime)
-            flyTranslation += SIMD3(Float(-input.move.x), 0, Float(input.move.y)) * speed
-        }
-        applyView()
-    }
-
-    /// Ends Fly by streaming again from where it left you: the scene's pose
-    /// becomes the map's focus, heading and zoom, so nothing visibly moves.
-    private func resumeStreamingAfterFlying() {
-        let ground = presentation.groundPosition
-        // Any reference point will do, since the pose is a similarity; use
-        // the ground beneath the viewer. Find it in the scene as placed when
-        // Fly started (focus, heading and radius haven't changed since).
-        let reference = SIMD3(presentation.viewerPosition.x, ground.y, presentation.viewerPosition.z)
-        let unflown = simd_quatf(angle: -flyYaw, axis: [0, 1, 0]).act(reference - flyTranslation) / flyScale
-        let fromFocus = unflown - ground
-        let local = sceneToLocal(SIMD2(Double(fromFocus.x), Double(fromFocus.z))) / sceneScale
-        let beneath = GeoMath.offset(focus, east: local.x, north: -local.y)
-
-        heading = (heading + Double(flyYaw)).truncatingRemainder(dividingBy: 2 * .pi)
-        radius = clampRadius(radius / Double(flyScale))
-
-        // Put that point back at the reference at the new heading and zoom.
-        let toReference = reference - ground
-        let referenceLocal = sceneToLocal(SIMD2(Double(toReference.x), Double(toReference.z))) / sceneScale
-        moveFocus(to: GeoMath.offset(beneath, east: -referenceLocal.x, north: referenceLocal.y))
-
-        cancelFlying()
-        applyView()
-        sampleGround()
-    }
-
-    // MARK: Facing tilt and legacy placement
-
-    /// Today's focus-centric state, as the extracted legacy mapping takes it.
-    private var legacyState: LegacyMapping.State {
-        LegacyMapping.State(focus: focus, focusHeight: focusHeight, radius: radius, heading: heading)
-    }
-
-    private var legacyPresentation: LegacyMapping.Presentation {
-        LegacyMapping.Presentation(isVolume: presentation.host == .volume,
-                                   magnification: presentation.magnification,
-                                   groundPosition: SIMD3<Double>(presentation.groundPosition),
-                                   viewerPosition: SIMD3<Double>(presentation.viewerPosition))
-    }
-
-    /// 0 up close, 1 far away: the same 50–500 km log-scale fade as the pivot
-    /// (viewerPivotWeight). As it rises the map tilts to face the viewer, as
-    /// Google Earth VR turns the globe toward you, so far away your line of
-    /// sight meets the surface at the centre head-on instead of skimming it.
-    private var farTilt: Float { Float(LegacyMapping.farTilt(radius: radius)) }
-
-    /// The map's centre, rising with the tilt from the floor toward a little
-    /// below eye level (the volume's middle in the volume), so far away you
-    /// look straight at it, like a globe in front of you. In the bigger floor
-    /// modes the lower part of a fully tilted map then reaches below the
-    /// floor; Floor 3× keeps it near the floor.
-    private var tiltedGroundPosition: SIMD3<Float> {
-        SIMD3<Float>(LegacyMapping.tiltedGroundPosition(legacyState, legacyPresentation))
-    }
-
-    /// Tips the map's up toward the viewer (+z), about a horizontal axis, so
-    /// at full tilt your line of sight meets the centre perpendicularly.
-    private var tiltRotation: simd_quatf {
-        simd_quatf(angle: Float(LegacyMapping.tiltAngle(legacyState, legacyPresentation)), axis: [1, 0, 0])
-    }
-
-    /// Fly's scene pose, applied after the map's placement.
-    private var flySimilarity: Similarity {
-        guard isFlying else { return .identity }
-        return Similarity(scale: Double(flyScale),
-                          rotation: simd_quatd(angle: Double(flyYaw), axis: SIMD3(0, 1, 0)),
-                          translation: SIMD3<Double>(flyTranslation))
-    }
-
-    // MARK: Pivot
-
-    /// Metres (east, north) from the focus to the pivot: the ground point
-    /// beneath the viewer at local scales, fading to the focus itself when
-    /// zoomed far out (see viewerPivotWeight).
-    private func viewerGroundOffset() -> SIMD2<Double> {
-        let toViewer = presentation.viewerPosition - presentation.groundPosition
-        let local = sceneToLocal(SIMD2(Double(toViewer.x), Double(toViewer.z))) / sceneScale
-        return SIMD2(local.x, -local.y) * viewerPivotWeight  // local +z is south
-    }
-
-    /// The ground beneath the viewer is over a view half-width away from the
-    /// focus, so holding it fixed while climbing drags the focus forward by
-    /// more than the climb. Fine locally, but at continental scale on a
-    /// curved map there's no meaningful "beneath you" and the view raced to
-    /// the far side of the planet. Full strength up to 50 km (where curvature
-    /// starts to matter, as for ground anchoring), fading smoothly, in log
-    /// scale, to pivoting at the centre by 500 km.
-    private var viewerPivotWeight: Double { LegacyMapping.viewerPivotWeight(radius: radius) }
-
-    private var pivotsAtViewer: Bool { settings.keyboardTurnPivot == .viewer }
-
-    /// Changes the view's half-width. Pivoting at the viewer, the ground
-    /// beneath them stays put: everything else scales toward or away from
-    /// that point, which reads as moving straight down or up.
-    private func zoom(to newRadius: Double) {
-        let clamped = clampRadius(newRadius)
-        if pivotsAtViewer, clamped != radius {
-            let offset = viewerGroundOffset()
-            let distance = simd_length(offset)
-            if distance > 0 {
-                // Move the focus along the actual direction from the pivot,
-                // as turn(to:) does. Reusing the east/north offset at the
-                // pivot was wrong: north there differs from north at the
-                // focus (meridians converge), so every step landed slightly
-                // sideways, sliding the view steadily right or left when
-                // facing east or west.
-                let beneath = GeoMath.offset(focus, east: offset.x, north: offset.y)
-                let outward = GeoMath.bearing(from: beneath, to: focus)
-                moveFocus(to: GeoMath.destination(from: beneath, bearing: outward, distance: distance * clamped / radius))
-            }
-        }
-        radius = clamped
-    }
-
-    /// Changes the heading. Pivoting at the viewer, the map swings around the
-    /// ground beneath them, so it's turning on the spot.
-    private func turn(to newHeading: Double) {
-        if pivotsAtViewer {
-            let offset = viewerGroundOffset()
-            let distance = simd_length(offset)
-            if distance > 0 {
-                let beneath = GeoMath.offset(focus, east: offset.x, north: offset.y)
-                let outward = GeoMath.bearing(from: beneath, to: focus)
-                let swung = GeoMath.destination(from: beneath, bearing: outward + (newHeading - heading), distance: distance)
-                heading = newHeading
-                moveFocus(to: swung)
-                return
-            }
-        }
-        heading = newHeading.truncatingRemainder(dividingBy: 2 * .pi)
-    }
-
-    /// Moves the focus along the globe and carries the heading with it, so
-    /// the view keeps facing the same way relative to the path. Heading is
-    /// measured from local north, which turns as you travel (and reverses
-    /// over a pole); without this, flying north over a pole bounced back,
-    /// since "north" pointed back at the pole from the far side.
-    private func moveFocus(to newFocus: GeoCoordinate) {
-        heading = (heading + GeoMath.bearingChange(from: focus, to: newFocus))
-            .truncatingRemainder(dividingBy: 2 * .pi)
-        focus = newFocus
-    }
-
-    // MARK: Helpers
-
-    /// Rotates a horizontal scene-space vector (x, z) into the tiles' local
-    /// frame (x east, z south), undoing the map's heading rotation.
-    private func sceneToLocal(_ v: SIMD2<Double>) -> SIMD2<Double> {
-        let c = cos(heading), s = sin(heading)
-        return SIMD2(v.x * c - v.y * s, v.x * s + v.y * c)
-    }
-
-    /// Scene metres per world metre as currently displayed.
-    private var sceneScale: Double { LegacyMapping.sceneScale(legacyState, legacyPresentation) }
-
-    /// Places everything from the current state. While flying, streaming
-    /// keeps the inputs it had when Fly started, and the tiles root follows
-    /// Fly's pose on top of the map's.
-    private func applyView() {
-        guard streaming.isStreaming else { return }
-        if !isFlying {
-            streaming.inputs = LegacyMapping.streamingInputs(legacyState, legacyPresentation,
-                                                             immersiveRegion: settings.immersiveRegion)
-        }
-        // The streamer places each tile in its anchor's level frame; the
-        // georeference puts the world in the map frame, so together they
-        // place that frame.
-        let georeference = LegacyMapping.georeference(legacyState, legacyPresentation, fly: flySimilarity)
-        streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
-        gestureTarget.orientation = tiltRotation * simd_quatf(angle: Float(heading), axis: [0, 1, 0])
-        gestureTarget.position = tiltedGroundPosition
-        updateDebugMarkers()
-    }
-
-    private func clampRadius(_ value: Double) -> Double {
-        min(max(value, 50), settings.zoomOutLimitKilometres * 1000)
-    }
-
-    /// Above this half-width the Earth's curve, not the terrain, decides
-    /// where the ground should sit: the edges fall away by ~200 m at 50 km.
-    private static let curvatureAnchorRadius = 50_000.0
-    private static let earthRadius = 6_371_000.0
-
-    /// How far the surface at the view's edge (`radius` from the focus) falls
-    /// below the focus's level plane, capped at a hemisphere.
-    private func curvatureDrop() -> Double {
-        let angle = min(radius / Self.earthRadius, .pi / 2)
-        return Self.earthRadius * (1 - cos(angle))
-    }
-
-    /// Zoomed out past curvatureAnchorRadius, anchor on the curve instead of
-    /// sampling: lift the map so sea level at the view's edges meets the
-    /// floor. Cheap enough to follow the zoom continuously.
-    private func updateCurvatureAnchor() {
-        guard radius >= Self.curvatureAnchorRadius else { return }
-        groundSampleGeneration += 1  // Discard any sample still in flight.
-        targetFocusHeight = -curvatureDrop()
-    }
-
-    private func sampleGround() {
-        if radius >= Self.curvatureAnchorRadius {
-            updateCurvatureAnchor()
-            return
-        }
-        groundSampleGeneration += 1
-        let generation = groundSampleGeneration
-        streaming.sampleGroundHeight(radius: radius) { [weak self] height in
-            MainActor.assumeIsolated {
-                guard let self, height.isFinite,
-                      generation == self.groundSampleGeneration else { return }
-                #if DEBUG
-                print("[MapVolume] ground sample \(Int(height)) m (was \(Int(self.focusHeight)) m)")
-                #endif
-                self.targetFocusHeight = height
-            }
-        }
-    }
-
-    /// Glides the ground plane to the latest sample instead of snapping, so a
-    /// re-sample after a pan reads as the terrain settling rather than a jump.
-    private func easeFocusHeight(deltaTime: Double) {
-        guard let target = targetFocusHeight else { return }
-        let remaining = target - focusHeight
-        if abs(remaining) * sceneScale < 0.0005 {
-            focusHeight = target
-            targetFocusHeight = nil
-        } else {
-            // Exponential approach: about 95% of the way in half a second.
-            focusHeight += remaining * min(1, deltaTime * 6)
-        }
-        applyView()
     }
 }

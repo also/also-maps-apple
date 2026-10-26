@@ -52,6 +52,7 @@ final class TileStreaming {
     private var streamer: CNTileStreamer?
     private let tileUploader = TileUploader()
     private var tileEntities: [UInt64: Entity] = [:]
+    private var renderedTiles: [CNTileMesh] = []
     private var started = false
     private var debugLogElapsed: Float = 0
     /// Longest main-thread update in the current debug-log second.
@@ -107,6 +108,7 @@ final class TileStreaming {
         guard started else { return }
         for entity in tileEntities.values { entity.removeFromParent() }
         tileEntities = [:]
+        renderedTiles = []
         credits = []
         loadProgress = 0
         stats = Stats()
@@ -148,6 +150,7 @@ final class TileStreaming {
         for (id, entity) in tileEntities {
             entity.isEnabled = visible.contains(id)
         }
+        renderedTiles = frame.tilesToRender
 
         let newCredits = frame.credits.map { Credit(text: $0.text, imageURL: $0.imageURL.flatMap(URL.init(string:))) }
         if credits != newCredits { credits = newCredits }
@@ -166,10 +169,21 @@ final class TileStreaming {
     }
 
     /// Samples the most detailed surface across 0.8 × `radius` metres around
-    /// the anchor and reports the lowest hit, metres above the ellipsoid
-    /// (NaN if none), on the main thread during a later update.
-    func sampleGroundHeight(radius: Double, _ completion: @escaping (Double) -> Void) {
-        streamer?.sampleGroundHeightAroundAnchor(radius: radius, completion: completion)
+    /// `centre` and reports the lowest hit, metres above the ellipsoid (NaN
+    /// if none), on the main thread during a later update. May load tiles.
+    func sampleGroundHeight(around centre: GeoCoordinate, radius: Double,
+                            _ completion: @escaping (Double) -> Void) {
+        streamer?.sampleGroundHeight(latitude: centre.latitude, longitude: centre.longitude,
+                                     radius: radius, completion: completion)
+    }
+
+    /// The extent and height range of each tile drawn last frame: ground
+    /// estimates from what's loaded, with no network.
+    func renderedHeightRanges() -> [TileHeightRange] {
+        renderedTiles.map {
+            TileHeightRange(centre: $0.centerECEF, radius: $0.radius,
+                            minimumHeight: $0.minimumHeight, maximumHeight: $0.maximumHeight)
+        }
     }
 
     // MARK: Applying

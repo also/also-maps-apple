@@ -96,6 +96,9 @@ using CesiumGeospatial::Ellipsoid;
 @interface CNTileMesh ()
 - (instancetype)initWithIdentifier:(uint64_t)identifier
                             center:(glm::dvec3)center
+                            radius:(double)radius
+                     minimumHeight:(double)minimumHeight
+                     maximumHeight:(double)maximumHeight
                         primitives:(NSArray<CNPrimitive *> *)primitives;
 /// ECEF point the tile's vertices are measured from, full precision.
 @property (nonatomic, readonly) glm::dvec3 center;
@@ -105,10 +108,16 @@ using CesiumGeospatial::Ellipsoid;
 @implementation CNTileMesh
 - (instancetype)initWithIdentifier:(uint64_t)identifier
                             center:(glm::dvec3)center
+                            radius:(double)radius
+                     minimumHeight:(double)minimumHeight
+                     maximumHeight:(double)maximumHeight
                         primitives:(NSArray<CNPrimitive *> *)primitives {
   if ((self = [super init])) {
     _identifier = identifier;
     _center = center;
+    _radius = radius;
+    _minimumHeight = minimumHeight;
+    _maximumHeight = maximumHeight;
     _primitives = primitives;
   }
   return self;
@@ -116,7 +125,24 @@ using CesiumGeospatial::Ellipsoid;
 - (void)discardCPUData {
   self.primitives = nil;
 }
+- (simd_double3)centerECEF {
+  return simd_make_double3(_center.x, _center.y, _center.z);
+}
 @end
+
+/// Height of an ECEF point above the WGS84 ellipsoid, measured along its
+/// radius: cheap enough per vertex, and within metres of geodetic height.
+static double radialHeight(const glm::dvec3& p) {
+  const double length = glm::length(p);
+  if (!(length > 0.0)) {
+    return 0.0;
+  }
+  const glm::dvec3 u = p / length;
+  const double a = 6378137.0, b = 6356752.314245179;
+  const double surface =
+      1.0 / std::sqrt((u.x * u.x + u.y * u.y) / (a * a) + (u.z * u.z) / (b * b));
+  return length - surface;
+}
 
 @interface CNFrame ()
 @property (nonatomic, readwrite) NSArray<CNTileMesh *> *tilesToRender;
@@ -335,6 +361,10 @@ CNTileMesh* _Nullable buildTileMesh(
   rootTransform = GltfUtilities::applyGltfUpAxisTransform(model, rootTransform);
   // The first vertex seen; any point on the tile keeps offsets tile-sized.
   std::optional<glm::dvec3> center;
+  // Extent and height range, for ground estimates without the network.
+  double radius = 0.0;
+  double minimumHeight = INFINITY;
+  double maximumHeight = -INFINITY;
 
   NSMutableArray<CNPrimitive*>* primitives = [NSMutableArray array];
 
@@ -371,6 +401,10 @@ CNTileMesh* _Nullable buildTileMesh(
           const glm::dvec3 v = glm::dvec3(
               transform * glm::dvec4(glm::dvec3(positions[int64_t(i)]), 1.0)) -
                                *center;
+          radius = std::max(radius, glm::length(v));
+          const double height = radialHeight(*center + v);
+          minimumHeight = std::min(minimumHeight, height);
+          maximumHeight = std::max(maximumHeight, height);
           p[i * 4 + 0] = float(v.x);
           p[i * 4 + 1] = float(v.y);
           p[i * 4 + 2] = float(v.z);
@@ -546,6 +580,9 @@ CNTileMesh* _Nullable buildTileMesh(
   }
   return [[CNTileMesh alloc] initWithIdentifier:identifier
                                          center:*center
+                                         radius:radius
+                                  minimumHeight:minimumHeight
+                                  maximumHeight:maximumHeight
                                      primitives:primitives];
 }
 
@@ -1022,18 +1059,23 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
   return frame;
 }
 
-- (void)sampleGroundHeightAroundAnchorWithRadius:(double)radius
-                                      completion:(void (^)(double height))completion {
+- (void)sampleGroundHeightAroundLatitude:(double)latitude
+                               longitude:(double)longitude
+                                  radius:(double)radius
+                              completion:(void (^)(double height))completion {
   // A 3×3 grid spanning most of the visible square. A single sample at the
-  // anchor lands on whatever is there (a hilltop, a roof) and sinks the rest of
-  // the region below the volume floor; the lowest hit keeps it all above.
+  // centre lands on whatever is there (a hilltop, a roof) and sinks the rest
+  // of the region below the volume floor; the lowest hit keeps it all above.
   const double reach = 0.8 * radius;
-  const glm::dmat4 anchorFrame = [self anchorEnuToEcef];
+  const glm::dmat4 centreFrame =
+      CesiumGeospatial::GlobeTransforms::eastNorthUpToFixedFrame(
+          Ellipsoid::WGS84.cartographicToCartesian(
+              Cartographic::fromDegrees(longitude, latitude, 0.0)));
   std::vector<Cartographic> positions;
   for (int row = -1; row <= 1; ++row) {
     for (int column = -1; column <= 1; ++column) {
       const glm::dvec3 ecef = glm::dvec3(
-          anchorFrame * glm::dvec4(column * reach, row * reach, 0.0, 1.0));
+          centreFrame * glm::dvec4(column * reach, row * reach, 0.0, 1.0));
       if (std::optional<Cartographic> cartographic =
               Ellipsoid::WGS84.cartesianToCartographic(ecef)) {
         positions.push_back(*cartographic);

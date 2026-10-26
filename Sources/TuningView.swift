@@ -94,8 +94,15 @@ struct TuningView: View {
                         stateNote = "Copied (also printed to the console)."
                     }
                     Button("Restore from Clipboard") {
-                        guard let text = UIPasteboard.general.string, let state = MapViewState.parse(text) else {
+                        guard let text = UIPasteboard.general.string else {
                             stateNote = "The clipboard doesn't hold a view state."
+                            return
+                        }
+                        let state: MapViewState
+                        do {
+                            state = try MapViewState.parse(text)
+                        } catch {
+                            stateNote = error.localizedDescription
                             return
                         }
                         Task {

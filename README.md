@@ -13,7 +13,7 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 - `Sources/TileUploader.swift`: builds each loaded tile's RealityKit meshes and textures asynchronously, a few at a time, before cesium-native counts the tile as loaded. Meshes are built off the main thread.
 - `Sources/TileStreaming.swift`: runs one cesium-native update per RealityKit frame from its streaming inputs (anchor, area of interest, LOD camera), adds ready tile entities, hides tiles that aren't selected and removes freed ones.
 - `Sources/Navigation/`: the platform-neutral navigation core, being introduced in stages (see [docs/camera-core.md](docs/camera-core.md)): WGS84 geodesy and surface queries, camera pose and navigation state, the georeference (world → map frame), streaming inputs, and prototype control styles. `MapVolumeCoreTests` tests it on macOS without a scene or network: `xcodebuild -scheme MapVolumeCoreTests -destination 'platform=macOS' test`.
-- `Sources/MapVolumeModel.swift`: navigation and presentation. It still stores a focus-centric state, placed through the core's georeference so tiles are positioned relative to whichever anchor is streaming.
+- `Sources/MapVolumeModel.swift`: navigation and presentation. It stores the camera (`NavigationState`), steers it with the core's model-flight style and anchored gestures, and shows it through the adaptive model: the world is scaled so the camera sits at the design eye point and what it looks at sits on the table or floor. Tiles are placed relative to whichever anchor is streaming, so held tiles stay put while you fly.
 - The Shared Space provides no head pose, so a synthetic camera in front of the volume, 45° up, drives level of detail.
 
 ## Setup

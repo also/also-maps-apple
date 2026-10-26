@@ -48,6 +48,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// Whatever the app built to draw this tile (a RealityKit entity), attached
 /// by the tile load handler before it completes.
 @property (atomic, strong, nullable) id renderObject;
+/// Where the tile's vertices are measured from, ECEF metres.
+@property (nonatomic, readonly) simd_double3 centerECEF;
+/// Distance from centerECEF to the farthest vertex, metres.
+@property (nonatomic, readonly) double radius;
+/// The lowest and highest vertex, metres above the WGS84 ellipsoid
+/// (measured radially, which is within metres of geodetic height).
+@property (nonatomic, readonly) double minimumHeight;
+@property (nonatomic, readonly) double maximumHeight;
 /// Drops the CPU-side buffers once they've been uploaded.
 - (void)discardCPUData;
 @end
@@ -127,12 +135,15 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 - (CNFrame *)updateWithDeltaTime:(float)deltaTime;
 
 /// Samples the most detailed surface on a 3×3 grid spanning 0.8 × `radius`
-/// metres around the anchor and reports the lowest hit in metres above the
-/// ellipsoid, or NAN if every sample failed. Completion runs on the main
-/// thread during a later updateWithDeltaTime: call.
-- (void)sampleGroundHeightAroundAnchorWithRadius:(double)radius
-                                      completion:(void (^)(double height))completion
-    NS_SWIFT_NAME(sampleGroundHeightAroundAnchor(radius:completion:));
+/// metres around a point (degrees) and reports the lowest hit in metres
+/// above the ellipsoid, or NAN if every sample failed. May load tiles.
+/// Completion runs on the main thread during a later updateWithDeltaTime:
+/// call.
+- (void)sampleGroundHeightAroundLatitude:(double)latitude
+                               longitude:(double)longitude
+                                  radius:(double)radius
+                              completion:(void (^)(double height))completion
+    NS_SWIFT_NAME(sampleGroundHeight(latitude:longitude:radius:completion:));
 
 @end
 
