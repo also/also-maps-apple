@@ -95,6 +95,10 @@ struct TuningView: View {
                     Text("Immersive modes show only the map, with no passthrough or environment.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Toggle("Human scale (test)", isOn: $model.humanScale)
+                    Text("The world stays 1:1 at every altitude, with the ground as far below you as your height. Gestures don't suit it yet.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } header: {
                     Text("Immersion")
                 }

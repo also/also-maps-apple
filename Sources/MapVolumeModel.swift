@@ -105,6 +105,17 @@ final class MapVolumeModel {
     /// The last valid framing, kept when the volume's view ray misses.
     private var framing: AdaptiveModel.Framing?
 
+    /// Immersive only, for testing: the world stays at human scale (1:1) at
+    /// every altitude, with the camera on the eye and the ground wherever
+    /// height puts it, instead of scaling so the ground meets the floor.
+    var humanScale = false {
+        didSet {
+            guard humanScale != oldValue else { return }
+            endManipulation()
+            applyView()
+        }
+    }
+
     /// Immersive hosts use the eye-level model (the camera at the viewer's
     /// eye, the map level unless tilted by altitude); the volume keeps the
     /// adaptive model.
@@ -116,7 +127,8 @@ final class MapVolumeModel {
         if usesEyeLevel {
             let ground = effectiveEnvelope
             let weight = pitchFollowsAltitude ? EyeLevelModel.tiltWeight(altitude: camera.height - ground) : 0
-            return EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground, tiltWeight: weight)
+            return EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground, tiltWeight: weight,
+                                         fixedScale: humanScale ? 1 : nil)
         }
         return AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
                                      envelopeHeight: effectiveEnvelope)
@@ -548,7 +560,7 @@ final class MapVolumeModel {
 
     private var context: NavigationContext {
         NavigationContext(cameraGround: cameraGround.value,
-                          minimumAltitude: Self.minimumAltitude,
+                          minimumAltitude: humanScale && usesEyeLevel ? 1.6 : Self.minimumAltitude,
                           maximumAltitude: settings.zoomOutLimitKilometres * 1_100)
     }
 

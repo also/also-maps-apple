@@ -75,6 +75,22 @@ struct EyeLevelTests {
     }
 
     @Test
+    func humanScaleKeepsTheCameraOnTheEyeAndTheGroundAtItsRealDistance() {
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 1_510,
+                                heading: 0.7, pitch: -0.4)
+        let f = EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565, tiltWeight: 0,
+                                      fixedScale: 1)
+        #expect(f.georeference.scale == 1)
+        #expect(simd_distance(f.georeference.map(camera.position), immersive.designEye) < 1e-6)
+        let nadir = Geodesy.ecef(ronda, height: 565)
+        #expect(simd_distance(f.georeference.map(nadir), immersive.designEye - SIMD3(0, 945, 0)) < 1e-6)
+        // Fully tilted, the ground below is straight ahead at the same distance.
+        let tilted = EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565, tiltWeight: 1,
+                                           fixedScale: 1)
+        #expect(simd_distance(tilted.georeference.map(nadir), immersive.designEye - SIMD3(0, 0, 945)) < 1e-6)
+    }
+
+    @Test
     func anchoredPinchKeepsTheGrabUnderTheHand() {
         let start = EyeLevelModel.framePlace(centre: ronda, radius: 3_000, heading: 0.2,
                                              room: immersive, groundHeight: 565)

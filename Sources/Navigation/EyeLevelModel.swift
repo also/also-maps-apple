@@ -27,20 +27,23 @@ enum EyeLevelModel {
     static func tilt(weight: Double) -> Double { weight * .pi / 2 }
 
     /// The framing for `camera` over ground at `groundHeight` (metres above
-    /// the ellipsoid), tilted by `tiltWeight` (0...1).
+    /// the ellipsoid), tilted by `tiltWeight` (0...1). With `fixedScale`,
+    /// the scale stays put (1 is human scale) and the camera stays on the
+    /// eye: the ground is wherever the camera's height puts it, and the
+    /// tilt turns the world about the eye, bringing the ground below up to
+    /// straight ahead.
     static func framing(camera: CameraPose, room: RoomGeometry, groundHeight: Double,
-                        tiltWeight w: Double) -> AdaptiveModel.Framing {
+                        tiltWeight w: Double, fixedScale: Double? = nil) -> AdaptiveModel.Framing {
+        if let fixedScale {
+            return framing(camera: camera, eye: room.designEye, groundHeight: groundHeight,
+                           tiltWeight: w, scale: fixedScale)
+        }
         let eye = room.designEye
         let base = room.placementLevel
         let eyeHeight = max(eye.y - base.y, 0.01)
         let above = max(camera.height - groundHeight, AdaptiveModel.minimumRange)
         let scale = eyeHeight / above
-
-        // Level: the camera's local up is the room's up, its heading faces −z.
-        let frame = Geodesy.enu(latitude: camera.latitude, longitude: camera.longitude)
-        let forward = frame.north * cos(camera.heading) + frame.east * sin(camera.heading)
-        let right = frame.east * cos(camera.heading) - frame.north * sin(camera.heading)
-        let rotation = simd_quatd(simd_double3x3(rows: [right, frame.up, -forward]))
+        let rotation = levelRotation(camera)
 
         // The ground beneath the camera goes below the eye, sliding out to C₀
         // as the map tilts.
@@ -63,6 +66,30 @@ enum EyeLevelModel {
                                      georeferencePoint: georeferencePoint,
                                      placementPoint: centre,
                                      range: simd_distance(georeferencePoint, camera.position))
+    }
+
+    /// Level: the camera's local up is the room's up, its heading faces −z.
+    private static func levelRotation(_ camera: CameraPose) -> simd_quatd {
+        let frame = Geodesy.enu(latitude: camera.latitude, longitude: camera.longitude)
+        let forward = frame.north * cos(camera.heading) + frame.east * sin(camera.heading)
+        let right = frame.east * cos(camera.heading) - frame.north * sin(camera.heading)
+        return simd_quatd(simd_double3x3(rows: [right, frame.up, -forward]))
+    }
+
+    /// The fixed-scale framing: the camera on the eye, tilting about it.
+    private static func framing(camera: CameraPose, eye: SIMD3<Double>, groundHeight: Double,
+                                tiltWeight w: Double, scale: Double) -> AdaptiveModel.Framing {
+        let rotation = levelRotation(camera)
+        let level = Similarity(scale: scale, rotation: rotation,
+                               translation: eye - scale * rotation.act(camera.position))
+        let tilt = Similarity(scale: 1, rotation: simd_quatd(angle: tilt(weight: w), axis: SIMD3(1, 0, 0)),
+                              translation: .zero)
+        let tilted = Similarity(translation: eye).after(tilt).after(Similarity(translation: -eye)).after(level)
+        let ground = Geodesy.ecef(camera.coordinate, height: groundHeight)
+        return AdaptiveModel.Framing(georeference: Georeference(tilted),
+                                     georeferencePoint: ground,
+                                     placementPoint: tilted.apply(ground),
+                                     range: simd_distance(ground, camera.position))
     }
 
     /// A pose framing a place, untilted: the centre (at `groundHeight`) on

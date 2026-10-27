@@ -72,9 +72,13 @@ struct MapVolumeView: View {
             if ProcessInfo.processInfo.environment["MAPVOLUME_TILE_BOUNDS"] == "1" {
                 model.showsTileBounds = true
             }
-            // MAPVOLUME_FULL_IMMERSION=1 opens immersive modes with full immersion.
+            // MAPVOLUME_FULL_IMMERSION=1 opens immersive modes with full immersion,
+            // and MAPVOLUME_HUMAN_SCALE=1 keeps them at human scale.
             if ProcessInfo.processInfo.environment["MAPVOLUME_FULL_IMMERSION"] == "1" {
                 model.fullImmersion = true
+            }
+            if ProcessInfo.processInfo.environment["MAPVOLUME_HUMAN_SCALE"] == "1" {
+                model.humanScale = true
             }
             if let text = ProcessInfo.processInfo.environment["MAPVOLUME_STATE"] {
                 do {
