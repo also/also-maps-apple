@@ -49,8 +49,9 @@ final class MapVolumeModel {
         didSet {
             guard presentation != oldValue else { return }
             endManipulation()
-            // Each host's level map has its own pitch; the assist re-targets.
-            settlesPitch = pitchFollowsAltitude
+            // In the volume each host's level map has its own pitch; the
+            // assist re-targets. Immersive hosts ignore pitch.
+            settlesPitch = pitchFollowsAltitude && !usesEyeLevel
             reparentRoot()
             layOutGestureTarget()
             applyView()
@@ -79,8 +80,9 @@ final class MapVolumeModel {
     /// navigation state.
     private(set) var navigation: NavigationState
     private var flight = ModelFlightStyle()
-    /// The optional framing assist: pitch eases toward the level map up
-    /// close and straight down far away (docs/camera-core.md §12.3).
+    /// The optional framing assist. In the volume, pitch eases toward the
+    /// level map up close and straight down far away (docs/camera-core.md
+    /// §12.3); in immersive hosts the map tilts with altitude instead.
     var pitchFollowsAltitude = true
     /// Lowest camera height above the estimated ground in room hosts.
     private static let minimumAltitude = 55.0
@@ -100,8 +102,25 @@ final class MapVolumeModel {
     /// that sample moves the camera with the ground instead of rescaling.
     private var placeAwaitsGround = true
 
-    /// The last valid adaptive-model framing, kept when the view ray misses.
+    /// The last valid framing, kept when the volume's view ray misses.
     private var framing: AdaptiveModel.Framing?
+
+    /// Immersive hosts use the eye-level model (the camera at the viewer's
+    /// eye, the map level unless tilted by altitude); the volume keeps the
+    /// adaptive model.
+    private var usesEyeLevel: Bool { presentation.host == .immersive }
+
+    /// The framing for `camera` in the current host, or nil when the
+    /// volume's view ray misses the surface.
+    private func frame(_ camera: CameraPose) -> AdaptiveModel.Framing? {
+        if usesEyeLevel {
+            let ground = effectiveEnvelope
+            let weight = pitchFollowsAltitude ? EyeLevelModel.tiltWeight(altitude: camera.height - ground) : 0
+            return EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground, tiltWeight: weight)
+        }
+        return AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
+                                     envelopeHeight: effectiveEnvelope)
+    }
 
     // MARK: Tiles held
 
@@ -246,6 +265,11 @@ final class MapVolumeModel {
         guard case let .room(room) = presentation.geometry else {
             preconditionFailure("visionOS hosts are rooms")
         }
+        if presentation.host == .immersive {
+            return EyeLevelModel.framePlace(centre: place.coordinate, radius: place.radius,
+                                            heading: place.heading * .pi / 180,
+                                            room: room, groundHeight: groundHeight)
+        }
         return AdaptiveModel.framePlace(centre: place.coordinate, radius: place.radius,
                                         heading: place.heading * .pi / 180,
                                         room: room, groundHeight: groundHeight)
@@ -349,7 +373,7 @@ final class MapVolumeModel {
         let room = self.room
         let levelPitch = room.levelPitch
         let startPitch = m.startPose.pitch
-        let followsAltitude = pitchFollowsAltitude
+        let followsAltitude = pitchFollowsAltitude && !usesEyeLevel
         let target = AdaptiveModel.AnchorTarget(
             grab: m.grab,
             target: m.start + m.translation,
@@ -360,8 +384,8 @@ final class MapVolumeModel {
                 followsAltitude ? AdaptiveModel.pitchTarget(altitude: altitude, levelPitch: levelPitch) : startPitch
             })
         let solution = AdaptiveModel.solve(target, from: m.pose, room: room,
-                                           rayHeight: rayHeight.value, envelopeHeight: effectiveEnvelope,
-                                           context: context)
+                                           scaleSurface: usesEyeLevel ? effectiveEnvelope : rayHeight.value,
+                                           context: context, frame: frame)
         guard solution.error.isFinite else { return }
         var state = navigation
         let change = GeoMath.bearingChange(from: state.camera.coordinate, to: solution.pose.coordinate)
@@ -453,7 +477,7 @@ final class MapVolumeModel {
         var looking = input
         looking.move = .zero
         var state = flight.step(navigation, input: looking, deltaTime: deltaTime, context: context)
-        if pitchFollowsAltitude, input.climb != 0 || input.dolly != 0 {
+        if pitchFollowsAltitude, !usesEyeLevel, input.climb != 0 || input.dolly != 0 {
             state.camera = easedPitch(state.camera, deltaTime: deltaTime)
         }
         state.camera.pitch = min(state.camera.pitch, pitchLimit(for: state.camera))
@@ -530,8 +554,7 @@ final class MapVolumeModel {
     private func withinHeldLimits(_ state: NavigationState,
                                   checking limits: Set<HeldLimit> = [.travel, .size]) -> Bool {
         guard tilesHeld, let held = heldInputs,
-              let candidate = AdaptiveModel.framing(camera: state.camera, room: room,
-                                                    rayHeight: rayHeight.value, envelopeHeight: effectiveEnvelope)
+              let candidate = frame(state.camera)
         else { return true }
         func ratio(_ limit: HeldLimit, _ framing: AdaptiveModel.Framing) -> Double {
             switch limit {
@@ -578,10 +601,11 @@ final class MapVolumeModel {
 
         guard !tilesHeld, manipulation == nil, let framing else { return }
         let shown = framing.shownRadius(room)
-        if shown >= Self.curvatureAnchorRadius {
-            // Far out the Earth's curve, not the terrain, decides: sea level
-            // at the view's edges meets the base plane. Smooth in the camera, so
-            // it follows continuously.
+        if shown >= Self.curvatureAnchorRadius, !usesEyeLevel {
+            // In the volume, far out the Earth's curve, not the terrain,
+            // decides: sea level at the view's edges meets the base plane.
+            // Smooth in the camera, so it follows continuously. Immersive
+            // hosts tilt the globe to face the viewer instead.
             envelopeHeight.aim(at: rayHeight.value - GroundEstimates.curvatureDrop(shown),
                                hysteresis: 0.002 * shown)
         }
@@ -659,8 +683,7 @@ final class MapVolumeModel {
         guard streaming.isStreaming else { return }
         let room = self.room
         let camera = navigation.camera
-        if let current = AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
-                                               envelopeHeight: effectiveEnvelope) {
+        if let current = frame(camera) {
             framing = current
         } else if framing == nil {
             framing = AdaptiveModel.nadirFraming(camera: camera, room: room, rayHeight: rayHeight.value,

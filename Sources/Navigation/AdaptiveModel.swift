@@ -183,16 +183,28 @@ extension AdaptiveModel {
     static func solve(_ anchor: AnchorTarget, from guess: CameraPose, room: RoomGeometry,
                       rayHeight: Double, envelopeHeight: Double, context: NavigationContext,
                       iterations: Int = 8, tolerance: Double = 1e-4) -> (pose: CameraPose, error: Double) {
+        solve(anchor, from: guess, room: room, scaleSurface: rayHeight, context: context,
+              iterations: iterations, tolerance: tolerance) { pose in
+            framing(camera: pose, room: room, rayHeight: rayHeight, envelopeHeight: envelopeHeight)
+        }
+    }
+
+    /// The same, for any presentation: `frame` gives a pose's framing, and
+    /// the scale is taken to be inversely proportional to the camera's
+    /// height above `scaleSurface`.
+    static func solve(_ anchor: AnchorTarget, from guess: CameraPose, room: RoomGeometry,
+                      scaleSurface: Double, context: NavigationContext,
+                      iterations: Int = 8, tolerance: Double = 1e-4,
+                      frame: (CameraPose) -> Framing?) -> (pose: CameraPose, error: Double) {
         var pose = guess
         var best = (pose: guess, error: Double.infinity)
         for _ in 0..<iterations {
             // Orientation for this candidate: heading as asked, pitch from
             // the policy at its altitude, within the horizon limit.
             pose.heading = anchor.heading(at: pose.coordinate)
-            let limit = pitchLimit(cameraHeight: pose.height, rayHeight: rayHeight, latitude: pose.latitude)
+            let limit = pitchLimit(cameraHeight: pose.height, rayHeight: scaleSurface, latitude: pose.latitude)
             pose.pitch = min(anchor.pitch(pose.height - context.cameraGround), limit)
-            guard let framing = framing(camera: pose, room: room, rayHeight: rayHeight,
-                                        envelopeHeight: envelopeHeight) else { break }
+            guard let framing = frame(pose) else { break }
             let error = anchor.target - framing.georeference.map(anchor.grab)
             let scaleRatio = framing.georeference.scale / anchor.scale
             let span = simd_distance(framing.placementPoint, room.designEye)
@@ -202,8 +214,8 @@ extension AdaptiveModel {
 
             // Scale: range is proportional to height above the ray surface
             // at fixed pitch, so scale the height above it.
-            let above = max(pose.height - rayHeight, 0.1)
-            pose.height = context.clampHeight(rayHeight + above * scaleRatio)
+            let above = max(pose.height - scaleSurface, 0.1)
+            pose.height = context.clampHeight(scaleSurface + above * scaleRatio)
 
             // Position: shifting the camera (and G with it) by Δ moves the
             // grab point by −s·q·Δ in the map frame.
