@@ -4,7 +4,7 @@ Written 2026-10-26 at the end of a long design and implementation session, to se
 
 ## Purpose (owner)
 
-A general-purpose app with Google Earth VR-like flying, from street level to the globe, and a flight-sim feel. Spatial visualisation and drawing come later. Today it's visionOS (a volume, and floor modes in an immersive space), plus a static macOS view.
+A general-purpose app with Google Earth VR-like flying, from street level to the globe, and a flight-sim feel. Spatial visualisation and drawing come later. Today it's visionOS (a volume, and immersive modes, formerly "floor modes", in an immersive space), plus a static macOS view.
 
 ## Decided by the owner
 
@@ -55,7 +55,7 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 
 - **Full immersion first:** focus on an immersive mode without passthrough. It's easier to reason about, and the room competes less.
 - **Scale is an area to explore:** for example Google Earth VR's fixed human-scale mode, and moving in and out of human scale automatically, which the owner finds an interesting effect.
-- **The floor defines level; its role as a height datum is open.** Putting the ground at the floor isn't a goal in itself. It was inherited from the volume, where content must sit in the box.
+- **The floor defines level; its role as a height datum is open.** Putting the ground on the origin plane (the floor) isn't a goal in itself. It was inherited from the volume, where content must sit in the box.
 - **Tile loading should suit a viewpoint, not a view direction.** The eye is at a point and may look anywhere in a comfortable range, so load the detail any of those views would need, nearest first. Detail closest to you, where you can easily look while seated, matters most.
 - **Distances and ranges aren't derived from the room's size.** The map doesn't read as bounded by the room (it seems to extend past the walls), so don't propose cutoffs from room dimensions without a reason.
 
@@ -75,10 +75,10 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
   - placement is a function of the navigation camera and the mode (scale, yaw, an explicit tilt), with nothing about any viewer;
   - the streaming viewpoint is an independent switch: a fixed design viewpoint, the tracked head (#4), or a modelled viewer;
   - live/held is a second, independent switch.
-- **Room hosts:** scale so the ground beneath the camera sits at the table or floor height. Untested against the owner's intent.
+- **Room hosts:** scale so the ground beneath the camera sits on the base plane (low in the volume, the origin plane in an immersive space). Untested against the owner's intent.
 - **Layering:** room placement (how the user arranges the map in their room) and an observer offset (explain mode) as separate parent transforms over the whole scene.
 - **Tilt pivot and raised centre** for a "globe" state.
-- **Streaming defaults:** areas of interest per host (volume around the view centre, floor blended toward the viewer) and level of detail from a fixed design viewpoint.
+- **Streaming defaults:** areas of interest per host (volume around the view centre, immersive blended toward the viewer) and level of detail from a fixed design viewpoint.
 
 ## Engineering findings (observed, factual)
 
@@ -93,7 +93,7 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 
 **Tile loading (cesium-native v0.64.0, as built)**
 
-- **Tiles are chosen for one virtual camera (the LOD camera).** In floor modes it sits at the assumed eye (1.6 m above the immersive origin), points at the map's centre point (about 16° down at Floor 10×), and has a 60° view. It doesn't follow the head.
+- **Tiles are chosen for one virtual camera (the LOD camera).** In immersive modes it sits at the assumed eye (1.6 m above the immersive origin), points at the map's centre point (about 16° down at Immersive 10×), and has a 60° view. It doesn't follow the head.
 - **Frustum culling is now off** (`23e2502`). It was on, so tiles outside that view were dropped, and the floor from the viewer's feet to about 1.5 m ahead had no tiles. This was a stage 2 regression: the area streamed around the viewer was loaded and then culled. The old 45° camera saw the whole map.
 - **Detail:** a tile is refined until its screen-space error (roughly geometric error ÷ distance, in pixels) meets **Detail** (16) inside the view or **Outer detail** (64) outside it. Outer detail had no effect while culling was on. Both fall with distance; setting them equal removes the direction penalty, not the distance falloff.
 - **Load order is fixed** (`computeTilePriority`): `(1 − cos angle) × distance` from each view's position and direction, best across views, smallest first, within the urgent, normal and preload groups. So tiles near the view's direction load first, even far away, and the floor under the viewer loads last. It isn't configurable without a patch (the xcframework is built locally from a tag, so a patch is possible).

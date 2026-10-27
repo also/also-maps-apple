@@ -27,7 +27,7 @@ enum AdaptiveModel {
 
     /// The framing for `camera`, or nil when its view ray misses the surface
     /// at `rayHeight`. The lowest ground of the footprint (`envelopeHeight`,
-    /// at most `rayHeight`) is what lands on the table or floor.
+    /// at most `rayHeight`) is what lands on the base plane.
     static func framing(camera: CameraPose, room: RoomGeometry,
                         rayHeight: Double, envelopeHeight: Double) -> Framing? {
         let x = camera.position

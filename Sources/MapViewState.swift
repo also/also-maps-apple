@@ -23,7 +23,7 @@ struct MapViewState: Codable {
     struct GroundEstimate: Codable {
         /// h_ray: terrain height the view ray meets, metres above the ellipsoid.
         var ray: Double
-        /// h_env: the low envelope placed on the table or floor.
+        /// h_env: the low envelope placed on the base plane.
         var envelope: Double
     }
 
@@ -46,7 +46,7 @@ struct MapViewState: Codable {
     /// "adaptiveModel" for now.
     var presentationStyle: String
     var groundEstimate: GroundEstimate
-    /// MapPresentation.id, e.g. "floor5x".
+    /// MapPresentation.id, e.g. "immersive5x".
     var host: String
     var roomPlacement: Placement
     /// "live" or "held".

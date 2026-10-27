@@ -49,7 +49,7 @@ enum LegacyMapping {
     /// 0 up close, 1 far away: how far the map tilts to face the viewer.
     static func farTilt(radius: Double) -> Double { 1 - viewerPivotWeight(radius: radius) }
 
-    /// The map's centre, rising with the tilt from the floor toward a little
+    /// The map's centre, rising with the tilt from the base plane toward a little
     /// below eye level (the volume's middle in the volume).
     static func tiltedGroundPosition(_ state: State, _ presentation: Presentation) -> SIMD3<Double> {
         let ground = presentation.groundPosition
@@ -98,7 +98,7 @@ enum LegacyMapping {
                         elevation: .pi / 4 + .pi / 4 * farTilt(radius: state.radius),
                         distance: viewerDistanceInScene / streamingScale(radius: state.radius)),
             regionHeading: state.heading,
-            // Only the floor modes stream past the volume-sized square; the
+            // Only the immersive modes stream past the volume-sized square; the
             // volume would clip the extra away anyway.
             streamingRadius: presentation.isVolume ? state.radius : state.radius * immersiveRegion)
     }

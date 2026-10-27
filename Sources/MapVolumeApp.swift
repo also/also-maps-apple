@@ -46,7 +46,7 @@ struct MapVolumeApp: App {
         }
         .immersionStyle(selection: immersionStyle, in: .mixed, .full)
         // In mixed immersion, keep the user's system environment (Mount Hood,
-        // the Moon, …) around the floor map instead of hiding it.
+        // the Moon, …) around the immersive map instead of hiding it.
         .immersiveEnvironmentBehavior(.coexist)
     }
 }

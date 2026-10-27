@@ -9,7 +9,7 @@ private let volume = RoomGeometry(designEye: SIMD3(0, 0.3, 0.85),
                                   placementLevel: SIMD3(0, -0.25, 0),
                                   placementDown: SIMD3(0, 0, 0),
                                   contentHalfWidth: 0.5)
-private let floor5 = RoomGeometry(designEye: SIMD3(0, 1.6, 0),
+private let immersive5 = RoomGeometry(designEye: SIMD3(0, 1.6, 0),
                                   placementLevel: SIMD3(0, 0.02, -3.1),
                                   placementDown: SIMD3(0, 1.3, -3.1),
                                   contentHalfWidth: 2.5)
@@ -69,10 +69,10 @@ struct AnchoredManipulationTests {
     /// stays under the hand in the room too.
     @Test func holdsAfterANonIdentityRoomPlacement() throws {
         let placement = RoomPlacement(translation: SIMD3(0.3, 0, -0.4), yaw: 0.6)
-        // On the floor's surface, where the gesture slab is.
+        // On the base plane, where the gesture slab is.
         let handInRoom = SIMD3(0.5, 0.02, -2.6)
         let p = placement.similarity.inverse.apply(handInRoom)
-        let (after, grab, _) = try solve(grabAt: p, to: p, magnification: 2, twist: 0.3, room: floor5)
+        let (after, grab, _) = try solve(grabAt: p, to: p, magnification: 2, twist: 0.3, room: immersive5)
         #expect(simd_distance(placement.similarity.apply(after.georeference.map(grab)), handInRoom) < 1e-3)
     }
 }
@@ -110,7 +110,7 @@ struct ContinuityTests {
 
     @Test func pitchTargetIsInsideTheHorizonLimit() {
         for altitude in stride(from: 100.0, to: 5_000_000, by: 7_919) {
-            let target = AdaptiveModel.pitchTarget(altitude: altitude, levelPitch: floor5.levelPitch)
+            let target = AdaptiveModel.pitchTarget(altitude: altitude, levelPitch: immersive5.levelPitch)
             let limit = AdaptiveModel.pitchLimit(cameraHeight: altitude, rayHeight: 0, latitude: 0)
             #expect(target <= limit)
         }
@@ -191,7 +191,7 @@ struct ViewStateTests {
                                      lod: .orbit(heading: 0.5, elevation: 0.6, distance: 1_000),
                                      regionHeading: 0.5, streamingRadius: 700)
         return MapViewState(navigation: NavigationState(camera: camera, movementHeading: 0.1, headingLink: .independent),
-                            rayHeight: -31, envelopeHeight: -33, host: "floor5x",
+                            rayHeight: -31, envelopeHeight: -33, host: "immersive5x",
                             roomPlacement: RoomPlacement(translation: SIMD3(0.1, 0, -0.2), yaw: 0.25),
                             heldStreaming: held ? inputs : nil, settings: StreamingSettings())
     }
@@ -206,7 +206,7 @@ struct ViewStateTests {
         #expect(abs(a.camera.pitch - b.camera.pitch) < 1e-12)
         #expect(abs(a.movementHeading - b.movementHeading) < 1e-12)
         #expect(b.headingLink == .independent)
-        #expect(restored.host == "floor5x")
+        #expect(restored.host == "immersive5x")
         #expect(restored.tiles == (held ? "held" : "live"))
         #expect(restored.heldStreaming == state.heldStreaming)
         #expect(abs(restored.roomPlacement.placement.yaw - 0.25) < 1e-12)

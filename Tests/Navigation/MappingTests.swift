@@ -4,11 +4,11 @@ import Testing
 
 private let degrees = Double.pi / 180
 
-/// The volume and Floor 5×, as MapPresentation defines them.
+/// The volume and Immersive 5×, as MapPresentation defines them.
 private let volume = LegacyMapping.Presentation(isVolume: true, magnification: 1,
                                                 groundPosition: SIMD3(0, -0.25, 0),
                                                 viewerPosition: SIMD3(0, 0.3, 0.85))
-private let floor5 = LegacyMapping.Presentation(isVolume: false, magnification: 5,
+private let immersive5 = LegacyMapping.Presentation(isVolume: false, magnification: 5,
                                                 groundPosition: SIMD3(0, 0.02, -3.1),
                                                 viewerPosition: SIMD3(0, 1.6, 0))
 
@@ -60,7 +60,7 @@ struct LegacySeamTests {
     /// the georeference is exactly today's placement.
     @Test(arguments: [600.0, 30_000, 200_000, 2_000_000])
     func georeferenceReproducesTodaysPlacement(radius: Double) {
-        for presentation in [volume, floor5] {
+        for presentation in [volume, immersive5] {
             let legacy = state(radius: radius)
             let expected = LegacyMapping.placement(legacy, presentation)
             let placed = LegacyMapping.georeference(legacy, presentation).placement(of: LegacyMapping.anchor(legacy))
@@ -74,8 +74,8 @@ struct LegacySeamTests {
         let legacy = state(radius: 600)
         let fly = Similarity(scale: 1.5, rotation: simd_quatd(angle: 30 * degrees, axis: SIMD3(0, 1, 0)),
                              translation: SIMD3(0.4, 0, -0.3))
-        let expected = fly.after(LegacyMapping.placement(legacy, floor5))
-        let placed = LegacyMapping.georeference(legacy, floor5, fly: fly).placement(of: LegacyMapping.anchor(legacy))
+        let expected = fly.after(LegacyMapping.placement(legacy, immersive5))
+        let placed = LegacyMapping.georeference(legacy, immersive5, fly: fly).placement(of: LegacyMapping.anchor(legacy))
         #expect(maximumDifference(placed, expected, over: samplePoints) < 1e-9)
     }
 
@@ -120,7 +120,7 @@ struct AdaptiveModelTests {
     /// difference between the focus's and the camera's local up.
     @Test(arguments: [(600.0, 1e-4), (20_000.0, 5e-3)])
     func matchesTodaysPlacementUpClose(radius: Double, tolerance: Double) throws {
-        for presentation in [volume, floor5] {
+        for presentation in [volume, immersive5] {
             let legacy = state(radius: radius)
             let georeference = LegacyMapping.georeference(legacy, presentation)
             let eye = presentation.viewerPosition

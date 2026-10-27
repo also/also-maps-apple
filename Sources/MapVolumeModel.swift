@@ -7,7 +7,7 @@ import UIKit
 /// Navigation and presentation for the map. The camera is the state
 /// (`navigation`); each host shows it through the adaptive model, which
 /// scales the world so the camera sits at the design eye point and what it
-/// looks at sits on the table or floor. Tiles come from `streaming`. See
+/// looks at sits on the host's base plane. Tiles come from `streaming`. See
 /// docs/camera-core.md.
 @MainActor
 @Observable
@@ -66,10 +66,10 @@ final class MapVolumeModel {
     private(set) var keyboardConnected = false
     /// Name of the connected game controller, if any.
     private(set) var controllerName: String?
-    /// Whether the volume (map + controls) window is open. In a floor mode
+    /// Whether the volume (map + controls) window is open. In an immersive mode
     /// it can be closed while the immersive space stays up.
     var volumeIsOpen = false
-    /// Floor modes hide passthrough and the system environment: only the
+    /// Immersive modes hide passthrough and the system environment: only the
     /// map is shown. Applies live to an open immersive space.
     var fullImmersion = false
 
@@ -86,7 +86,7 @@ final class MapVolumeModel {
     private static let minimumAltitude = 55.0
 
     // Ground estimates (docs/camera-core.md §8): the terrain height the view
-    // ray meets (h_ray), the low envelope placed on the table or floor
+    // ray meets (h_ray), the low envelope placed on the base plane
     // (h_env), and the ground under the camera, for speed and limits.
     private var rayHeight = EasedHeight(0)
     private var envelopeHeight = EasedHeight(0)
@@ -238,9 +238,9 @@ final class MapVolumeModel {
 
     // MARK: Places
 
-    /// The camera that frames `place` in a host: its centre on the table or
-    /// floor, `radius` metres of world across the host's half-width (half
-    /// the volume, or the floor map's magnified equivalent), level.
+    /// The camera that frames `place` in a host: its centre on the base plane,
+    /// `radius` metres of world across the host's half-width (half the
+    /// volume, or an immersive mode's magnified equivalent), level.
     private static func framing(_ place: Place, in presentation: MapPresentation,
                                 groundHeight: Double) -> CameraPose {
         guard case let .room(room) = presentation.geometry else {
@@ -559,7 +559,7 @@ final class MapVolumeModel {
     /// below the real ground. It sets speed and limits only; it never moves
     /// the view.
     ///
-    /// The georeference ground (where the map sits on the table or floor)
+    /// The georeference ground (where the map sits on the base plane)
     /// comes only from the 3×3 surface sample once motion settles, plus the
     /// Earth's curve far out. Reading it from the loaded tiles continuously
     /// fed back on itself: a new height rescaled the map, which moved the LOD
@@ -580,7 +580,7 @@ final class MapVolumeModel {
         let shown = framing.shownRadius(room)
         if shown >= Self.curvatureAnchorRadius {
             // Far out the Earth's curve, not the terrain, decides: sea level
-            // at the view's edges meets the floor. Smooth in the camera, so
+            // at the view's edges meets the base plane. Smooth in the camera, so
             // it follows continuously.
             envelopeHeight.aim(at: rayHeight.value - GroundEstimates.curvatureDrop(shown),
                                hysteresis: 0.002 * shown)
@@ -595,8 +595,8 @@ final class MapVolumeModel {
 
     /// Where the map sits: the lowest of a 3×3 sample across the shown region
     /// once motion settles (live only; it may load tiles), for both the
-    /// surface the view ray meets and the ground placed on the table or
-    /// floor. A failed sample keeps the last estimate.
+    /// surface the view ray meets and the ground placed on the base plane. A
+    /// failed sample keeps the last estimate.
     private func requestGroundSample() {
         guard !tilesHeld, let framing else { return }
         let shown = framing.shownRadius(room)

@@ -1292,7 +1292,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
                               completion:(void (^)(double height))completion {
   // A 3×3 grid spanning most of the visible square. A single sample at the
   // centre lands on whatever is there (a hilltop, a roof) and sinks the rest
-  // of the region below the volume floor; the lowest hit keeps it all above.
+  // of the region below the base plane; the lowest hit keeps it all above.
   const double reach = 0.8 * radius;
   const glm::dmat4 centreFrame =
       CesiumGeospatial::GlobeTransforms::eastNorthUpToFixedFrame(

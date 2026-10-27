@@ -56,12 +56,13 @@ Status: design for review, revision 6 (2026-10-26).
 | **Navigation state** | The camera pose plus the movement heading and whether it's linked to the view heading. |
 | **Interaction mode** | How input changes navigation, and which view tilt policy applies: drone, ground/globe toggle, orbit/pan/zoom. (Called a *control style* in code.) |
 | **Presentation style** | How the world is mapped into the room or window, including scale: adaptive scale (today), fixed human scale, inspectable model. |
-| **Host** | The physical container and its fixed geometry: the volume, a floor N× layout in the immersive space, or the macOS window. |
+| **Host** | The physical container and its fixed geometry: the volume, an immersive N× layout on the immersive space's origin plane, or the macOS window. |
 | **Level frame** | East, north and up at a point, with up along the ellipsoid normal. The geoid's vertical differs by under 0.02°, which is negligible here. |
 | **View tilt** (τ) | How far the world is deliberately tipped toward the viewer in a room host: 0 is level with the floor, 90° faces you. It's chosen by the interaction mode. |
 | **Design eye point** (E) | The assumed viewer position in a room host: in front of the volume, or where you stood when the immersive space opened. It isn't the tracked head. |
 | **Head pose** | The real head (ARKit's `DeviceAnchor`), in immersive spaces only. Used for level of detail later (#4), never for placement. |
-| **Reference space** | The host's origin: the volume's centre, or the immersive space's floor origin. |
+| **Reference space** | The host's origin: the volume's centre, or the immersive space's origin (the floor where the user stood when it opened). |
+| **Base plane** | The horizontal plane the map's ground is placed on: low in the volume, or the immersive space's origin plane (y = 0). |
 | **Room placement** | A rigid transform (translation and yaw) from the map frame to the reference space. Only the user and the system change it (§10). |
 | **Georeference** | Which world point sits where in the map frame, with what scale and rotation (Cesium's term). |
 | **Area of interest** (AOI) | The geographic square eligible for streaming. Its centre is the streaming anchor. |
@@ -101,7 +102,7 @@ Whatever the mode, τ is part of the presentation, so switching host, jumping to
 
 ### 3.5 Scale (adaptive scale presentation style)
 
-The room host scales the world so the ground beneath the camera sits at the host's ground level: the table in the volume, the floor in an immersive space.
+The room host scales the world so the ground beneath the camera sits on the host's base plane: low in the volume, the origin plane in an immersive space.
 
 - **Climbing** therefore reads as the ground dropping away beneath you.
 - **Speed** is relative to height above ground, so movement covers the same apparent distance at any altitude.
@@ -139,7 +140,7 @@ Replaces revision 5's ray-and-placement-point construction.
 **Inputs:**
 
 - camera X with heading ψ;
-- the host's design eye point E and ground level y_g (the table or floor);
+- the host's design eye point E and base plane height y_g;
 - the camera's height above ground, `agl` (from the settled ground estimate);
 - the view tilt τ;
 - the tilt pivot C, a point on the host's ground: its content centre.
@@ -193,7 +194,7 @@ There are two estimates, with different jobs and different trust requirements.
 | `.georeference` | The view centre | ρ × region multiplier | The volume, which clips to the shown region anyway |
 | `.viewer` | Ground beneath the viewer | 3 × agl, from 1 km to the horizon | The Mac window |
 | `.forward` | Ahead of the viewer | Reach with a lead | — |
-| `.blended` | Viewer near the ground, view centre higher up | Covers both | Floor modes |
+| `.blended` | Viewer near the ground, view centre higher up | Covers both | Immersive modes |
 
 - **Outside the frustum:** cesium-native already uses a coarser screen-space error (Outer Detail) outside the frustum, and the AOI only bounds what's eligible.
 - **LOD viewpoint:** the design eye point through the georeference, looking at the content centre, until head tracking (#4).
@@ -285,5 +286,5 @@ This revision adds the view tilt τ and the tilt mode's state. Old focus-centric
 1. **Drone tilt:** keep the assist curve as the default, or start the drone at fixed level and add the ground/globe toggle sooner?
 2. **Tilt pivot and raised centre:** today's facing tilt pivots on the content centre and raises it toward eye level. Is that the right behaviour for the globe state?
 3. **Ground changes while live:** today the camera stays put and the map eases. Would moving the camera with the ground feel better at all altitudes, not just after place jumps?
-4. **Defaults for AOI and detail:** floor modes now stream more tiles. Are `.blended` and today's detail settings right?
+4. **Defaults for AOI and detail:** immersive modes now stream more tiles. Are `.blended` and today's detail settings right?
 5. **Held-tile limits** (1.5× travel, 3× climb), and whether "Fly" is the right name for holding.

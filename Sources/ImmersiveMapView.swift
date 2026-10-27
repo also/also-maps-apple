@@ -2,7 +2,7 @@ import GameController
 import RealityKit
 import SwiftUI
 
-/// The map on the floor of a mixed-immersion space. Placement and size come
+/// The map on the origin plane of the immersive space. Placement and size come
 /// from the model's current presentation; the volume stays open as the control
 /// panel.
 struct ImmersiveMapView: View {
@@ -20,7 +20,7 @@ struct ImmersiveMapView: View {
             }
         } update: { _, attachments in
             // Keep the attribution at the map's near edge, a little above the
-            // floor, as the presentation changes size.
+            // origin plane, as the presentation changes size.
             guard let attribution = attachments.entity(for: Self.attributionID) else { return }
             let presentation = model.presentation
             let halfWidth = Float(MapVolumeModel.volumeSize.x / 2 * presentation.magnification)

@@ -59,7 +59,7 @@ struct MapVolumeView: View {
         }
         .task {
             // Debug: MAPVOLUME_OPEN_TUNING=1 opens the Tuning window, and
-            // MAPVOLUME_PRESENTATION=floor5x (etc.) starts in that mode.
+            // MAPVOLUME_PRESENTATION=immersive5x (etc.) starts in that mode.
             if ProcessInfo.processInfo.environment["MAPVOLUME_OPEN_TUNING"] == "1" {
                 openWindow(id: TuningView.windowID)
             }
@@ -72,7 +72,7 @@ struct MapVolumeView: View {
             if ProcessInfo.processInfo.environment["MAPVOLUME_TILE_BOUNDS"] == "1" {
                 model.showsTileBounds = true
             }
-            // MAPVOLUME_FULL_IMMERSION=1 opens floor modes fully immersive.
+            // MAPVOLUME_FULL_IMMERSION=1 opens immersive modes with full immersion.
             if ProcessInfo.processInfo.environment["MAPVOLUME_FULL_IMMERSION"] == "1" {
                 model.fullImmersion = true
             }
@@ -84,7 +84,7 @@ struct MapVolumeView: View {
                     print("[MapVolume] MAPVOLUME_STATE not restored: \(error.localizedDescription)")
                 }
             } else if let id = ProcessInfo.processInfo.environment["MAPVOLUME_PRESENTATION"],
-               let presentation = MapPresentation.all.first(where: { $0.id == id }) {
+               let presentation = MapPresentation.withID(id) {
                 await present(presentation)
             }
         }
@@ -132,7 +132,7 @@ struct MapVolumeView: View {
                         model: MapVolumeModel,
                         open: OpenImmersiveSpaceAction,
                         dismiss: DismissImmersiveSpaceAction) async {
-        if let presentation = MapPresentation.all.first(where: { $0.id == state.host }) {
+        if let presentation = MapPresentation.withID(state.host) {
             await present(presentation, model: model, open: open, dismiss: dismiss)
         }
         model.restore(state)

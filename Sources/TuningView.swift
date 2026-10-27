@@ -38,7 +38,7 @@ struct TuningView: View {
                 Section {
                     setting("Region", value: $model.settings.immersiveRegion, in: 1...10, step: 0.5,
                             format: { String(format: "%.1f×", $0) },
-                            hint: "How far past the volume-sized square to stream. Floor modes only.")
+                            hint: "How far past the volume-sized square to stream. Immersive modes only.")
                     setting("Detail", value: $model.settings.detail, in: 2...64, step: 1,
                             format: { "SSE \(Int($0))" },
                             hint: "Lower is sharper, with more tiles. Applies to what the LOD camera sees.")
@@ -86,7 +86,7 @@ struct TuningView: View {
 
                 Section {
                     Toggle("Full immersion", isOn: $model.fullImmersion)
-                    Text("Floor modes show only the map, with no passthrough or environment.")
+                    Text("Immersive modes show only the map, with no passthrough or environment.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
