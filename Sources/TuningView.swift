@@ -85,6 +85,15 @@ struct TuningView: View {
                 }
 
                 Section {
+                    Toggle("Full immersion", isOn: $model.fullImmersion)
+                    Text("Floor modes show only the map, with no passthrough or environment.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Immersion")
+                }
+
+                Section {
                     Toggle("Show pivot and centre markers", isOn: $model.showsDebugMarkers)
                     Text("Red: the point turns and zooms rotate around. Blue: the map's centre.")
                         .font(.caption)

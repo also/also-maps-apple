@@ -72,6 +72,10 @@ struct MapVolumeView: View {
             if ProcessInfo.processInfo.environment["MAPVOLUME_TILE_BOUNDS"] == "1" {
                 model.showsTileBounds = true
             }
+            // MAPVOLUME_FULL_IMMERSION=1 opens floor modes fully immersive.
+            if ProcessInfo.processInfo.environment["MAPVOLUME_FULL_IMMERSION"] == "1" {
+                model.fullImmersion = true
+            }
             if let text = ProcessInfo.processInfo.environment["MAPVOLUME_STATE"] {
                 do {
                     let state = try MapViewState.parse(text)

@@ -69,6 +69,9 @@ final class MapVolumeModel {
     /// Whether the volume (map + controls) window is open. In a floor mode
     /// it can be closed while the immersive space stays up.
     var volumeIsOpen = false
+    /// Floor modes hide passthrough and the system environment: only the
+    /// map is shown. Applies live to an open immersive space.
+    var fullImmersion = false
 
     // MARK: Navigation state
 

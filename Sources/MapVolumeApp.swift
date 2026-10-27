@@ -5,7 +5,13 @@ struct MapVolumeApp: App {
     @State private var model = MapVolumeModel()
     @State private var soundtrack = Soundtrack()
     @Environment(\.scenePhase) private var scenePhase
-    @State private var immersionStyle: ImmersionStyle = .mixed
+
+    /// Read straight from the model, so a space opened right after the
+    /// setting changes opens in the new style.
+    private var immersionStyle: Binding<any ImmersionStyle> {
+        Binding(get: { model.fullImmersion ? .full : .mixed },
+                set: { model.fullImmersion = $0 is FullImmersionStyle })
+    }
 
     var body: some Scene {
         WindowGroup(id: MapVolumeView.windowID) {
@@ -38,9 +44,9 @@ struct MapVolumeApp: App {
             ImmersiveMapView()
                 .environment(model)
         }
-        .immersionStyle(selection: $immersionStyle, in: .mixed)
-        // Keep the user's system environment (Mount Hood, the Moon, …) around
-        // the floor map instead of hiding it when the space opens.
+        .immersionStyle(selection: immersionStyle, in: .mixed, .full)
+        // In mixed immersion, keep the user's system environment (Mount Hood,
+        // the Moon, …) around the floor map instead of hiding it.
         .immersiveEnvironmentBehavior(.coexist)
     }
 }
