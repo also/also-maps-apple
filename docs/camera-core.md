@@ -1,619 +1,289 @@
 # Camera-centric navigation core
 
-Status: design for review, revision 5 (2026-10-26). Nothing here is implemented yet.
+Status: design for review, revision 6 (2026-10-26).
 
-Navigation today is **focus-centric**. `MapVolumeModel` stores a focus, a radius, a heading and an anchored ground height. Everything else is patched on top: the viewer pivot and its 50–500 km fade, the facing tilt, heading transport, and Fly's scene similarity. This document replaces that with:
+- **Implemented:** stages 1 and 2 (§13) are committed, with the room-host rule from revision 5, which tilted the map whenever the camera's pitch didn't match the host's eye line.
+- **Changed here:** this revision replaces that rule (§5). The goals now come first (§1), and tilt is an explicit choice of the interaction mode (§3.3), never a side effect.
 
-- shared **navigation state**, with movement heading separate from viewing orientation;
-- interchangeable **control styles** and **presentation styles**;
-- separate **georeference**, **viewer pose** and **area of interest** inputs, each pure or a provider;
-- a **room placement** that the user and the system own, kept apart from navigation.
+## 1. Goals
 
-It sits on the `TileStreaming` seam from #12.
+### What the app is for
 
-## 1. Principles
+- **Fly anywhere, from street level to the whole globe,** as in Google Earth VR, with a flight-sim feel.
+- **Later:** spatial visualisation and drawing on top of the map.
 
-1. **One navigation core, multiple styles.** Geographic position, movement heading and viewing orientation have explicit meanings independent of input bindings and presentation style. Today's controls are one style; drone flight, POI assistance and Mac pan/orbit/zoom can be other styles. Changing style should preserve the displayed view at the transition, then initialize any style-specific state such as an orbit pivot.
-2. **Three separate inputs, not one ray.** The streaming code needs three things, and each comes from its own source:
-   - the **georeference**, from navigation state and the presentation style;
-   - the **LOD viewpoint**, from the viewer pose provider;
-   - the **area of interest**, from a policy.
-   
-   Each strategy (AOI at the viewer, AOI ahead of the viewer, ground from the georeference) is a configuration of these, not a redesign.
-3. **Room placement isn't navigation.** visionOS recentring and the user moving the map in the room change only the room placement. Navigation changes geographic state and control-style state. Neither touches the other.
-4. **Tiles are live or held.** That's the one user-facing streaming choice (§10). It decides whether the streaming inputs follow the camera. The georeference and room placement are always ours.
-5. **Everything is total.** Inputs are validated at the boundary; supported finite inputs have defined results, and invalid inputs produce explicit failure or retain the last valid state. There are no NaN transforms. Surface queries return hit-or-miss (§5).
-6. **The core is platform-neutral.** It uses Foundation and simd only, so it can be tested without a scene: by the macOS unit-test target if §16's proposal is approved, otherwise by DEBUG self-tests.
+### How navigation should feel
+
+1. **Consistent motion.** Climbing, turning and moving behave the same in every host and with held or live tiles. Climbing changes altitude, turning changes heading, moving travels along the globe (including over the poles).
+2. **Speed that matches what you see.** Movement scales with your height above the ground beneath you, not with a zoom radius. Hills and valleys feel the same.
+3. **Direct manipulation.** What you grab stays under your hand while you drag, pinch and twist.
+4. **Several camera and interaction modes over one core.**
+   - **Today's mode is a drone.**
+   - **A Google Earth VR-style mode with ground and globe tilt** can be added without rewriting navigation (§3.3).
+   - **On the Mac, orbit/pan/zoom** can be added the same way.
+   - **Later:** a fixed human-scale mode.
+
+### What the display must respect
+
+5. **In VR, the room's floor is the level baseline.**
+   - When the map is meant to be level, it **is** level with the floor, by construction.
+   - Tilting the map is a deliberate choice of the current mode. It never results from geometry happening not to match.
+   - Nothing about the map's tilt changes because you switched host, jumped to a place or turned your head.
+6. **On a flat screen** (the macOS window), the render camera is the camera. "Level" there is the camera's own pitch, and no room baseline exists.
+
+### What streaming must do
+
+7. **Streaming follows what you see.**
+   - Detail refines as you approach. You can also **hold** the loaded tiles and fly through them (§9).
+   - Display and streaming must not feed back into each other. Stage 2 learned this the hard way (§7).
+
+### Engineering goals
+
+8. **Platform-neutral core.** The navigation maths is Foundation and simd only, tested on macOS without a scene (`MapVolumeCoreTests`).
+9. **Total and stable.** Every input has a defined result, with no NaN transforms. Estimates that move the view change only when they're trustworthy, and they ease when they do.
+
+### Non-goals
+
+- Collision avoidance or terrain clearance guarantees.
+- Exact equivalence with the old implementation.
+- Restoring old saved views.
 
 ## 2. Terminology
 
 | Term | Meaning here |
 |---|---|
-| **Camera pose** | A geographic viewpoint: position and viewing orientation. It does not by itself define movement heading or physical world scale. |
-| **Movement heading** | The direction used by forward/right movement controls, independently of where the head or virtual camera is aimed. |
-| **Control style** | How input changes navigation state: flight, orbit/pan/zoom, or a coordinated POI flight, for example. |
-| **Presentation style** | How the geographic world is mapped into physical viewing space, including scale and placement: adaptive model, fixed human scale or inspectable model (§4). |
-| **Host** | The physical container and its fixed geometry: the volume, a floor N× immersive layout, or the macOS window (`HostGeometry`; today's `MapPresentation`, renamed `MapHost`). Independent of presentation style. |
-| **Heading link** | Whether movement heading follows view heading (`linked`) or is independent. Set by the control style (§11). |
-| **Design eye point** (E) | The assumed viewer position in the map frame: in front of the volume, or where you stood when the immersive space opened. It is *not* the real head. |
-| **Viewer pose / head pose** | The real head. On visionOS that's ARKit's `DeviceAnchor` via `WorldTrackingProvider.queryDeviceAnchor(atTimestamp:)`, available only while an immersive space is open. |
-| **Origin / reference space** | The space a host's content is attached to: the immersive space's origin on the floor, or the volume's centre. |
-| **Room placement** | A user- and system-adjustable rigid transform from the map frame to the reference space (§9). |
-| **Map frame** | Where the host geometry (E, C, the gesture slab) is defined. It equals the reference space while the room placement is identity, as it is today. |
-| **Georeference** | Which world point sits where in the map frame, with what scale and rotation (Cesium's `CesiumGeoreference`). Rebasing the coordinate origin is *origin shifting*; changing display scale or orientation is a separate presentation-style decision. |
-| **Georeference point** (G) | The world point the georeference is built around. In the adaptive model presentation style, it is where the virtual viewing direction meets the reference surface; it is optional for other styles. It is **not** where the user looks: at street level in floor mode it's a few metres ahead on the floor and may be hidden behind buildings. |
-| **Placement point** (C) | The map-frame point where the georeference puts the (ground-adjusted) georeference point. G and C are different kinds of quantity: with ground lift, the transform maps the lowered point Ĝ to C; G itself is above it. |
+| **Camera pose** | The geographic viewpoint: latitude, longitude, height above the WGS84 ellipsoid, heading and pitch. |
+| **Navigation state** | The camera pose plus the movement heading and whether it's linked to the view heading. |
+| **Interaction mode** | How input changes navigation, and which view tilt policy applies: drone, ground/globe toggle, orbit/pan/zoom. (Called a *control style* in code.) |
+| **Presentation style** | How the world is mapped into the room or window, including scale: adaptive scale (today), fixed human scale, inspectable model. |
+| **Host** | The physical container and its fixed geometry: the volume, a floor N× layout in the immersive space, or the macOS window. |
+| **Level frame** | East, north and up at a point, with up along the ellipsoid normal. The geoid's vertical differs by under 0.02°, which is negligible here. |
+| **View tilt** (τ) | How far the world is deliberately tipped toward the viewer in a room host: 0 is level with the floor, 90° faces you. It's chosen by the interaction mode. |
+| **Design eye point** (E) | The assumed viewer position in a room host: in front of the volume, or where you stood when the immersive space opened. It isn't the tracked head. |
+| **Head pose** | The real head (ARKit's `DeviceAnchor`), in immersive spaces only. Used for level of detail later (#4), never for placement. |
+| **Reference space** | The host's origin: the volume's centre, or the immersive space's floor origin. |
+| **Room placement** | A rigid transform (translation and yaw) from the map frame to the reference space. Only the user and the system change it (§10). |
+| **Georeference** | Which world point sits where in the map frame, with what scale and rotation (Cesium's term). |
 | **Area of interest** (AOI) | The geographic square eligible for streaming. Its centre is the streaming anchor. |
-| **LOD viewpoint / culling camera** | The view frustum cesium-native uses for screen-space error and frustum culling. |
+| **LOD viewpoint** | The frustum cesium-native selects detail for. |
 
-## 3. Spaces, frames and types
+## 3. Concepts
 
-### Spaces and frames
+### 3.1 The camera is the state
+
+Navigation stores one camera pose. A focus, radius, scale and view centre may be useful to a presentation style, but they're derived from the camera, never stored separately.
+
+### 3.2 The level baseline
+
+In a room host the map frame's up is the room's up.
+
+- **Untilted (τ = 0):** the world's local up at the ground beneath the camera is the room's up. The map is level with the floor, exactly, at any altitude.
+- **Curvature:** far out you see the Earth's curve as a dome falling away from beneath you, as you would from a real aircraft.
+
+### 3.3 View tilt belongs to the interaction mode
+
+Tilt is a separate, explicit value τ, owned by the interaction mode, not derived from pitch, host geometry or altitude. Different modes choose it differently:
+
+- **Drone (today).**
+  - **Behaviour:** the base is always level. That could stay true at every altitude, but far enough away you'd need to look straight down to see anything, so the mode adds an optional tilt assist that tips the world toward you as you climb.
+  - **The curve:** today's curve (0 below 50 km, rising to full tilt by 500 km on a smoothstep in log altitude) is fairly arbitrary. It's a tunable setting, not a principle.
+- **Ground/globe toggle (Google Earth VR-style, future).**
+  - **Two states:** ground (τ = 0) and globe (τ at full tilt). A button toggles between them, easing the tilt over a short transition.
+  - **Altitude limits:** each state has its own range, and the ranges overlap. Ground mode has a maximum altitude, and globe mode a minimum one. To climb higher than ground mode allows, you toggle to globe first.
+- **Fixed level (simplest).** τ = 0 always. Useful for checking the baseline, and for a fixed human-scale presentation style.
+
+Whatever the mode, τ is part of the presentation, so switching host, jumping to a place or turning your head never changes it.
+
+### 3.4 Pitch
+
+- **Flat screen:** the camera's pitch is the render camera's pitch.
+- **VR room host:** your head does the looking. The stored pitch doesn't affect placement. It only aims the LOD viewpoint until head tracking (#4) replaces it, and it's kept so that switching to a flat-screen or drone-gimbal view has a direction to use.
+
+### 3.5 Scale (adaptive scale presentation style)
+
+The room host scales the world so the ground beneath the camera sits at the host's ground level: the table in the volume, the floor in an immersive space.
+
+- **Climbing** therefore reads as the ground dropping away beneath you.
+- **Speed** is relative to height above ground, so movement covers the same apparent distance at any altitude.
+- **Ground height:** this needs the ground under the camera. Placement uses only a settled, trustworthy estimate (§7).
+
+### 3.6 Separate inputs
+
+Streaming needs three things, each from its own source:
+
+- **The georeference,** from the camera and the presentation style.
+- **The LOD viewpoint,** from the viewer (design eye point today, tracked head later).
+- **The area of interest,** from a policy.
+
+Each of "stream around the viewer", "stream ahead" and "stream around what's shown" is a configuration of these, not a redesign (§8).
+
+## 4. Spaces and types (summary)
 
 ```
 reference space ──room placement⁻¹──▶ map frame ──georeference⁻¹──▶ world (ECEF)
-(origin, head pose)    (§9)        (E, C, slab)       (§4)          (pose, tiles)
 ```
 
-| Frame | Axes | Use |
+- **ECEF:** all geo maths in double.
+- **Anchor frame A** (x east, y up, z south at the streaming anchor): where the bridge places tiles.
+- **Map frame:** where host geometry and gestures live.
+- **Reference space:** the host's origin.
+
+The tiles root is always `georeference ∘ ecefFromAnchor(streaming anchor)`, composed in double. It follows whichever anchor the streamer is on, live or held.
+
+The core types live in `Sources/Navigation/`: `CameraPose`, `NavigationState` (movement heading and heading link), `Geodesy` (with a hit-or-miss surface query), `HostGeometry`, `Georeference`, `RoomPlacement`, `StreamingInputs`, `AOIPolicy`, ground estimates, operations and the control styles. Field-level detail is in the code; this document keeps to the rules.
+
+## 5. Room host placement (adaptive scale)
+
+Replaces revision 5's ray-and-placement-point construction.
+
+**Inputs:**
+
+- camera X with heading ψ;
+- the host's design eye point E and ground level y_g (the table or floor);
+- the camera's height above ground, `agl` (from the settled ground estimate);
+- the view tilt τ;
+- the tilt pivot C, a point on the host's ground: its content centre.
+
+**Untilted (τ = 0):**
+
+1. **Scale:** s = (E.y − y_g) / agl.
+2. **Rotation:** yaw only. The level frame at the ground beneath the camera maps to the room with up → up and the camera's heading → −z (away from the viewer).
+3. **Translation:** the camera lands on E. The ground beneath it then lands at (E.x, y_g, E.z), on the host's ground level.
+
+**Tilted (τ > 0):** apply a rotation by τ about the room's horizontal right axis through C, after the untilted placement. The mode may also raise C toward the viewer as τ grows, as today's facing tilt does, so a fully tilted globe sits in front of you rather than below the floor. With τ = 0 none of this applies.
+
+**Shown region:** half-width ρ = contentHalfWidth / s, used by the gesture slab, AOI and ground sampling.
+
+**Properties this guarantees:**
+
+- At τ = 0 the map is exactly level, in every host, at any altitude.
+- Switching hosts changes s (each host's eye is at a different height) and where content sits, but never the tilt.
+- No surface intersection is needed to place the world, so there's no horizon miss case for placement. The surface query remains for gestures, pointers and pivots (§6).
+
+## 6. Surfaces and the horizon
+
+`Geodesy.intersect` returns hit, miss or invalid ray, against a scaled ellipsoid at a given height. Hits are refined with a bounded iteration, and every result is finite.
+
+- **Callers decide what a miss means.** A pointer or pivot keeps its last value, uses a declared fallback, or declines.
+- **The horizon pitch limit (`AdaptiveModel.pitchLimit`)** is only for modes that need a view ray to meet the ground: a flat-screen orbit pivot, say. It's no longer part of room placement.
+
+## 7. Ground estimates
+
+There are two estimates, with different jobs and different trust requirements.
+
+| | **Placement ground** | **Camera ground** |
 |---|---|---|
-| ECEF | WGS84 Earth-fixed, metres, double | All geo maths in the core |
-| ENU(p) | east, north, up at point p | Pose angles, local offsets |
-| Anchor frame A | RealityKit axes at the streaming anchor: x = east, y = up, z = south | The bridge places every tile here (unchanged) |
-| Map frame | y up, −z away from the design eye point | Host geometry, gestures |
-| Reference space | The host's origin | Head pose, recentring |
+| Used for | Scale and where the map sits (§5) | Speed, minimum and maximum altitude |
+| Source | The 3×3 `sampleHeightMostDetailed` across the shown region once motion settles (lowest hit); the curvature envelope far out | Rendered-tile height ranges, only from tiles no wider than max(2·agl, 500 m) |
+| Updates | On settle and after gestures, eased. The first sample after a place jump moves the camera with the ground instead | Every frame, eased |
+| While held or during a gesture | Frozen | Continues |
+| Can move the view? | Yes, so it must be stable | Never |
 
-RealityKit hierarchy: host anchor (reference space) → `placementRoot` (room placement) → `root` (map frame: gesture slab, markers) → `tilesRoot` (the georeference composed with the anchor frame).
+**Lesson from stage 2.** Reading the placement ground from rendered tiles continuously made the view bounce:
 
-### Core types
+- coarse tiles' lowest vertices can be kilometres below the real ground;
+- each new value rescaled the map, which moved the LOD camera, which changed the tiles, which changed the value again.
 
-These live in `Sources/Navigation/`, which both targets compile.
+**Rule:** nothing derived from the current tile selection may move the view continuously.
 
-```swift
-/// A geographic viewpoint; movement heading and controller state are separate.
-struct CameraPose: Codable, Equatable {
-    var latitude: Double      // degrees
-    var longitude: Double     // degrees
-    var height: Double        // metres above the WGS84 ellipsoid
-    var heading: Double       // radians clockwise from local north at the camera
-    var pitch: Double         // radians: 0 level, −π/2 straight down, + up
-}
+## 8. Area of interest and level of detail
 
-/// Shared geographic state. Concrete style-specific state is owned separately.
-struct NavigationState: Codable, Equatable {
-    var camera: CameraPose
-    var movementHeading: Double // radians clockwise from local north
-    var headingLink: HeadingLink // set by the control style on activation
-}
-
-/// Whether movement heading follows view heading. Model flight uses `.linked`:
-/// every change to camera.heading is applied to movementHeading too, and they
-/// start equal. A drone style uses `.independent`.
-enum HeadingLink: String, Codable { case linked, independent }
-
-/// WGS84 helpers (geodetic ↔ ECEF, ENU bases) and the surface query (§5).
-enum Geodesy {
-    static func intersect(ray: Ray, surfaceHeight: Double) -> SurfaceHit
-}
-enum SurfaceHit { case hit(point: SIMD3<Double>, t: Double)
-                  case miss }
-
-/// Host geometry in the map frame. Fixed per host (volume, floor N×, window).
-enum HostGeometry: Equatable {
-    case room(designEye: SIMD3<Double>,        // E
-              placementLevel: SIMD3<Double>,   // C₀: where G goes when the map is level
-              placementDown: SIMD3<Double>,    // C₁: where G goes looking straight down
-              contentHalfWidth: Double)        // map-frame metres: shown region, gesture slab
-    case window(fovY: Double, aspect: Double)  // macOS: the render camera is the camera
-}
-
-/// World → map frame. Always ours, in either tile mode.
-struct Georeference: Equatable {
-    var scale: Double                 // map-frame metres per world metre
-    var rotation: simd_quatd          // ECEF → map frame
-    var translation: SIMD3<Double>    // map = translation + scale · rotation · ecef
-    func map(_ ecef: SIMD3<Double>) -> SIMD3<Double>
-    func ecef(map: SIMD3<Double>) -> SIMD3<Double>
-}
-
-/// Map frame → reference space. Rigid: translation and yaw.
-struct RoomPlacement: Codable, Equatable { var translation: SIMD3<Double>; var yaw: Double }
-
-/// Where the viewer's head is, in the reference space.
-protocol ViewerPoseProvider { func viewerPose() -> RigidTransform }
-// Fixed design viewpoint (synthetic, not a real head) · tracked head (DeviceAnchor, #4)
-
-/// What streams. See §7.
-enum AOIPolicy: Codable, Equatable {
-    case georeference(regionMultiplier: Double)   // today's behaviour
-    case viewer(reachPerAGL: Double)              // all around the viewer's nadir
-    case forward(reachPerAGL: Double, lead: Double) // biased along the view direction
-    case blended(…)                               // viewer near the ground → georeference high up
-}
-
-/// What cesium-native is told. Follows the camera while live, frozen while held.
-struct StreamingInputs: Equatable {
-    var anchor: StreamingAnchor   // AOI centre: geo point + height, frame A's origin
-    var lod: LODCamera   // LOD viewpoint
-    var regionHeading: Double          // rotation of the AOI square
-    var streamingRadius: Double        // AOI half-width, world metres
-}
-
-/// StreamingAnchor and LODCamera are core-owned value types; TileStreaming adapts them.
-
-/// A ground estimate over a footprint (§8).
-struct GroundEstimator { var footprint, statistic, update … }
-```
-
-**Tiles-root transform.** The tiles root is always set to `georeference ∘ ecefFromAnchor(streaming.anchor)`, composed in double, then converted to a Float `Transform`. It uses whatever anchor the streamer is actually on: the current AOI centre when live, the frozen one when held. Because tiles are placed relative to an anchor that's either live or held, the anchor can sit anywhere (here, the AOI centre) without affecting where G lands.
-
-### Changes to `TileStreaming` and the bridge
-
-- **LOD camera.** `LODView` (an orbit around the anchor) becomes `LODCamera { position, direction, up (frame A), fovY, aspect }`. The bridge gets `viewPosition`, `viewDirection`, `viewUp`, `viewFieldOfView` and `viewAspect`. These replace `viewerDistance`, `viewHeading` and `viewElevation`.
-- **AOI square.** It's still centred on the anchor, now rotated by a new `regionHeading` property. `focusRadius` is only used by today's sampler; it becomes a footprint parameter of that call (§8).
-- **Holding.** `TileStreaming.isHeld` (§10).
-- **Per-tile height ranges.** `CNTileMesh` gains `minimumHeight` and `maximumHeight`: ellipsoid heights of its vertices, computed in the load handler while positions are still on the CPU. A synchronous `heightRanges(inFootprint:)` returns the ranges of the most detailed *rendered* tiles covering a footprint, with no network (§8).
-
-## 4. Georeference
-
-The georeference is the world-to-map transform produced by the presentation style. Navigation and control styles do not depend on the particular construction below. Physical head movement must not cause a model to follow the head; an inhabited-world presentation style instead applies tracking as a local viewing offset at the geographic viewpoint.
-
-### Presentation styles and perceived scale
-
-- **Adaptive model** (the proposed room-host style below): altitude/range changes world scale so a useful region fits in the room. The initial goal is roughly equivalent UX to the existing table/floor map, not exact transform equivalence.
-- **Fixed human scale** (future): one physical metre corresponds to one geographic metre, including eye separation and head translation. Ascending changes position, not world scale. A full-size Earth far away is geometrically representable, but room-scale translation produces negligible parallax at planetary distances.
-- **Inspectable model** (future): explicit model size and placement allow walking around a globe. This intentionally feels like a nearby object rather than occupying a distant position in space.
-
-Apparent size alone does not determine perceived scale. A small nearby globe and a full-size distant Earth can match from one central viewpoint while differing in stereo disparity and motion parallax. Changing scale can be visible with the head still, or during straight ascent/descent: nearby features shift differently between the eyes and vergence changes. Scale policy and its transitions are user-visible behavior, not an invisible LOD optimization. Apply world scale consistently to stereo and tracking; changing virtual eye separation alone is not the whole policy.
-
-Google Earth VR documents “Fixed human scale” as staying human-sized at all altitudes, and its developers describe ordinary navigation as “scale-and-fly.” These establish the UX distinction, not its exact stereo implementation. See [official release notes](https://steamcommunity.com/app/348250/announcements/) and [The Making of Google Earth VR](https://history.siggraph.org/wp-content/uploads/2022/09/2017-Talks-Kaeser_The-Making-of-Google-Earth-VR.pdf).
-
-The adaptive model is an initial implementation candidate. Evaluate whether coupling viewing pitch to model size and placement gives the intended experience before treating its equations as the core abstraction.
-
-### 4.1 Room hosts (volume and floor hosts)
-
-This section specifies the adaptive model presentation style. Before ground lift, a successful ray construction places the navigation viewpoint at the design eye point. Ground lift changes that relationship as described below. Other presentation styles need not use a forward-surface intersection.
-
-Notation: X is the camera position (ECEF). ψ is the heading, θ the pitch. In ENU at the camera:
-
-- f = (sinψ cosθ, cosψ cosθ, sinθ)
-- r̂ = (cosψ, −sinψ, 0)
-- û = r̂ × f
-
-1. **Pitch limit.** θ is clamped to the horizon limit (§5.3), so a hit is the normal case.
-2. **Georeference point.** G comes from `Geodesy.intersect(ray: X + t·f, surfaceHeight: h_ray)`. h_ray is the terrain height at G from the georeference ground estimate (§8), bounded to [−500 m, 9,000 m]. On a miss, retain the last valid model framing, or initialize framing about the camera nadir if none exists (§5.2). Do not continue the hit equations with an off-ray surface point. The range is r = max(|G − X|, 1 m).
-3. **Placement point.** C(θ) = mix(C₀, C₁, w), where w = (θ₀ − θ) / (θ₀ + π/2), clamped to 0…1. θ₀ is the pitch from E to C₀.
-   - C₁ is today's raised target: the volume's middle (y = 0), or eye height − 0.3 m on the floor. The globe then sits in front of you when you look straight down.
-   - This blend is driven by the camera's pitch, which is state.
-4. **Map-frame view ray.** u = normalize(C − E), with basis r̂ₘ = normalize(u × ŷ), ûₘ = r̂ₘ × u.
-5. **Scale.** s = |C − E| / r.
-6. **Rotation.** q maps the camera basis (r̂, û, −f) to (r̂ₘ, ûₘ, −u). Let θ_room = asin(u·ŷ), the pitch of u = C − E in the map frame. q guarantees exactly two things: the camera's forward f lands on u, and its right r̂ stays horizontal (no roll). The camera's local up at X therefore lands tilted from the map's ŷ by θ_room − θ, about r̂ₘ. Ground at the camera's nadir is level in the map frame only when θ = θ_room. Ground at G is tilted by a further γ ≈ r·cosθ/R, the central angle between X's and G's local up: about 0.1° at 10 km of range and 0.9° at 100 km. This tilt is the facing tilt, now derived from pitch.
-7. **Ground lift.** Let Ĝ be G lowered along G's up by Δ = h_ray − h_env ≥ 0. h_env is the georeference ground estimate's envelope, measured along G's up, so it includes the Earth's curvature (§8). The translation puts **world point Ĝ at map-frame point C**: the lowest ground of the footprint is on the table or floor.
-   - The camera then maps to E + λ, where λ = s·Δ·q(up_G). That's a few centimetres up close; far out it's today's curvature lift.
-   - With Δ = 0, the camera maps exactly to E.
-
-**Relationship to today.** The existing app scales and turns an anchor-relative map, lifts its lowest sampled ground above the floor, and tips distant views toward the viewer. Preserve those broad interaction goals. Exact old/new transforms, arbitrary Fly-state conversion and legacy saved-view restoration are not requirements.
-
-The curvature drop moves out of the ray surface and into the adaptive model's ground lift. A deeply negative curvature envelope is useful for floor placement, but is not a meaningful surface for determining the viewing horizon.
-
-### 4.2 Window host (macOS)
-
-The RealityKit camera is the camera, and the georeference is camera-relative:
-
-- s = 1;
-- the camera entity sits at the origin with identity orientation;
-- map = q_c⁻¹·(ecef − X), where q_c is (r̂, û, −f).
-
-There's no ground lift and no placement point. Pitch is free up to +80°, and the horizon limit doesn't apply, because nothing here depends on a hit. Surface queries (cursor, AOI) use the same hit-or-miss function (§5).
-
-## 5. Surface intersection and the horizon
-
-### 5.1 Intersection
-
-`Geodesy.intersect(ray:surfaceHeight: h)` intersects the ray with the **scaled ellipsoid** with semi-axes (a+h, a+h, b+h). That's a closed-form quadric: scale the axes to a unit sphere and solve a quadratic.
-
-- **Inside the surface** (camera below it, possible with off-area held ground): take the positive root, so there's always an answer.
-- **Hit:** refine toward constant geodetic height along the ray as the numerical contract below specifies.
-
-**Numerical contract.** The quadric is an initial approximation to constant geodetic height. Refine a hit only while the height derivative is well-conditioned, using a bounded iteration count and explicit residual tolerance. A single Newton step is not assumed to achieve millimetre accuracy at grazing angles. Reject non-finite or zero-direction rays; test tangent and below-surface cases. The returned hit must remain on the forward ray with t ≥ 0.
-
-### 5.2 Miss handling belongs to the consumer
-
-A miss is a normal result: a viewpoint can look level or into the sky. It does not invalidate navigation.
-
-- **Adaptive model framing:** preserve the last valid framing while the optional framing assist adjusts view pitch. On initial entry without a valid framing, construct finite nadir-based framing with a positive minimum range. Preserve position and movement heading. This fallback may temporarily depart from the requested view orientation; it must not claim that an off-ray surface point satisfies the hit construction.
-- **Fixed-scale/window views:** continue rendering the requested view without an intersection.
-- **Pointer/POI operations:** keep an existing pivot, use a declared plane/globe fallback, or decline the operation. A projected surface fallback is distinct from both a ray hit and the closest point on the ray.
-
-Test continuity of each presentation style's transition; continuity of a fallback surface point alone does not establish continuity of the rendered transform.
-
-### 5.3 Pitch limit (adaptive model framing only)
-
-θ ≤ θ_lim = −(δ + m), where:
-
-- δ = arccos(clamp((R_N + h_ray) / (R_N + h_cam), 0, 1)) is the horizon dip from the camera's height down to the **ray surface**. R_N is the prime-vertical radius at the camera; the margin covers its error.
-- If the camera is at or below the ray surface, use δ = 0. Validate heights and positive radii before evaluating the formula.
-- m is a margin, 8° by default (Tuning, 5–10°).
-
-| Camera above the ray surface | δ | θ_lim (m = 8°) |
-|---|---|---|
-| 1 km | 1.0° | −9.0° |
-| 24 km | 5.0° | −13.0° |
-| 98 km | 10.0° | −18.0° |
-| 410 km | 20.0° | −28.0° |
-| 2,600 km | 45.0° | −53.0° |
-
-**Where it applies:** the adaptive model style limits its framing pitch when entering the style and after movement, climb, manipulation or restored-state validation. It may ease the viewing adjustment, with §5.2 supplying valid framing during the transition. This is a presentation-style constraint, not a universal constraint on vehicle heading, head orientation or navigation. Other styles can look toward or above the horizon.
-
-**Range bound.** With the limit, the range is at most about (h_cam − h_ray)/sin(m) ≈ 7.2× the height above the ray surface. The scale is therefore bounded and changes smoothly with pitch; there's no near-grazing blow-up.
-
-**Pitch policy.** The pitch policy (§12.3) always stays inside the limit. At 50 km its target is −27° to −33°, while the limit is −15.1°. At 200 km it's ≤ −40°, while the limit is −22.2°.
-
-### 5.4 Tests (stage 2)
-
-- At the dip ± 1e-6 rad, at 24 km/−5°, at 410 km/−20° and at 2,600 km/−45°: the result is a hit or a miss, never NaN. The adaptive framing transition remains finite and continuous; other styles preserve the requested viewing direction on a miss.
-- With the camera below the surface: the positive root.
-- The cursor ray (window) at the horizon and pointing at the sky: an explicit miss handled by the requesting operation.
-
-## 6. Viewer pose and LOD viewpoint
-
-- `ViewerPoseProvider` gives the head pose in the reference space:
-  - **`.designEyePoint` (default today):** the fixed E, looking at C. Convert it to reference space through room placement; it is a synthetic viewpoint, not a tracked head.
-  - **`.tracked` (#4):** the `DeviceAnchor`, in immersive spaces only. The volume keeps the design eye point.
-- **LOD viewpoint** = the viewer pose → map frame (room placement⁻¹) → world (georeference⁻¹), with a 60° fov.
-  - With the design eye point, this coincides with camera X only when ground lift is zero. With lift, derive LOD from the displayed design viewpoint rather than assuming coincidence.
-  - With tracking, the LOD follows your real head while the georeference, and so the world, stays put.
-- **Window host:** the viewer pose is the camera; there's no provider.
-
-## 7. Area of interest
-
-The AOI policy decides the streaming anchor (the AOI centre), `regionHeading` and `streamingRadius`. Inside the AOI, cesium-native already blends in-view and out-of-view detail: `maximumScreenSpaceError` for the frustum, `culledScreenSpaceError` (Outer Detail) outside it. The AOI only bounds what's eligible.
-
-| Policy | Centre | Half-width | Notes |
+| Policy | Centre | Half-width | Default for |
 |---|---|---|---|
-| `.georeference(regionMultiplier)` | G | ρ · multiplier, where ρ = contentHalfWidth / s | Today. The volume uses it, since the volume clips to the shown region anyway. |
-| `.viewer(reachPerAGL)` | Ground under the viewer's nadir | clamp(k·agl, 1 km, horizon) | Provides coverage around the viewer when turning; loading can still leave gaps. |
-| `.forward(reachPerAGL, lead)` | Viewer nadir + lead·reach along the view heading | reach | Frustum with margin; fewer tiles behind you. |
-| `.blended` | mix(viewer nadir, G, w(agl)) | Enough to cover both the viewer disc and ρ around G | The floor-mode default. w = smoothstep over log(agl) from 1 km to 50 km. |
+| `.georeference` | The view centre | ρ × region multiplier | The volume, which clips to the shown region anyway |
+| `.viewer` | Ground beneath the viewer | 3 × agl, from 1 km to the horizon | The Mac window |
+| `.forward` | Ahead of the viewer | Reach with a lead | — |
+| `.blended` | Viewer near the ground, view centre higher up | Covers both | Floor modes |
 
-- Each host picks a default (volume `.georeference`, floor `.blended`, window `.viewer`), and Tuning can override it.
-- The listed strategies are just these values:
-  - "AOI at the viewer" is `.viewer`;
-  - "AOI kept ahead including the look direction" is `.forward`;
-  - "based on the origin or georeference" is `.georeference`.
-- The anchor is the AOI centre, at the georeference ground estimate's height, so streamed tiles are near frame A's origin for precision.
+- **Outside the frustum:** cesium-native already uses a coarser screen-space error (Outer Detail) outside the frustum, and the AOI only bounds what's eligible.
+- **LOD viewpoint:** the design eye point through the georeference, looking at the content centre, until head tracking (#4).
 
-## 8. Ground estimation
+## 9. Live and held tiles
 
-`GroundEstimator` is one type used twice, with its own parameters for each use. Neither use is the AOI (usually larger) or the viewer pose.
+A user-facing choice (the airplane button, or X on a controller). Flying is identical either way.
 
-| | **Georeference ground** | **Camera ground** |
-|---|---|---|
-| Used for | h_ray (terrain at G) and h_env (envelope); the ground lift (§4.1) | Height above ground (agl): speed, altitude limits, aglMin, terrain following |
-| Footprint | h_ray: only G's column. h_env: disc around G, radius 0.8·ρ, scaling with the shown region (today's 3×3 reach) | Disc around the camera's nadir, radius max(20 m, 0.05·agl) |
-| Statistic | h_ray: a representative height at G from tiles covering G, optionally refined by a central sample. h_env: the footprint statistic, either minimum (default), low percentile (p10), or later a morphological opening (erode, then dilate) to ignore isolated pits; constrained h_env ≤ h_ray | Minimum |
-| Measured along | h_env: G's up, so the curvature drop is included: a sample at distance d counts as height − d²/(2R) | Ellipsoid normal at the nadir |
-| Sources | Today's 3×3 `sampleHeightMostDetailed` when motion settles (may load tiles), lowest hit, for both h_ray and h_env; far out, the analytic curvature envelope for h_env. Not rendered-tile ranges (see the implementation note below) | Rendered-tile height ranges, only from tiles no wider than max(2·agl, 500 m) |
-| Update | Once on settle, and after each gesture. Eased with 95% in 0.5 s (today's `easeFocusHeight`). The first sample after a place jump moves the camera with the ground instead | Every frame, eased over about 0.3 s |
-| While held | Frozen: no samples, no easing, no re-anchoring | Continues on the frozen tile set |
-| Nothing covers it | Hold the last value; the ellipsoid if none | Hold the last value |
+- **Live:** the streaming inputs (anchor, AOI, LOD viewpoint) follow the camera each frame. They're applied in the same tick as the tiles root.
+- **Held:**
+  - the inputs are frozen and cesium-native keeps updating with them, so loaded detail stays and nothing new is requested;
+  - zooming in magnifies what's loaded, and travelling reveals the edge of the held area;
+  - limits stop travel at 1.5×, and climbing or zooming out at 3×, the held area;
+  - the placement ground is frozen.
+- **Releasing:** streams from the current camera in one tick. Nothing jumps.
+- **Releases first:** going to a place, changing tile source or restoring a live state. Switching host keeps the hold.
 
-**Per-tile height ranges.** Use the most detailed rendered tiles covering the footprint. Their minimum is a low-height approximation over the tile, not necessarily the street or surface directly under the camera. The sampled refinement keeps today's "lowest of 3×3" behaviour, which stops terrain sinking through the volume floor.
+## 10. Room placement
 
-**Implementation note (stage 2).** Driving the georeference ground from rendered-tile height ranges at 4 Hz was unstable and was dropped. Coarse tiles' lowest vertices can be kilometres below the real ground, so the estimate jumped as tiles refined. Each change also rescaled the map, which moved the LOD camera, which changed the tiles, which changed the estimate again: the view bounced. The georeference ground now changes only with the settled sample, so h_ray and h_env share it near the ground. The text below describes the original intent, kept for a later, stabler estimator. Tile ranges still feed the camera ground, which sets speed and limits but never moves the view.
+Map frame → reference space, rigid. It's independent of navigation: navigation never changes it, and it never changes the camera.
 
-**Source and timing.** Before any tiles load, use height 0 above the WGS84 ellipsoid. Thereafter hold the last valid estimate when coverage is missing. Use the previous update's h_ray to find G, then query geometry for the next update; there is no recursive terrain solve within the mapping. Define h_ray separately from the footprint minimum: initially use a representative height from tiles covering G, optionally refined by a central height sample. Compute h_env from the footprint's low-height envelope in G's local up frame and constrain h_env ≤ h_ray. At planetary ranges use the existing analytic curvature envelope rather than an unbounded local d²/(2R) approximation.
+- **visionOS recentring:** this moves the immersive space's origin, and the map comes with it, so it needs no code. `onWorldRecenter` exists only for Compositor Services layers, not RealityView spaces.
+- **Later controls:** a grab handle, "Place here" and "Reset".
 
-**Scope.** These estimates support presentation-style placement, speed and altitude limits. aglMin is relative to estimated ground; collision detection, mesh-clearance guarantees and per-frame raycasting against loaded triangles are not requirements. Keep the existing low-sample floor-placement behavior as the UX reference.
+## 11. Interaction (drone mode, today)
 
-**Camera fixed.** When the georeference ground changes, the **camera stays put**. Only G, the scale and the lift ease (open question 1).
+**Heading link.** Movement heading and view heading are linked in this mode: turning changes both.
 
-**Terrain following** (setting, default off): after a move, height = camera ground + the agl held at the start of the move.
+**Keyboard and controller:**
 
-**Limits:** `altitudeLimit` (§13). aglMin is 55 m for room hosts (today's 50 m radius) and 1.5 m for the window. While held, §10.4 also applies.
+- **Move:** 0.75 × agl per second along the movement heading.
+- **Turn:** 60°/s.
+- **Climb:** height changes by e^±1 per second of agl.
+- **Dolly (`=` and `−`):** along the view.
+- **Faster:** ×3 with Shift or LB.
+- **Y** faces north, and **X** toggles held tiles.
 
-## 9. Room placement
+All rates are starting values for tuning.
 
-**Map frame → reference space, a rigid transform (translation + yaw).** It's distinct from the georeference, and only the user and the system change it.
+**Tilt assist.** The current curve (§3.3), as a mode setting, can be switched off.
 
-**visionOS recentring.**
+**Gestures.** Drag, pinch and twist compose into one anchored manipulation: the grabbed world point stays under the hand.
 
-- Recentring (holding the Digital Crown) moves the immersive space's origin to the user. Everything hangs under that origin, so the map comes with you, and the design eye point stays right relative to you. That honours recentring without any code.
-- The volume is repositioned by the system.
-- `onWorldRecenter` exists in this SDK (XROS 27.0, `WorldRecenterPhase` began/ended), but only on `CompositorContent`, the Compositor Services layers. A RealityView immersive space can't attach it.
-- If we need a notification later (say, to reset the room placement), the tracked viewer provider can detect the origin jump from the `DeviceAnchor`. Nothing in this design requires one.
+- With a level world, pinch scales about the grab point (an altitude change plus a horizontal shift) and twist turns about it. Drag moves horizontally.
+- The solve is local, with a bounded correction for curvature. It's tested to under 1 mm.
 
-**App control** (stage 3, optional):
+**Places.** A place (centre, radius, heading) maps to a camera whose shown region is that radius in the current host, centred on the place, untilted.
 
-- a grab handle at the map's near edge: drag translates and twist rotates the room placement;
-- **Place here:** puts the map frame so the design eye point is at your current head pose, using the tracked provider, or so the map is in front of you otherwise;
-- **Reset placement:** identity.
+## 12. Persistence
 
-**Composition.**
+View state version 2 stores:
 
-- Input: gesture locations (reference space) → map frame (placement⁻¹) → world (georeference⁻¹).
-- The viewer pose passes through the same chain (§6).
-- Recentring, placement and head tracking all compose without touching the camera pose, and navigation never edits the placement.
+- the camera, movement heading and heading link;
+- the interaction mode and presentation style;
+- the ground estimates;
+- the host and room placement;
+- the tile mode, with the held streaming inputs if held.
 
-## 10. Tiles: live and held
+This revision adds the view tilt τ and the tilt mode's state. Old focus-centric states are rejected with a clear message.
 
-This is a user-facing option, today's Fly toggle (airplane button, X on a controller). Flying is identical either way.
+## 13. Implementation status and next steps
 
-| | Live | Held |
-|---|---|---|
-| Camera pose, georeference, room placement | Ours, every frame | Ours, every frame — identical |
-| Streaming inputs (AOI, anchor, LOD viewpoint) | Recomputed from the camera and viewer pose | Frozen at the moment of holding |
-| Detail | Refines as you approach | Frozen view request; zooming in does not request closer detail |
-| Coverage | The AOI follows the policy | The loaded area stays put; you can fly past its edge |
-| Georeference ground | Sampled and eased | Frozen |
-| Camera ground (speed) | From rendered tiles | From the frozen rendered tiles |
+- **Stage 1 (done, `d715d51`):** the core types, the bridge LOD camera and AOI heading, the tiles root through the georeference, and the core test target.
+- **Stage 2 (done, `5bc6e91`, fixes `ff2eb9e` and `1cb1bf4`):**
+  - **In:** the camera as the stored state, model-flight controls, anchored gestures, speed from agl, held tiles, view state v2, and per-host place framing.
+  - **Still on revision 5's rule:** placement from a view ray, with tilt derived from pitch.
+- **Stage 2b (next, this revision):** replace room placement with §5.
+  - **Placement:** yaw-only plus an explicit τ.
+  - **Drone tilt:** τ from the drone mode's tilt assist, replacing the pitch-follows-altitude assist.
+  - **Pitch:** removed from placement.
+  - **Gestures and places:** the gesture solve and place framing redone for the level world.
+  - **Tests:** τ = 0 is exactly level in every host and stays level across host switches and place jumps.
+- **Stage 3:** remove the leftover old code (`LegacyMapping`, the turn-pivot setting) and update Tuning and the README.
+- **Stage 4:** the macOS window on the core: the real camera, pitch as the render camera's, the `.viewer` AOI.
+- **Later:**
+  - the ground/globe toggle mode;
+  - head-tracked LOD (#4);
+  - Mac pointer input;
+  - a fixed human-scale presentation style.
 
-### 10.1 Responsibilities in each mode
+**Headset evaluation (not automated).** On the headset, judge the feel of:
 
-- **Live.** Each change recomputes `StreamingInputs` and pushes them in the same tick as the tiles root, before `streaming.update`, so placements and the root never disagree for a frame.
-- **Held.** Only the georeference and room placement change. The tiles root keeps using the frozen anchor, so the loaded tiles stay correct wherever the camera goes. They're placed in full 3D from ECEF.
+- the tilt assist curve against a ground/globe toggle;
+- perceived scale while climbing;
+- host switches.
 
-### 10.2 Explicit hold in cesium-native
+## 14. Open questions
 
-- `TileStreaming.isHeld = true` snapshots the inputs and ignores new ones. The model owns the authoritative held snapshot for persistence (§14); TileStreaming consumes that snapshot rather than independently capturing another one.
-- `update(deltaTime:)` keeps calling `streamer.update` with the frozen view every frame, as Fly does today. Main-thread tasks keep being dispatched, and in-flight loads may finish and refine the rendered selection. This preserves existing Fly behavior; it does not pin an exact tile set or promise unchanged cache contents.
-- No georeference ground samples are requested.
-
-### 10.3 What the user sees while held
-
-- **Zooming in or descending** magnifies the loaded geometry, which can get blurry; approaching it does not request finer detail, although outstanding loads may finish. aglMin still applies. The status line says "Tiles held · view requests frozen".
-- **Zooming out, climbing or travelling** reveals the edge of the held AOI square, and empty background beyond it.
-
-### 10.4 Limits while held
-
-These are soft clamps on the operation's result:
-
-- **Travel:** G (room hosts) or the nadir (window) stays within 1.5 × the held half-width of the frozen anchor.
-- **Climb:** ρ ≤ 3 × the held half-width.
-- **Descend:** aglMin over the camera ground.
-- The pitch limit (§5.3) uses the frozen h_ray.
-
-### 10.5 Precision
-
-- Tile placements are Float offsets from the frozen anchor, computed in double by the bridge. Tiles intersecting the held AOI may extend beyond its edges, as they do today. Preserve tile-local mesh vertices and double-precision per-frame anchor-relative placement; do not assume clipping bounds every vertex to the AOI.
-- The camera's maths is double throughout.
-- The travel limit keeps the camera near the tiles.
-
-### 10.6 Holding and releasing
-
-- **Hold:** freeze the inputs. Nothing moves, since the root is the same function of the same anchor.
-- **Release:** in one tick, push inputs from the current camera and viewer pose, and switch the root to the new anchor. It's seamless because the camera never jumped. Detail and coverage then stream in, and a georeference ground refresh is requested.
-- **Actions that release first:** going to a place, changing the tile source, or restoring a live state.
-- **Actions that keep the hold:** switching host or presentation style, and moving the room placement.
-
-## 11. Operations
-
-These are pure operations with explicit navigation state and context (ground estimates, limits and held coverage). A control style composes them; presentation-style pitch constraints are not applied globally. In drone controls, movement heading is independent of viewing direction. Earth supplies local up/down: climb changes ellipsoid height and horizontal travel follows the globe. This does not require a motor or falling-body simulation.
-
-The initial model controls may link movement heading and view heading for familiar behavior. That linkage is explicit: `NavigationState.headingLink`, set by the control style when it activates, not a permanent identity in CameraPose. Model flight sets `.linked`. Core state should include a movement heading and a view orientation relative to a local navigation frame; tracked head offsets compose with that orientation. Orbit controls additionally own a pivot. CameraPose describes the base view; tracked head offsets are applied separately. If future styles need roll or another orientation representation, extend this value without changing streaming or input contracts. Validate the type boundary with the two-style prototype in §15.
-
-"View heading" is `camera.heading`. Under `.linked`, every change to the view heading below is also applied to `movementHeading`; under `.independent` it isn't.
-
-| Operation | Effect |
-|---|---|
-| `climb(by Δh)` | `height += Δh`, clamped to [camera ground + aglMin, camera ground + altitudeLimit] and, while held, §10.4. Latitude, longitude and both headings are untouched. Viewing/framing assists may subsequently adjust view pitch without changing movement heading. |
-| `turn(by Δψ)` | View heading += Δψ, mod 2π, in place; movement heading too while linked. |
-| `faceNorth` | View heading = 0; movement heading = 0 too while linked. Under `.independent`, a style may bind a separate "movement north". |
-| `pitch(by Δθ)` | Changes view pitch within the selected style's range; the adaptive model applies its own framing limit. |
-| `move(forward:right:)` | `destination(from: camera, bearing: movementHeading + atan2(right, forward), distance: √(f² + r²))`. Both headings are transported by `GeoMath.bearingChange`, so flying over a pole continues. |
-| `dolly(by k)` | Moves X along f by a fraction k of the range r (zoom along the view). |
-| `orbit(by Δψ)` | Rotates X about the vertical through G and adds Δψ to the view heading, so the camera keeps facing the pivot; movement heading too while linked. Unbound by default. |
-
-### 11.1 Anchored manipulation
-
-**Goal.** Keep the grab point W₀ (a world point) under map-frame point P while the view scales by k, turns by Δψ and translates with the hand.
-
-- **Window/fixed scale.** Keep the world transform rigid. Pinch drives dolly toward a pivot, with a screen-space anchor constraint; rotate drives orbit or view rotation as selected by the control style. A scaled similarity cannot be extracted into a rigid camera with equivalent parallax for arbitrary 3D geometry.
-- **Room hosts.** The scale is derived, so solve for the pose whose *derived* georeference satisfies the target:
-  1. ψ' = ψ₀ − Δψ (view heading; movement heading too while linked). θ' comes from the pitch policy when `pitchFollowsAltitude` is on. When it's off, θ' is the current pitch. Either way, θ' is clamped to θ_lim at the new height. s' = k·s₀.
-  2. r' = |C(θ') − E| / s'.
-  3. The offset d = P − C(θ'), less the lift, maps to the world tangent offset w = q'⁻¹(d)/s' at W₀. So G' = `GeoMath.offset(W₀, east: −w.e, north: −w.n)`, on the ray surface.
-  4. X' = G' − r'·f(ψ'_G', θ'). Convert to geodetic, and transport the heading back to the camera's nadir. ψ' and θ' are targets in ENU at the camera, but f is built in ENU at G'. The two frames differ by the central angle γ ≈ r'·cosθ'/R, so the resulting camera's pitch is off by up to γ: 0.1° at 10 km of range and 0.9° at 100 km.
-  5. Iterate to an explicit error tolerance with a bounded iteration count. Each pass corrects both residuals: the anchor error e = P − T'(W₀), by nudging G' by −q'⁻¹(e)/s'; and the orientation error, measured as the heading and pitch of f at X', by adjusting the angles used at G' in step 4. An unconstrained successful solve asserts |e| < 1 mm. If limits prevent convergence, return a constrained result or retain the last valid pose; do not promise exact anchoring after a conflicting clamp.
-- P is always a hit on the gesture slab, which lies on the content surface, so the ground isn't asked to leave the table.
-- Gesture locations arrive in the reference space and pass through the room placement⁻¹ first.
-
-## 12. Input mapping
-
-### 12.1 Gestures (visionOS)
-
-There's one `Manipulation` per gesture session, holding W₀, P_start, k, Δψ and the hand translation, with one solve per update.
-
-| Gesture | Grab point | Contribution |
-|---|---|---|
-| Drag | Drag start on the slab | Translation = hand movement, projected onto the content surface |
-| Pinch (`MagnifyGesture`) | Its `startLocation3D` (to verify) | k = magnification |
-| Twist (`RotateGesture3D`, y-axis) | Its `startLocation3D` (already used) | Δψ = yaw (view heading; movement heading too while linked) |
-
-Pinch and twist happen **around where you pinched**.
-
-### 12.2 Keyboard and controller (both platforms)
-
-These are the initial model-flight bindings, with `headingLink = .linked`. They operate at the navigation viewpoint, which can differ from the displayed design eye after lift. Alternative control styles can use other bindings and pivots.
-
-| Input | Operation | Rate |
-|---|---|---|
-| WASD / arrows, left stick | `move` (along movement heading) | 0.75 · agl_eff m/s |
-| Q E, right stick x | `turn` (view heading; linked, so movement heading too) | 60°/s |
-| R F, right stick y | `climb` | dh/dt = ±1.0 · agl_eff |
-| = −, RT LT | `dolly` | dr/dt = ∓1.0 · r |
-| Shift, LB | ×3 | — |
-| Y | `faceNorth` (both headings, since linked) | — |
-| X | toggle live / held tiles | — |
-
-agl_eff = max(agl, 10 m). All three rates are starting values for tuning, matched to today's:
-
-- **Move:** ρ ≈ 0.91·agl, so today's 0.8 ρ/s ≈ 0.73 agl/s.
-- **Climb and dolly:** today R/F and =/− both scale the radius by e^{±1} per second (`zoomRate`). At fixed pitch, agl and range are both proportional to the radius, so 1.0·agl and 1.0·r reproduce that.
-
-### 12.3 Pitch policy
-
-`pitchFollowsAltitude` is an optional viewing/framing assist for the adaptive model, initially on. It is not intrinsic to geographic movement or to all room presentations.
-
-- After each climb, dolly or pinch, and on a host switch, pitch eases toward θ_target(agl), anchored at C.
-- θ_target is the host's θ₀ up to 50 km agl. Above that, it goes to −90° on a smoothstep in log(agl) by 500 km.
-- The result is always clamped to θ_lim.
-- A manual pitch input switches the policy off until the next place jump (keys: open question 4).
-
-### 12.4 Pointer (macOS, later step)
-
-- **Scroll:** dolly toward a cursor hit or the existing orbit pivot; on a miss use the controller's declared fallback (§5.2).
-- **Drag:** keep W₀ under the cursor ray. Use a plane at W₀'s height up close, and a globe drag (rotation about the Earth's centre) on the sphere through W₀ when the plane is ill-conditioned or the ray misses.
-- **Trackpad pinch and rotate:** §11.1's window case.
-
-### 12.5 Alternative styles and switching
-
-A future drone style separates movement heading from head/view direction. Plain climb remains straight up. Optional viewing tilt can keep Earth ahead during ascent; a POI “dronie” instead coordinates backward/upward travel and viewing to keep a place framed. These are assists, not changes to the meaning of climb.
-
-A Mac style can use familiar globe drag, orbit, pan and cursor zoom. Switching control styles preserves the displayed viewpoint initially and initializes extra state (such as a pivot) without a jump. Switching presentation styles may intentionally change framing and perceived scale; define an eased transition and preserve geographic navigation position unless explicitly requested otherwise. Switching to an inspectable globe need not maintain the illusion of occupying a distant point in space.
-
-Alternative styles are extension requirements, not a requirement to implement every style in this migration. Prototype two materially different styles early to verify the boundaries.
-
-## 13. Settings and Tuning
-
-- **`keyboardTurnPivot` is removed;** the decoder ignores it.
-- **`zoomOutLimitKilometres` becomes `altitudeLimitKilometres`:** ×1.1, so 20 km becomes 22 km; log slider 20–10,000 km.
-- **New settings:**
-  - `pitchMarginDegrees` (8);
-  - `aoiPolicy` (per-host default; override);
-  - georeference ground statistic (minimum / p10);
-  - `terrainFollowing` (off);
-  - `pitchFollowsAltitude` (on).
-- **Debug markers:**
-  - red at the camera's nadir;
-  - blue at G;
-  - green at the AOI centre, with its square outlined;
-  - yellow for the held AOI while held.
-- **Room placement controls** (§9).
-- **README and Tuning text** are rewritten in stage 3.
-
-## 14. Persistence
-
-`MapViewState` gets a `version`:
-
-```json
-{
-  "version": 2,
-  "camera": { "latitude": 37.78, "longitude": -122.40, "height": 812.0,
-              "headingDegrees": 0, "pitchDegrees": -32.9 },
-  "movementHeadingDegrees": 0,
-  "controlStyle": "modelFlight",
-  "presentationStyle": "adaptiveModel",
-  "groundEstimate": { "ray": 4.5, "envelope": 1.0 },
-  "host": "floor5x",
-  "roomPlacement": { "translation": [0, 0, 0], "yawDegrees": 0 },
-  "tiles": "held",
-  "heldStreaming": { "anchor": { … }, "lod": { … }, "regionHeading": 0, "streamingRadius": 600 },
-  "settings": { … }
-}
-```
-
-- **Restoring** validates navigation, style-specific state and estimates, then initializes the selected host and presentation style safely. Save the host, the control-style and presentation-style identifiers, movement heading and viewing orientation as these types are finalized. New-format saved views remain supported.
-- **A held state restores** by streaming with `heldStreaming` and holding at once, to recreate the held view request. Loaded content may differ; this is not an exact tile-set snapshot.
-- **Legacy saved views are unsupported.** Reject old focus/radius/Fly state with a clear message. No v1 converter or retained legacy mapping is required. Saving and restoring the new state remains a feature.
-- **Places** (centre, radius, heading) map to a pose framing the place in the *current host's* geometry, as today's app does (`radius` world metres across the host's content half-width): pitch = θ_target(agl), clamped; s = contentHalfWidth/radius; r = |E − C(θ)|/s; camera = centre − r·f. The place therefore arrives level in every host. Framing in the volume's geometry alone left floor modes tipped after a place jump. The `MAPVOLUME_LAT/LON/RADIUS/HEADING` overrides go through the same framing (in the volume, at launch).
-
-## 15. Migration stages
-
-One commit per stage. Each commit's staged contents get built for both targets first.
-
-### Stage 1: establish the seam and validate style boundaries
-
-- **New code.** Add `Sources/Navigation/`: `CameraPose`, `NavigationState` (with `HeadingLink`), `Geodesy` (with hit-or-miss), `HostGeometry`, `Georeference`, `RoomPlacement` (identity) and `StreamingInputs`. Add it to both targets.
-- **Bridge.** `LODCamera` and `regionHeading` in the bridge. Today's orbit is converted to the identical camera vectors (visionOS model and macOS `StaticMap`).
-- **Model wiring.** `applyFocus` and `applyFly` become one path:
-  - it builds the georeference from the legacy state (h_ray = h_env = `focusHeight`, the legacy mapping extracted as a function);
-  - the streaming inputs use the legacy AOI (`.georeference`) and the legacy LOD orbit, skipped while Fly holds them, as today;
-  - it sets `tilesRoot = georeference ∘ ecefFromAnchor`;
-  - it adds `placementRoot` as identity.
-  
-  `flyRoot` folds into the composition.
-- **Verification:** compare representative locations and scales (volume, floor5x, city, regional and globe views, live and Fly) for roughly equivalent movement, turning, zooming and floor placement. Do not require exact legacy transforms or captured-state conversion.
-- **Two-style prototype (pure core, tests only):** implement model flight and a minimal orbit/pan/zoom style as pure functions over `NavigationState` in `Sources/Navigation/`, with no UI, app wiring or Mac input. Exercise both with scripted inputs, through the §16 target if approved or DEBUG self-tests otherwise, against the shared navigation, presentation-style and streaming-input contracts. Check:
-  - independent movement and view headings under `.independent`;
-  - linked headings under `.linked`;
-  - continuity of the initial view when switching between the two styles.
-  
-  App use of these styles comes in stage 2 (visionOS) and stage 4 (macOS).
-
-### Stage 2: navigation state and policies become authoritative
-
-- **Model.** `MapVolumeModel` stores NavigationState, selected styles and their state, ground estimates, tile mode and the authoritative held snapshot.
-- **Wired in:** the operations with the pitch limit, `Manipulation`, the pitch policy, both `GroundEstimator`s (bridge height ranges; ray and envelope split), the AOI policy with per-host defaults, the viewer pose provider (`.designEyePoint`), held limits and the new rates.
-- **Fly** becomes held tiles. New-format saved views, without legacy conversion; places framed (§14).
-- **Expected changes:**
-  - explicit altitude;
-  - anchored pinch and twist;
-  - speed from agl;
-  - pitch instead of tilt;
-  - no fade;
-  - the LOD viewpoint is the design eye point through the georeference (closer and lower than today's 1.2 m at 45°);
-  - floor modes stream around the viewer at low altitude;
-  - the curvature drop moves into the lift.
-- **Expectation checks** (unit tests if §16 is approved, otherwise DEBUG self-tests):
-  - climb keeps latitude and longitude (1e-9°) and changes agl by exp(rate·t), leaving movement heading unchanged; adaptive framing may separately steepen view pitch at its limit;
-  - pinch k at P keeps W₀ within 1 mm of P; so does pinch + twist + drag together; so does each after a non-identity room placement;
-  - moving forward from 89.9°N at heading 0 for 50 km ends near 89.65°N, longitude +180°, heading ≈ π, and continues away from the pole;
-  - turn keeps the camera's position;
-  - §5.4's horizon and grazing tests;
-  - one input sequence gives the same pose live and held (within held limits);
-  - hold and release leave every tile's map-frame transform unchanged (1e-4 relative);
-  - held travel stops at 1.5×;
-  - changing the room placement leaves the camera pose unchanged, and changing the camera leaves the placement unchanged;
-  - new-format save/restore round trips preserve navigation and style state; legacy states are rejected clearly;
-  - control-style switches preserve the initial displayed viewpoint; movement heading can remain fixed while viewing changes;
-  - scale transitions are numerically continuous: along scripted straight ascent and descent, host switches and presentation-style switches, the georeference's scale, rotation and translation change by no more than a bounded step per frame, with no discontinuity.
-- **In the simulator:** replay new-format states, scripted input (a temporary DEBUG driver), and screenshots, live and held, in the volume and floor modes.
-
-### Stage 3: remove the old machinery and add room placement controls
-
-- **Removed:** `farTilt`, `tiltedGroundPosition`, `tiltAngle`, `viewerPivotWeight`, `viewerGroundOffset`, `zoom(to:)`, `turn(to:)`, the Fly similarity (`flyScale`, `flyYaw`, `flyTranslation`, `flyRoot`, `flyAboutPivot`, `fly(with:)`, `resumeStreamingAfterFlying`), `radius`/`focus` state, `updateCurvatureAnchor`, `keyboardTurnPivot`.
-- **Removed as well:** old saved-view decoding and any temporary legacy mapping used during stage 1. No permanent conversion layer.
-- **Added:** the room placement grab handle, "Place here" and "Reset placement" (§9).
-- **Updated:** `TuningView` (§13), the README (controls, live and held tiles, AOI, Tuning, view state), and `MapPresentation` renamed `MapHost`.
-
-### Stage 4: macOS on the core
-
-- `StaticMap` becomes `MapWindowModel`, with a `CameraPose` and `.window(fovY:aspect:)`. The camera entity and tiles root come from the georeference, and the LOD viewpoint is the real camera.
-- AOI is `.viewer`.
-- The start pose roughly frames today's location: the Ferry Building, heading 270°, 35° down, 2.5 km range.
-- No Mac input yet.
-
-Later, outside this work: the `.tracked` viewer pose provider (#4), and Mac pointer input (§12.4).
-
-### Headset UX evaluation (not an automated check)
-
-On a Vision Pro, after stage 2, judge what numbers and screenshots can't:
-
-- perceived scale in stereo while still and during straight ascent and descent;
-- whether pitch-coupled framing feels right (§4);
-- scale transitions between hosts.
-
-Tracked head translation joins this evaluation when #4 lands; it's out of scope here.
-
-## 16. Testing infrastructure (proposal)
-
-Add a `MapVolumeCoreTests` macOS unit-test target that compiles only `Sources/Navigation/`, with no cesium-native and no network. The stage 2 expectation checks and §5.4 become permanent tests (`xcodebuild test`). Simulator replays still cover streaming and visuals. The alternative is temporary DEBUG self-tests, removed before each commit.
-
-## 17. Open questions for review
-
-1. **Georeference ground changes while live:** keep the camera fixed, so G, the scale and the lift ease (recommended). The alternative is to shift the camera by Δ to keep today's lift feel, which makes a ground estimate change the altitude.
-2. **Host switches keep the camera.** Floor 5× then shows about 1.45× the volume's region, and its θ₀ is −27°, not −33° (the pitch policy re-targets, anchored at C). Recommendation: accept, rather than adding a per-host scale bias.
-3. **LOD viewpoint and AOI defaults** change tile counts in stage 2, so `detail` and `outerDetail` may need re-tuning. Are `.blended` for floor modes and `.georeference` for the volume the right defaults?
-4. **Manual pitch input:** proposal T/G and D-pad up/down.
-5. **Turn pivot:** drop it (proposed), or keep "orbit G" on a modifier?
-6. **The unit-test target** (§16): add it, or keep temporary self-tests?
-7. **Held tiles in the UI:** keep the airplane button and the "Fly" name, or rename it ("Hold tiles", pin or lock)? And are 1.5× travel and 3× climb the right starting held limits?
-8. **Pitch margin:** is 8° (range ≤ about 7× height near the limit) right, or should it be tighter?
-9. **Room placement in persistence:** save it per host across launches, or only in view states (proposed)?
-
-## 18. Review basis and acceptance
-
-This revision is grounded in README.md, MapVolumeModel.swift, TileStreaming.swift, MapPresentation.swift and CNTileStreamer.mm. Existing behavior is the UX reference: a scaled map on a floor/table, lowest-of-nine terrain placement, curvature lift at large radius, and Fly retaining streaming inputs while the update loop continues. No collision-avoidance requirement is introduced.
-
-The migration aims for roughly equivalent UX, not mathematical identity with the old implementation. The architectural acceptance question is whether a different control or presentation style can be added without rewriting geographic navigation or streaming. Keep new saved views and settings; drop legacy saved-view compatibility. Final selection of default adaptive model versus inhabited-world presentation style and exact scale-transition tuning remains a UX decision, not a settled requirement to make the world life-sized.
+1. **Drone tilt:** keep the assist curve as the default, or start the drone at fixed level and add the ground/globe toggle sooner?
+2. **Tilt pivot and raised centre:** today's facing tilt pivots on the content centre and raises it toward eye level. Is that the right behaviour for the globe state?
+3. **Ground changes while live:** today the camera stays put and the map eases. Would moving the camera with the ground feel better at all altitudes, not just after place jumps?
+4. **Defaults for AOI and detail:** floor modes now stream more tiles. Are `.blended` and today's detail settings right?
+5. **Held-tile limits** (1.5× travel, 3× climb), and whether "Fly" is the right name for holding.
