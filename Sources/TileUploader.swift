@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import OSLog
 import RealityKit
 
 /// Turns tiles cesium-native has loaded into RealityKit entities without
@@ -20,11 +21,16 @@ final class TileUploader: @unchecked Sendable {
     var handler: CNTileLoadHandler {
         { [limiter, self] tile, completion in
             let tint = self.untexturedColor
+            let signposter = Signposts.tiles
+            let upload = signposter.beginInterval("TileUpload", id: signposter.makeSignpostID())
             Task.detached(priority: .userInitiated) {
+                let wait = signposter.beginInterval("QueueWait", id: signposter.makeSignpostID())
                 await limiter.acquire()
+                signposter.endInterval("QueueWait", wait)
                 await Self.build(tile, untexturedColor: tint)
                 tile.discardCPUData()
                 await limiter.release()
+                signposter.endInterval("TileUpload", upload)
                 completion()
             }
         }
@@ -35,6 +41,8 @@ final class TileUploader: @unchecked Sendable {
     /// Meshes off the main thread, then textures and the entity on it.
     private static func build(_ tile: CNTileMesh, untexturedColor: SIMD4<Float>?) async {
         var parts: [Part] = []
+        let signposter = Signposts.tiles
+        let meshes = signposter.beginInterval("BuildMesh", id: signposter.makeSignpostID())
         for primitive in tile.primitives ?? [] {
             do {
                 let mesh = try await MeshResource(from: [descriptor(for: primitive)])
@@ -44,6 +52,7 @@ final class TileUploader: @unchecked Sendable {
                 print("[MapVolume] tile \(tile.identifier) mesh failed: \(error)")
             }
         }
+        signposter.endInterval("BuildMesh", meshes)
         await assemble(parts, into: tile, untexturedColor: untexturedColor)
     }
 
@@ -57,6 +66,9 @@ final class TileUploader: @unchecked Sendable {
 
     @MainActor
     private static func assemble(_ parts: [Part], into tile: CNTileMesh, untexturedColor: SIMD4<Float>?) async {
+        let signposter = Signposts.tiles
+        let assembly = signposter.beginInterval("Assemble", id: signposter.makeSignpostID())
+        defer { signposter.endInterval("Assemble", assembly) }
         let entity = Entity()
         for part in parts {
             let material: any RealityKit.Material
@@ -74,7 +86,7 @@ final class TileUploader: @unchecked Sendable {
                 var unlit = UnlitMaterial()
                 unlit.faceCulling = .none
                 if let image = part.image,
-                   let texture = try? await TextureResource(image: image, options: .init(semantic: .color)) {
+                   let texture = await Self.makeTexture(image) {
                     unlit.color = .init(tint: .white, texture: .init(texture))
                 } else {
                     unlit.color = .init(tint: color(part.baseColor))
@@ -84,6 +96,14 @@ final class TileUploader: @unchecked Sendable {
             entity.addChild(ModelEntity(mesh: part.mesh, materials: [material]))
         }
         tile.renderObject = entity
+    }
+
+    private static func makeTexture(_ image: CGImage) async -> TextureResource? {
+        let signposter = Signposts.tiles
+        let state = signposter.beginInterval("Texture", id: signposter.makeSignpostID(),
+                                             "\(image.width)x\(image.height)")
+        defer { signposter.endInterval("Texture", state) }
+        return try? await TextureResource(image: image, options: .init(semantic: .color))
     }
 
     /// glTF base colours are linear; Material.Color (UIColor or NSColor)

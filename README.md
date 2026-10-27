@@ -100,7 +100,7 @@ Where things land when unsandboxed:
 - **HTTP cache**: `~/Library/Caches/com.ryanberdeen.MapVolume/tiles/`. Delete it for a cold run. See [docs/tile-caching.md](docs/tile-caching.md).
 - **Defaults**: `~/Library/Preferences/com.ryanberdeen.MapVolume.plist`.
 
-Tile caching, the request counters in the Tuning stats, and how to measure them are in [docs/tile-caching.md](docs/tile-caching.md).
+Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](docs/profiling.md). Tile caching, the request counters in the Tuning stats, and how to measure them are in [docs/tile-caching.md](docs/tile-caching.md).
 
 ## Known gaps
 

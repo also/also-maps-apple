@@ -41,7 +41,7 @@ Ferry Building, 800 m radius, Mac Debug build:
 | 1 GB cache, `must-revalidate` kept | 611 revalidated (304), 0 MB, about 5.3 s |
 | 1 GB cache, `must-revalidate` stripped | 610 cached, 1 revalidated, 0 MB, about 4.2 s |
 
-The remaining 4.2 s is not network time. It is probably decode, mesh and texture upload, and the concurrent-request limit; this hasn't been profiled.
+The remaining 4.2 s is not network time: warm fetches take about 1 ms each. Signposts (see [profiling.md](profiling.md)) show tiles mostly waiting for one of the uploader's 4 slots (`QueueWait`).
 
 ## Which headers cause revalidation
 

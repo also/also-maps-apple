@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Observation
 import RealityKit
 
@@ -131,6 +132,9 @@ final class TileStreaming {
     /// One selection and load pass; call once per rendered frame.
     func update(deltaTime: Float) {
         guard let streamer else { return }
+        let signposter = Signposts.frame
+        let update = signposter.beginInterval("Update", id: signposter.makeSignpostID())
+        defer { signposter.endInterval("Update", update) }
         #if DEBUG
         let updateStart = Date()
         defer { debugSlowestUpdate = max(debugSlowestUpdate, Date().timeIntervalSince(updateStart)) }
@@ -164,6 +168,9 @@ final class TileStreaming {
 
         let newCredits = frame.credits.map { Credit(text: $0.text, imageURL: $0.imageURL.flatMap(URL.init(string:))) }
         if credits != newCredits { credits = newCredits }
+        if frame.loadProgress >= 100, loadProgress < 100 {
+            Signposts.tiles.emitEvent("LoadComplete")
+        }
         loadProgress = frame.loadProgress
         let fetch = streamer.fetchStats()
         let newStats = Stats(renderedTiles: frame.tilesToRender.count, entities: tileEntities.count,

@@ -1,5 +1,7 @@
 #import "CNTileStreamer.h"
 
+#import <os/signpost.h>
+
 #include <Cesium3DTilesContent/registerAllTileContentTypes.h>
 #include <Cesium3DTilesSelection/BoundingVolume.h>
 #include <Cesium3DTilesSelection/IPrepareRendererResources.h>
@@ -171,6 +173,18 @@ static double radialHeight(const glm::dvec3& p) {
   return self;
 }
 @end
+
+/// Signposts for Instruments / xctrace (same subsystem and categories as
+/// Signposts.swift); see docs/profiling.md.
+static os_log_t CNSignpostLog(const char* category) {
+  static os_log_t tiles, frame;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    tiles = os_log_create("com.ryanberdeen.MapVolume", "Tiles");
+    frame = os_log_create("com.ryanberdeen.MapVolume", "Frame");
+  });
+  return category[0] == 'F' ? frame : tiles;
+}
 
 // ── cesium-native externals ──────────────────────────────────────────────────
 
@@ -409,10 +423,24 @@ public:
     auto pRequest =
         std::make_shared<SessionRequest>(verb, url, std::move(requestHeaders));
 
+    os_log_t log = CNSignpostLog("Tiles");
+    const os_signpost_id_t signpostID = os_signpost_id_generate(log);
+    os_signpost_interval_begin(log, signpostID, "Fetch");
     NSURLSessionDataTask* task = [_session
         dataTaskWithRequest:req
           completionHandler:^(
               NSData* data, NSURLResponse* response, NSError* error) {
+            const NSInteger status =
+                [response isKindOfClass:NSHTTPURLResponse.class]
+                    ? ((NSHTTPURLResponse*)response).statusCode
+                    : 0;
+            os_signpost_interval_end(log,
+                                     signpostID,
+                                     "Fetch",
+                                     "status %ld, %lu bytes%{public}s",
+                                     (long)status,
+                                     (unsigned long)data.length,
+                                     error ? ", failed" : "");
             if (error) {
               promise.reject(
                   std::runtime_error(error.localizedDescription.UTF8String));
@@ -754,7 +782,11 @@ public:
     CNTileMesh* mesh = nil;
     if (const CesiumGltf::Model* pModel =
             std::get_if<CesiumGltf::Model>(&tileLoadResult.contentKind)) {
+      os_log_t log = CNSignpostLog("Tiles");
+      const os_signpost_id_t signpostID = os_signpost_id_generate(log);
+      os_signpost_interval_begin(log, signpostID, "Flatten");
       mesh = buildTileMesh(*pModel, transform, _nextID++);
+      os_signpost_interval_end(log, signpostID, "Flatten");
     }
     CNTileLoadHandler handler = tileLoadHandler();
     if (!mesh || !handler) {
@@ -1104,6 +1136,13 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
 }
 
 - (CNFrame*)updateWithDeltaTime:(float)deltaTime {
+  // Ends when the method returns, on any path.
+  struct SelectSignpost {
+    os_log_t log = CNSignpostLog("Frame");
+    os_signpost_id_t id = os_signpost_id_generate(log);
+    SelectSignpost() { os_signpost_interval_begin(log, id, "Select"); }
+    ~SelectSignpost() { os_signpost_interval_end(log, id, "Select"); }
+  } selectSignpost;
   // The excluder's square is axis-aligned in east/north; when the region is
   // turned, grow it to the square that encloses the rotated one.
   const double sinHeading = std::sin(_regionHeading);
