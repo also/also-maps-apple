@@ -9,9 +9,12 @@ struct StreamingSettings: Codable, Equatable {
     /// SSE for tiles outside the LOD camera's view, which is most of an
     /// expanded region; lower = sharper far away.
     var outerDetail = 64.0
-    /// Immersive only: how far past the volume-sized square to stream, as a
-    /// multiple of its half-width. 1 = exactly what the volume shows.
-    var immersiveRegion = 1.0
+    /// Immersive only: stream only `immersiveReach` around the viewer rather
+    /// than everything visible, out to the horizon.
+    var limitsImmersiveReach = false
+    /// The limit, as a multiple of the camera's height above the ground (the
+    /// same multiple of the eye's height above the base plane, in the room).
+    var immersiveReach = 35.0
     /// Tiles whose RealityKit resources are built at once (off the main
     /// thread); higher fills in faster but uses more memory and CPU at once.
     var uploadConcurrency = 12.0
@@ -49,7 +52,8 @@ struct StreamingSettings: Codable, Equatable {
         let d = StreamingSettings()
         detail = try c.decodeIfPresent(Double.self, forKey: .detail) ?? d.detail
         outerDetail = try c.decodeIfPresent(Double.self, forKey: .outerDetail) ?? d.outerDetail
-        immersiveRegion = try c.decodeIfPresent(Double.self, forKey: .immersiveRegion) ?? d.immersiveRegion
+        limitsImmersiveReach = try c.decodeIfPresent(Bool.self, forKey: .limitsImmersiveReach) ?? d.limitsImmersiveReach
+        immersiveReach = try c.decodeIfPresent(Double.self, forKey: .immersiveReach) ?? d.immersiveReach
         uploadConcurrency = try c.decodeIfPresent(Double.self, forKey: .uploadConcurrency) ?? d.uploadConcurrency
         simultaneousLoads = try c.decodeIfPresent(Double.self, forKey: .simultaneousLoads) ?? d.simultaneousLoads
         cacheMegabytes = try c.decodeIfPresent(Double.self, forKey: .cacheMegabytes) ?? d.cacheMegabytes

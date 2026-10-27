@@ -4,7 +4,7 @@ Written 2026-10-26 at the end of a long design and implementation session, to se
 
 ## Purpose (owner)
 
-A general-purpose app with Google Earth VR-like flying, from street level to the globe, and a flight-sim feel. Spatial visualisation and drawing come later. Today it's visionOS (a volume, and immersive modes, formerly "floor modes", in an immersive space), plus a static macOS view.
+A general-purpose app with Google Earth VR-like flying, from street level to the globe, and a flight-sim feel. Spatial visualisation and drawing come later. Today it's visionOS (a volume, and an immersive mode, formerly the "floor modes" 3×, 5× and 10×, in an immersive space), plus a static macOS view.
 
 ## Decided by the owner
 
@@ -93,7 +93,7 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 
 **Tile loading (cesium-native v0.64.0, as built)**
 
-- **Tiles are chosen for one virtual camera (the LOD camera).** In immersive modes it sits at the assumed eye (1.6 m above the immersive origin), points at the map's centre point (about 16° down at Immersive 10×), and has a 60° view. It doesn't follow the head.
+- **Tiles are chosen for one virtual camera (the LOD camera).** In immersive modes it sits at the assumed eye (1.6 m above the immersive origin), points at the map's centre point (about 16° down, 5.6 m ahead), and has a 60° view. It doesn't follow the head.
 - **Frustum culling is now off** (`23e2502`). It was on, so tiles outside that view were dropped, and the floor from the viewer's feet to about 1.5 m ahead had no tiles. This was a stage 2 regression: the area streamed around the viewer was loaded and then culled. The old 45° camera saw the whole map.
 - **Detail:** a tile is refined until its screen-space error (roughly geometric error ÷ distance, in pixels) meets **Detail** (16) inside the view or **Outer detail** (64) outside it. Outer detail had no effect while culling was on. Both fall with distance; setting them equal removes the direction penalty, not the distance falloff.
 - **Load order is fixed** (`computeTilePriority`): `(1 − cos angle) × distance` from each view's position and direction, best across views, smallest first, within the urgent, normal and preload groups. So tiles near the view's direction load first, even far away, and the floor under the viewer loads last. It isn't configurable without a patch (the xcframework is built locally from a tag, so a patch is possible).
@@ -135,6 +135,8 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
   **Placement uses the rejected "eye is the camera" rule.**
 - `23e2502` Frustum culling off.
 - `5137146`, `4eef2d4`, `6eb1796` Tile bounds debug overlay.
+- `2cdf8b1` **Immersive placement replaced** (`EyeLevelModel`): the camera at the eye, the map level whatever the pitch, scale from height above the ground, tilt following altitude directly about the map's centre point (5.6 m ahead). The volume still uses the adaptive model.
+- Then: one Immersive mode (10×'s geometry) instead of 3×/5×/10×, which differed only in where the centre point sat and the shown square's size; and an area of interest that covers everything visible: all around the ground beneath the eye's position in the world, out to the horizon plus a 3 km terrain allowance (the old "blended" policy faded out above 1 km and dropped to the shown square above 50 km). **Limit reach** in Tuning caps it at a multiple of height above the ground; Region is gone.
 
 **Likely keepable:** stage 1's pieces, the bridge changes, held tiles, view state v2's shape, the navigation operations (climb, turn, move with heading transport), the ground lesson, and the tests that don't assume the rejected rule.
 

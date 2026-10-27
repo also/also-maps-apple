@@ -136,6 +136,17 @@ struct AreaOfInterestTests {
         #expect(area.radius == 1_800)
     }
 
+    @Test func horizonPolicyReachesEverythingVisible() {
+        let area = AOIPolicy.horizon(limitPerAltitude: nil)
+            .area(viewerNadir: viewer, altitude: 16_834, heading: 0, georeferencePoint: ahead, shownRadius: 500)
+        #expect(area.centre == viewer)
+        // The horizon from 16.8 km is ~463 km; mountains 3 km high show ~196 km past it.
+        #expect(abs(area.radius - 659_000) < 2_000)
+        let limited = AOIPolicy.horizon(limitPerAltitude: 10)
+            .area(viewerNadir: viewer, altitude: 16_834, heading: 0, georeferencePoint: ahead, shownRadius: 500)
+        #expect(limited.radius == 168_340)
+    }
+
     @Test func blendedPolicyCoversViewerAndShownRegion() {
         let near = AOIPolicy.blended(reachPerAltitude: 3, regionMultiplier: 1)
             .area(viewerNadir: viewer, altitude: 600, heading: 0, georeferencePoint: ahead, shownRadius: 500)

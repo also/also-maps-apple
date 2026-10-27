@@ -1,19 +1,16 @@
 import RealityKit
 
-/// Where and how big the map is shown. Streaming (which tiles, at what
-/// detail) is the same in every mode; a presentation only changes the display
-/// scale and placement, so an immersive mode is the volume's map blown up.
-///
-/// Add or tweak entries in `all` to try other sizes and placements.
+/// Where the map is shown: the volume, or the immersive space. Each host
+/// gives the placement its fixed geometry: the assumed eye, the map's centre
+/// point and the shown square.
 struct MapPresentation: Identifiable, Hashable {
     enum Host { case volume, immersive }
 
     let id: String
-    /// The picker label: "Volume", or just the scale for immersive modes.
+    /// The picker label.
     let name: String
     let host: Host
-    /// Display size relative to the volume: 5 makes the map five times wider
-    /// and taller than it is in the volume.
+    /// The shown square's size relative to the volume's.
     let magnification: Double
     /// Scene position of the focus point's ground, on the base plane. In the
     /// volume the origin is the volume's centre; in the immersive space it's
@@ -34,27 +31,25 @@ struct MapPresentation: Identifiable, Hashable {
         // In front of the volume, where the LOD camera assumes a viewer.
         viewerPosition: [0, 0.3, 0.85])
 
-    /// The map lying on the origin plane in front of you, its near edge `gap`
-    /// metres ahead, raised slightly so it doesn't fight the real floor.
-    static func immersive(_ magnification: Double, gap: Float = 0.6) -> MapPresentation {
-        let halfWidth = Float(MapVolumeModel.volumeSize.x / 2 * magnification)
-        return MapPresentation(
-            id: "immersive\(Int(magnification))x",
-            name: "\(Int(magnification))×",
-            host: .immersive,
-            magnification: magnification,
-            groundPosition: [0, 0.02, -(halfWidth + gap)],
-            // Where you stood when the immersive space opened.
-            viewerPosition: [0, 1.6, 0])
-    }
+    /// The map on the origin plane around you. Its centre point is 5.6 m
+    /// ahead, in a shown square 10 times the volume's, whose near edge is
+    /// 0.6 m ahead, raised slightly so it doesn't fight the real floor.
+    static let immersive = MapPresentation(
+        id: "immersive",
+        name: "Immersive",
+        host: .immersive,
+        magnification: 10,
+        groundPosition: [0, 0.02, -5.6],
+        // Where you stood when the immersive space opened.
+        viewerPosition: [0, 1.6, 0])
 
-    static let all: [MapPresentation] = [.volume, .immersive(3), .immersive(5), .immersive(10)]
+    static let all: [MapPresentation] = [.volume, .immersive]
 
-    /// The presentation with `id`. Saved view states from before the floor
-    /// modes were renamed say "floor5x" for "immersive5x".
+    /// The presentation with `id`. Saved view states from before the
+    /// immersive modes became one say "immersive5x", or earlier "floor5x".
     static func withID(_ id: String) -> MapPresentation? {
-        let current = id.hasPrefix("floor") ? "immersive" + id.dropFirst("floor".count) : id
-        return all.first { $0.id == current }
+        if id.hasPrefix("immersive") || id.hasPrefix("floor") { return .immersive }
+        return all.first { $0.id == id }
     }
 
     /// The same placement as host geometry for the camera core: the viewer

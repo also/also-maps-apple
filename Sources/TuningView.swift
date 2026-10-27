@@ -36,9 +36,15 @@ struct TuningView: View {
                 }
 
                 Section {
-                    setting("Region", value: $model.settings.immersiveRegion, in: 1...10, step: 0.5,
-                            format: { String(format: "%.1f×", $0) },
-                            hint: "How far past the volume-sized square to stream. Immersive modes only.")
+                    Toggle("Limit reach", isOn: $model.settings.limitsImmersiveReach)
+                    Text("Immersive streams everything you could see, out to the horizon. Turn this on to stream less.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if model.settings.limitsImmersiveReach {
+                        setting("Reach", value: $model.settings.immersiveReach, in: 5...100, step: 5,
+                                format: { String(format: "%.0f× height", $0) },
+                                hint: "How far around you to stream, in multiples of your height above the ground.")
+                    }
                     setting("Detail", value: $model.settings.detail, in: 2...64, step: 1,
                             format: { "SSE \(Int($0))" },
                             hint: "Lower is sharper, with more tiles. Applies to what the LOD camera sees.")

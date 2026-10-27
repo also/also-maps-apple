@@ -230,9 +230,16 @@ final class MapVolumeModel {
     /// square. Gaze passes through terrain and buildings (they have no
     /// collision) to the slab, while looking past the map's edges or over it
     /// no longer hits an invisible box.
+    /// How far the immersive gesture slab reaches from the map's centre
+    /// point, metres in the room.
+    private static let immersiveGestureHalfWidth = 50.0
+
     private func layOutGestureTarget() {
-        let region = presentation.host == .immersive ? settings.immersiveRegion : 1
-        let width = Float(2 * room.contentHalfWidth * region)
+        // Immersive: wide enough to pinch anywhere nearby on the map.
+        let halfWidth = presentation.host == .immersive
+            ? max(room.contentHalfWidth, Self.immersiveGestureHalfWidth)
+            : room.contentHalfWidth
+        let width = Float(2 * halfWidth)
         let thickness = Float(0.02 * presentation.magnification)
         gestureTarget.components.set(CollisionComponent(shapes: [
             .generateBox(size: [width, thickness, width])
@@ -716,11 +723,15 @@ final class MapVolumeModel {
         let room = self.room
         let camera = navigation.camera
         let policy: AOIPolicy = presentation.host == .immersive
-            ? .blended(reachPerAltitude: 3, regionMultiplier: settings.immersiveRegion)
+            ? .horizon(limitPerAltitude: settings.limitsImmersiveReach ? settings.immersiveReach : nil)
             : .georeference(regionMultiplier: 1)
-        let viewer = Geodesy.geodetic(framing.georeference.ecef(map: room.designEye)).coordinate
+        // The viewer is the eye, wherever the placement puts it in the world:
+        // at the camera while the map is level, in front of the globe once
+        // it tilts, where much more of the Earth is in view.
+        let (viewer, eyeHeight) = Geodesy.geodetic(framing.georeference.ecef(map: room.designEye))
+        let altitude = usesEyeLevel ? eyeHeight - effectiveEnvelope : camera.height - cameraGround.value
         let area = policy.area(viewerNadir: viewer,
-                               altitude: max(camera.height - cameraGround.value, 0),
+                               altitude: max(altitude, 0),
                                heading: camera.heading,
                                georeferencePoint: Geodesy.geodetic(framing.georeferencePoint).coordinate,
                                shownRadius: framing.shownRadius(room))

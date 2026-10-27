@@ -13,6 +13,10 @@ enum AOIPolicy: Codable, Equatable {
     /// Around the viewer near the ground, moving to the georeference point
     /// between 1 km and 50 km above it.
     case blended(reachPerAltitude: Double, regionMultiplier: Double)
+    /// Everything the viewer could see: all around the ground beneath them,
+    /// out to the horizon plus what mountains beyond it could show, or to
+    /// `limitPerAltitude` × the altitude if that's nearer.
+    case horizon(limitPerAltitude: Double?)
 }
 
 struct AreaOfInterest: Equatable {
@@ -26,6 +30,17 @@ struct AreaOfInterest: Equatable {
 extension AOIPolicy {
     /// Smallest reach around the viewer, metres.
     static let minimumReach = 1_000.0
+    /// Terrain this high beyond the horizon still shows over it, metres.
+    static let terrainAllowance = 3_000.0
+
+    /// How far the viewer can see from `altitude` metres up: the horizon,
+    /// plus how far past it terrain `terrainAllowance` high is visible.
+    static func visibleDistance(altitude: Double) -> Double {
+        let altitude = max(altitude, 0)
+        let r = GeoMath.earthRadius
+        return (2 * r * altitude + altitude * altitude).squareRoot()
+            + (2 * r * terrainAllowance).squareRoot()
+    }
 
     /// The area for a viewer above `viewerNadir` at `altitude` metres,
     /// looking along `heading`, with the georeference point at
@@ -59,6 +74,12 @@ extension AOIPolicy {
             let aroundViewer = w * separation + (1 - w) * reach(perAltitude)
             let aroundShown = (1 - w) * separation + shownRadius * multiplier
             return AreaOfInterest(centre: centre, radius: max(aroundViewer, aroundShown), heading: heading)
+        case let .horizon(limitPerAltitude):
+            var radius = Self.visibleDistance(altitude: altitude)
+            if let limitPerAltitude {
+                radius = min(radius, max(limitPerAltitude * max(altitude, 0), Self.minimumReach))
+            }
+            return AreaOfInterest(centre: viewerNadir, radius: radius, heading: heading)
         }
     }
 }

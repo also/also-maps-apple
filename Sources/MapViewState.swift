@@ -46,7 +46,7 @@ struct MapViewState: Codable {
     /// "adaptiveModel" for now.
     var presentationStyle: String
     var groundEstimate: GroundEstimate
-    /// MapPresentation.id, e.g. "immersive5x".
+    /// MapPresentation.id: "volume" or "immersive".
     var host: String
     var roomPlacement: Placement
     /// "live" or "held".

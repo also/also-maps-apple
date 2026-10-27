@@ -59,7 +59,7 @@ struct MapVolumeView: View {
         }
         .task {
             // Debug: MAPVOLUME_OPEN_TUNING=1 opens the Tuning window, and
-            // MAPVOLUME_PRESENTATION=immersive5x (etc.) starts in that mode.
+            // MAPVOLUME_PRESENTATION=immersive (or volume) starts in that mode.
             if ProcessInfo.processInfo.environment["MAPVOLUME_OPEN_TUNING"] == "1" {
                 openWindow(id: TuningView.windowID)
             }
