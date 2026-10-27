@@ -110,8 +110,15 @@ Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](
 ## tvOS static-map prototype
 
 This worktree adds the `MapVolumeTV` target (tvOS 26+) with a full-screen,
-fixed-camera Ferry Building scene. It shares `SourcesMac/MapWindowView.swift`
-and the existing tile streaming pipeline. Set `MAPVOLUME_VIEW=bay` to try the
+static scene selected from the bundled places. The location button in the
+upper-right opens a remote-focusable Places list; selecting an entry replaces
+the scene and streams that location using its saved radius and heading. The
+camera looks down at 45 degrees, with distance proportional to the radius,
+and samples ground height to frame elevated locations.
+
+It shares `SourcesMac/MapWindowView.swift` and the existing tile streaming
+pipeline. Set `MAPVOLUME_PLACE=<id>` to select the starting place, or
+`MAPVOLUME_VIEW=bay` to try the
 wider Mac view; the existing detail, radius and concurrency overrides work too.
 The LOD camera tracks the actual view aspect ratio.
 
@@ -125,7 +132,7 @@ those in the framework repo before generating this project:
 
 Keep `Config/Secrets.xcconfig` configured as above, then run `xcodegen generate`
 and select the `MapVolumeTV` scheme and an Apple TV simulator or device in Xcode.
-This prototype has no navigation or TV app icon/top-shelf artwork yet.
+This prototype has no free camera navigation or TV app icon/top-shelf artwork yet.
 The local framework must include the corresponding slices to build the other
 platform targets in this worktree.
 

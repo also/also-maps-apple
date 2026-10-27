@@ -14,6 +14,7 @@ struct StaticView {
     var windowSize: CGSize
     var near: Float
     var far: Float
+    var samplesGround = false
 
     /// The bridge selects detail as if the view were this many pixels tall
     /// (see `ViewState` in CNTileStreamer.mm), whatever the window is.
@@ -101,7 +102,7 @@ struct StaticView {
 @MainActor
 @Observable
 final class StaticMap {
-    let view = StaticView.fromEnvironment()
+    let view: StaticView
     let streaming: TileStreaming
     private(set) var framesPerSecond = 0
     /// Seconds from the first frame to the first drawn tile, and to every
@@ -113,7 +114,8 @@ final class StaticMap {
     @ObservationIgnored private var frameCount = 0
     @ObservationIgnored private var frameElapsed: Float = 0
 
-    init() {
+    init(view: StaticView = .fromEnvironment()) {
+        self.view = view
         streaming = TileStreaming(inputs: view.inputs, settings: view.settings)
     }
 
@@ -125,6 +127,15 @@ final class StaticMap {
         content.add(makeCamera())
 
         streaming.start()
+        if view.samplesGround {
+            streaming.sampleGroundHeight(around: view.inputs.anchor.coordinate,
+                                         radius: view.inputs.streamingRadius) { [weak self] height in
+                MainActor.assumeIsolated {
+                    guard let self, height.isFinite else { return }
+                    self.streaming.inputs.anchor.height = min(max(height, -500), 9_000)
+                }
+            }
+        }
         subscription = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             MainActor.assumeIsolated {
                 self?.update(deltaTime: Float(event.deltaTime))
@@ -182,7 +193,11 @@ final class StaticMap {
 }
 
 struct MapWindowView: View {
-    @State private var map = StaticMap()
+    @State private var map: StaticMap
+
+    init(view: StaticView = .fromEnvironment()) {
+        _map = State(initialValue: StaticMap(view: view))
+    }
 
     private static func format(_ seconds: Float?) -> String {
         seconds.map { String(format: "%.1f s", $0) } ?? "…"

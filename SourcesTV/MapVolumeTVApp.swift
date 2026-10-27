@@ -8,8 +8,7 @@ struct MapVolumeTVApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MapWindowView()
-                .ignoresSafeArea()
+            TVMapView()
         }
     }
 }
