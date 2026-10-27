@@ -122,19 +122,13 @@ pipeline. Set `MAPVOLUME_PLACE=<id>` to select the starting place, or
 wider Mac view; the existing detail, radius and concurrency overrides work too.
 The LOD camera tracks the actual view aspect ratio.
 
-The project currently uses the sibling `../cesium-native-xcframework` package,
-with its local XCFramework containing `tvos` and `tvos-simulator` slices. Build
-those in the framework repo before generating this project:
-
-```
-./build-xcframework.sh --slices "tvos tvos-simulator"
-```
+The project uses the released `CesiumNative` package version `0.64.0-2`,
+which contains arm64 macOS and device/simulator slices for iOS, visionOS and
+tvOS. No sibling framework checkout is required.
 
 Keep `Config/Secrets.xcconfig` configured as above, then run `xcodegen generate`
 and select the `MapVolumeTV` scheme and an Apple TV simulator or device in Xcode.
 This prototype has no free camera navigation or TV app icon/top-shelf artwork yet.
-The local framework must include the corresponding slices to build the other
-platform targets in this worktree.
 
 Verified in the Apple TV 4K (3rd generation) simulator with tvOS 27.0:
 Debug build succeeded, and the default scene reached 343 rendered tiles,
