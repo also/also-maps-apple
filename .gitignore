@@ -4,3 +4,4 @@ build/
 DerivedData/
 Vendor/CesiumNative.xcframework/
 Local/
+.build/

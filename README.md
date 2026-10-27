@@ -106,3 +106,30 @@ Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](
 
 - The main thread still spends 2–3 ms per frame on tile selection and on re-placing every tile, even when the view isn't moving (#2).
 - Below 50 km, ground height is the lowest hit on a 3×3 grid of samples. In a region that's mostly hills with a little low ground, the hills can reach close to the top of the volume.
+
+## tvOS static-map prototype
+
+This worktree adds the `MapVolumeTV` target (tvOS 26+) with a full-screen,
+fixed-camera Ferry Building scene. It shares `SourcesMac/MapWindowView.swift`
+and the existing tile streaming pipeline. Set `MAPVOLUME_VIEW=bay` to try the
+wider Mac view; the existing detail, radius and concurrency overrides work too.
+The LOD camera tracks the actual view aspect ratio.
+
+The project currently uses the sibling `../cesium-native-xcframework` package,
+with its local XCFramework containing `tvos` and `tvos-simulator` slices. Build
+those in the framework repo before generating this project:
+
+```
+./build-xcframework.sh --slices "tvos tvos-simulator"
+```
+
+Keep `Config/Secrets.xcconfig` configured as above, then run `xcodegen generate`
+and select the `MapVolumeTV` scheme and an Apple TV simulator or device in Xcode.
+This prototype has no navigation or TV app icon/top-shelf artwork yet.
+The local framework must include the corresponding slices to build the other
+platform targets in this worktree.
+
+Verified in the Apple TV 4K (3rd generation) simulator with tvOS 27.0:
+Debug build succeeded, and the default scene reached 343 rendered tiles,
+100% load and 60 fps (first tile 0.7 s, initial load 5.5 s). These are simulator
+observations, not measurements on Apple TV hardware.

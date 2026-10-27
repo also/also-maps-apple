@@ -77,7 +77,13 @@ struct StaticView {
     /// The view named by MAPVOLUME_VIEW, with any streaming overrides.
     static func fromEnvironment() -> StaticView {
         let env = ProcessInfo.processInfo.environment
+        #if os(tvOS)
+        var view = env["MAPVOLUME_VIEW"] == "bay" ? bay : ferry
+        view.windowSize = CGSize(width: 1920, height: 1080)
+        view.inputs.lod.aspect = 1920.0 / 1080.0
+        #else
         var view = env["MAPVOLUME_VIEW"] == "ferry" ? ferry : bay
+        #endif
         func number(_ key: String) -> Double? { env[key].flatMap(Double.init) }
         if let radius = number("MAPVOLUME_RADIUS") { view.inputs.streamingRadius = radius }
         if let pixels = number("MAPVOLUME_DETAIL") {
@@ -125,6 +131,15 @@ final class StaticMap {
             }
         }
     }
+
+    #if os(tvOS)
+    func resize(to size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        var inputs = streaming.inputs
+        inputs.lod.aspect = size.width / size.height
+        streaming.inputs = inputs
+    }
+    #endif
 
     private func update(deltaTime: Float) {
         streaming.update(deltaTime: deltaTime)
@@ -177,7 +192,11 @@ struct MapWindowView: View {
         RealityView { content in
             map.attach(&content)
         }
+        #if os(tvOS)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { map.resize(to: $0) }
+        #else
         .frame(width: map.view.windowSize.width, height: map.view.windowSize.height)
+        #endif
         .background(Color(red: 0.55, green: 0.7, blue: 0.85))
         .overlay(alignment: .topLeading) {
             Text("\(map.streaming.stats.renderedTiles) tiles · \(Int(map.streaming.loadProgress))% · \(map.framesPerSecond) fps · cache \(map.streaming.stats.cacheHits)/\(map.streaming.stats.revalidated)/\(map.streaming.stats.networkLoads) · first \(Self.format(map.secondsToFirstTile)) · done \(Self.format(map.secondsToComplete))")
