@@ -1022,6 +1022,10 @@ NSString* stripHTML(const std::string& html) {
     options.maximumScreenSpaceError = 16.0;
     options.maximumCachedBytes = 512ull * 1024 * 1024;
     options.enableFogCulling = false;
+    // Draw the whole area of interest: tiles outside the LOD camera's view
+    // refine to culledScreenSpaceError (outer detail) instead of vanishing.
+    // In VR the viewer can look anywhere.
+    options.enableFrustumCulling = false;
     options.forbidHoles = false;
     options.showCreditsOnScreen = true;
     options.excluders = {_excluder};
