@@ -150,6 +150,7 @@ static double radialHeight(const glm::dvec3& p) {
 @property (nonatomic, readwrite) NSArray<CNTileMesh *> *tilesToRender;
 @property (nonatomic, readwrite) NSData *tileTransforms;
 @property (nonatomic, readwrite) NSArray<NSNumber *> *freedTileIDs;
+@property (nonatomic, readwrite, nullable) NSData *tileBounds;
 @property (nonatomic, readwrite) NSArray<CNCredit *> *credits;
 @property (nonatomic, readwrite) float loadProgress;
 @end
@@ -1133,6 +1134,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
   CNFrame* frame = [[CNFrame alloc] init];
   frame.tilesToRender = _lastFrame.tilesToRender ?: @[];
   frame.tileTransforms = _lastFrame.tileTransforms ?: [NSData data];
+  frame.tileBounds = _lastFrame.tileBounds;
   frame.freedTileIDs = @[];
   frame.credits = _lastFrame.credits ?: @[];
   frame.loadProgress = _lastFrame.loadProgress;
@@ -1185,6 +1187,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
       2.0 * std::atan(std::tan(verticalFieldOfView / 2.0) * aspect);
 
   const ViewUpdateResult* pResult = nullptr;
+  std::optional<ViewState> selectedView;
   try {
     ViewState view(
         position,
@@ -1197,6 +1200,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
         _tileset->getDefaultViewGroup(),
         {view},
         deltaTime);
+    selectedView = view;
     _tileset->loadTiles();
   } catch (const std::exception& error) {
     // Don't take the app down over one bad view: log it, keep loads moving
@@ -1217,6 +1221,11 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
   NSMutableData* transforms = [NSMutableData
       dataWithCapacity:result.tilesToRenderThisFrame.size() *
                        sizeof(simd_float4x4)];
+  NSMutableData* bounds = _reportsTileBounds ? [NSMutableData data] : nil;
+  const glm::dmat3 ecefToAnchorRotation(ecefToAnchorRealityKit);
+  auto toFloat = [](const glm::dvec3& v) {
+    return simd_make_float3(float(v.x), float(v.y), float(v.z));
+  };
   for (const Tile::ConstPointer& pTile : result.tilesToRenderThisFrame) {
     const TileRenderContent* pRender = pTile->getContent().getRenderContent();
     if (!pRender || !pRender->getRenderResources()) {
@@ -1235,6 +1244,20 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
     }
     [tiles addObject:mesh];
     [transforms appendBytes:&placement length:sizeof(placement)];
+    if (bounds) {
+      const BoundingVolume& volume = pTile->getBoundingVolume();
+      const CesiumGeometry::OrientedBoundingBox box =
+          getOrientedBoundingBoxFromBoundingVolume(volume);
+      const glm::dmat3& halfAxes = box.getHalfAxes();
+      CNTileBounds entry;
+      entry.centre = toFloat(
+          glm::dvec3(ecefToAnchorRealityKit * glm::dvec4(box.getCenter(), 1.0)));
+      entry.halfAxisA = toFloat(ecefToAnchorRotation * halfAxes[0]);
+      entry.halfAxisB = toFloat(ecefToAnchorRotation * halfAxes[1]);
+      entry.halfAxisC = toFloat(ecefToAnchorRotation * halfAxes[2]);
+      entry.inView = selectedView && selectedView->isBoundingVolumeVisible(volume);
+      [bounds appendBytes:&entry length:sizeof(entry)];
+    }
   }
 
   NSMutableArray<NSNumber*>* freed = [NSMutableArray array];
@@ -1256,6 +1279,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
   CNFrame* frame = [[CNFrame alloc] init];
   frame.tilesToRender = tiles;
   frame.tileTransforms = transforms;
+  frame.tileBounds = bounds;
   frame.freedTileIDs = freed;
   frame.credits = credits;
   frame.loadProgress = _tileset->computeLoadProgress();

@@ -64,6 +64,13 @@ final class TileStreaming {
     private let tileUploader = TileUploader()
     private var tileEntities: [UInt64: Entity] = [:]
     private var renderedTiles: [CNTileMesh] = []
+    /// Report each drawn tile's bounding volume in `renderedBounds`.
+    var reportsTileBounds = false {
+        didSet { streamer?.reportsTileBounds = reportsTileBounds }
+    }
+    /// The bounding volume of each tile drawn last frame, in `tilesRoot`'s
+    /// frame, while `reportsTileBounds` is set.
+    @ObservationIgnored private(set) var renderedBounds: [CNTileBounds] = []
     private var started = false
     private var debugLogElapsed: Float = 0
     /// Longest main-thread update in the current debug-log second.
@@ -165,6 +172,9 @@ final class TileStreaming {
             entity.isEnabled = visible.contains(id)
         }
         renderedTiles = frame.tilesToRender
+        renderedBounds = frame.tileBounds.map { data in
+            data.withUnsafeBytes { Array($0.bindMemory(to: CNTileBounds.self)) }
+        } ?? []
 
         let newCredits = frame.credits.map { Credit(text: $0.text, imageURL: $0.imageURL.flatMap(URL.init(string:))) }
         if credits != newCredits { credits = newCredits }
@@ -230,6 +240,7 @@ final class TileStreaming {
         streamer.maximumSimultaneousTileLoads = Int(settings.simultaneousLoads)
         streamer.maximumCachedBytes = Int64(settings.cacheMegabytes * 1024 * 1024)
         streamer.forbidHoles = settings.forbidHoles
+        streamer.reportsTileBounds = reportsTileBounds
         tileUploader.setConcurrency(Int(settings.uploadConcurrency))
     }
 

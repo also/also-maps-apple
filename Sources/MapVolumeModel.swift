@@ -160,6 +160,7 @@ final class MapVolumeModel {
         placementRoot.addChild(root)
         root.addChild(debugMarkers)
         debugMarkers.isEnabled = false
+        root.addChild(tileBoundsOverlay.root)
         root.addChild(streaming.tilesRoot)
         // Indirect only (look + pinch). Allowing direct input meant hands that
         // were merely inside the map's area counted as touching it and
@@ -400,6 +401,9 @@ final class MapVolumeModel {
         updateGround(deltaTime: dt)
         applyView()
         streaming.update(deltaTime: deltaTime)
+        tileBoundsOverlay.update(deltaTime: deltaTime, bounds: streaming.renderedBounds, inputs: streaming.inputs,
+                                 tilesFrame: streaming.tilesRoot.transform.matrix,
+                                 thickness: 0.0006 * Float(presentation.magnification))
     }
 
     // MARK: Keyboard and controller
@@ -750,6 +754,16 @@ final class MapVolumeModel {
         didSet { updateDebugMarkers() }
     }
     private let debugMarkers = Entity()
+
+    /// Wireframes of each drawn tile's bounding box, the area of interest
+    /// and the LOD camera's view. See TileBoundsOverlay.
+    var showsTileBounds = false {
+        didSet {
+            streaming.reportsTileBounds = showsTileBounds
+            tileBoundsOverlay.isEnabled = showsTileBounds
+        }
+    }
+    private let tileBoundsOverlay = TileBoundsOverlay()
 
     private func updateDebugMarkers() {
         debugMarkers.isEnabled = showsDebugMarkers

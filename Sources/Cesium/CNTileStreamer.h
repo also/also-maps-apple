@@ -87,12 +87,27 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 - (instancetype)init NS_UNAVAILABLE;
 @end
 
+/// A drawn tile's bounding volume as cesium-native sees it: an oriented
+/// box in the anchor's level frame (see the coordinates note above).
+typedef struct {
+  simd_float3 centre;
+  simd_float3 halfAxisA;
+  simd_float3 halfAxisB;
+  simd_float3 halfAxisC;
+  /// Whether the box is inside the LOD camera's view (refined to
+  /// maximumScreenSpaceError) or outside it (culledScreenSpaceError).
+  bool inView;
+} CNTileBounds;
+
 @interface CNFrame : NSObject
 @property (nonatomic, readonly) NSArray<CNTileMesh *> *tilesToRender;
 /// One simd_float4x4 per tilesToRender entry, same order: the tile's
 /// placement in the anchor's level frame (see the coordinates note above).
 @property (nonatomic, readonly) NSData *tileTransforms;
 @property (nonatomic, readonly) NSArray<NSNumber *> *freedTileIDs;
+/// One CNTileBounds per tilesToRender entry, same order, when
+/// reportsTileBounds is set; otherwise nil.
+@property (nonatomic, readonly, nullable) NSData *tileBounds;
 /// Attributions that must be shown on screen.
 @property (nonatomic, readonly) NSArray<CNCredit *> *credits;
 /// 0–100.
@@ -150,6 +165,9 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 @property (nonatomic) int64_t maximumCachedBytes;
 /// Keep parents until all children have loaded. Default NO.
 @property (nonatomic) BOOL forbidHoles;
+/// Report each drawn tile's bounding volume in CNFrame.tileBounds, for
+/// debugging. Default NO.
+@property (nonatomic) BOOL reportsTileBounds;
 
 /// Request counters since this streamer started; safe from any thread.
 - (CNFetchStats *)fetchStats;

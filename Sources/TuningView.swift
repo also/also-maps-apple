@@ -89,6 +89,10 @@ struct TuningView: View {
                     Text("Red: the point turns and zooms rotate around. Blue: the map's centre.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Toggle("Show tile bounds", isOn: $model.showsTileBounds)
+                    Text("Each drawn tile's box: cyan inside the LOD camera's view, orange outside. Yellow: the area of interest. Pink: the LOD camera's view; white: its view direction.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Button("Copy View State") {
                         let json = model.captureState().json()
                         UIPasteboard.general.string = json

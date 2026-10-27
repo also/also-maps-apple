@@ -63,10 +63,14 @@ struct MapVolumeView: View {
             if ProcessInfo.processInfo.environment["MAPVOLUME_OPEN_TUNING"] == "1" {
                 openWindow(id: TuningView.windowID)
             }
-            // MAPVOLUME_MARKERS=1 shows the debug markers, and
-            // MAPVOLUME_STATE=<JSON from Copy View State> restores that view.
+            // MAPVOLUME_MARKERS=1 shows the debug markers, MAPVOLUME_TILE_BOUNDS=1
+            // the tile bounds, and MAPVOLUME_STATE=<JSON from Copy View State>
+            // restores that view.
             if ProcessInfo.processInfo.environment["MAPVOLUME_MARKERS"] == "1" {
                 model.showsDebugMarkers = true
+            }
+            if ProcessInfo.processInfo.environment["MAPVOLUME_TILE_BOUNDS"] == "1" {
+                model.showsTileBounds = true
             }
             if let text = ProcessInfo.processInfo.environment["MAPVOLUME_STATE"] {
                 do {
