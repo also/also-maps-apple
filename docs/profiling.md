@@ -75,4 +75,19 @@ Warm (tiles cached):
 
 Cold, the network dominates (`Fetch` about 190 ms each, 12 connections per host). Warm, the fetch is gone and tiles wait on the uploader: most of a tile's `TileUpload` is `QueueWait` for one of the 4 slots, and the work in a slot is about 20 to 25 ms. These are single recordings with the first second or so cut off, so treat them as indicative. A frame's `Update` stays near 1 ms either way.
 
-Next: raise the uploader's concurrency (Tuning, or `AsyncLimiter(limit:)`) and see whether the warm load speeds up, and whether `Assemble`'s main-actor time becomes the limit.
+## Upload concurrency
+
+Warm cache, default view (the bay), 607 tile uploads, Mac Debug build. Time is from the first fetch to the last upload finishing; `QueueWait` is the mean time a tile waited for an upload slot. Record with `MAPVOLUME_UPLOADS` and `MAPVOLUME_LOADS` (see `recording headlessly`).
+
+| Parallel uploads | Simultaneous loads | Load | Mean `QueueWait` |
+|---|---|---|---|
+| 4 | 20 | 4.08 s | 80 ms |
+| 8 | 20 | 2.41 s | 24 ms |
+| 12 | 20 | 1.98 s | 5 ms |
+| 24 | 20 | 1.90 s | 0 ms |
+| 64 | 20 | 1.95 s | 0 ms |
+| 24 | 64 | 1.45 s | - |
+
+With 4 slots the uploader was the limit (slots about 98% busy). From 12 slots up, tiles no longer wait for one, and the last fetch finishes within 0.1 s of the last upload: the limit is how fast tiles are discovered, which more simultaneous loads speeds up. Per-tile `Assemble` (main actor) only rose from 15 ms to about 20 ms, so the main actor was not the limit up to 64 slots. The defaults are now 12 uploads and 64 loads.
+
+Not measured: a cold load (network-bound, so loads may matter more and uploads less), main-thread frame time while uploads run (20 ms per `Assemble` may hitch), and visionOS.

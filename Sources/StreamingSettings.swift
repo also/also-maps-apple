@@ -14,9 +14,9 @@ struct StreamingSettings: Codable, Equatable {
     var immersiveRegion = 1.0
     /// Tiles whose RealityKit resources are built at once (off the main
     /// thread); higher fills in faster but uses more memory and CPU at once.
-    var uploadConcurrency = 4.0
+    var uploadConcurrency = 12.0
     /// Concurrent tile requests.
-    var simultaneousLoads = 20.0
+    var simultaneousLoads = 64.0
     /// Loaded-tile cache budget.
     var cacheMegabytes = 512.0
     /// Keep parent tiles until all their children are drawable.
