@@ -160,8 +160,8 @@ final class MapVolumeModel {
         placementRoot.addChild(root)
         root.addChild(debugMarkers)
         debugMarkers.isEnabled = false
-        root.addChild(tileBoundsOverlay.root)
         root.addChild(streaming.tilesRoot)
+        streaming.tilesRoot.addChild(tileBoundsOverlay.root)
         // Indirect only (look + pinch). Allowing direct input meant hands that
         // were merely inside the map's area counted as touching it and
         // dragged the map with no pinch at all.
@@ -401,8 +401,7 @@ final class MapVolumeModel {
         updateGround(deltaTime: dt)
         applyView()
         streaming.update(deltaTime: deltaTime)
-        tileBoundsOverlay.update(deltaTime: deltaTime, bounds: streaming.renderedBounds, inputs: streaming.inputs,
-                                 tilesFrame: streaming.tilesRoot.transform.matrix,
+        tileBoundsOverlay.update(inputs: streaming.inputs, scale: streaming.tilesRoot.transform.scale.x,
                                  thickness: 0.0006 * Float(presentation.magnification))
     }
 
@@ -759,7 +758,7 @@ final class MapVolumeModel {
     /// and the LOD camera's view. See TileBoundsOverlay.
     var showsTileBounds = false {
         didSet {
-            streaming.reportsTileBounds = showsTileBounds
+            streaming.showsTileBounds = showsTileBounds
             tileBoundsOverlay.isEnabled = showsTileBounds
         }
     }

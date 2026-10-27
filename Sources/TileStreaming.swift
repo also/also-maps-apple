@@ -64,13 +64,17 @@ final class TileStreaming {
     private let tileUploader = TileUploader()
     private var tileEntities: [UInt64: Entity] = [:]
     private var renderedTiles: [CNTileMesh] = []
-    /// Report each drawn tile's bounding volume in `renderedBounds`.
-    var reportsTileBounds = false {
-        didSet { streamer?.reportsTileBounds = reportsTileBounds }
+    /// Draw each drawn tile's bounding box as a wireframe child of the tile:
+    /// cyan inside the LOD camera's view, orange outside it.
+    var showsTileBounds = false {
+        didSet {
+            streamer?.reportsTileBounds = showsTileBounds
+            if !showsTileBounds { removeTileBoxes() }
+        }
     }
-    /// The bounding volume of each tile drawn last frame, in `tilesRoot`'s
-    /// frame, while `reportsTileBounds` is set.
-    @ObservationIgnored private(set) var renderedBounds: [CNTileBounds] = []
+    private var tileBoxes: [UInt64: (entity: ModelEntity, inView: Bool)] = [:]
+    private let insideViewMaterial = DebugLines.material(red: 0.35, green: 0.78, blue: 0.98)
+    private let outsideViewMaterial = DebugLines.material(red: 1, green: 0.62, blue: 0.04)
     private var started = false
     private var debugLogElapsed: Float = 0
     /// Longest main-thread update in the current debug-log second.
@@ -126,6 +130,7 @@ final class TileStreaming {
         guard started else { return }
         for entity in tileEntities.values { entity.removeFromParent() }
         tileEntities = [:]
+        tileBoxes = [:]
         renderedTiles = []
         credits = []
         loadProgress = 0
@@ -150,6 +155,7 @@ final class TileStreaming {
 
         for id in frame.freedTileIDs {
             tileEntities.removeValue(forKey: id.uint64Value)?.removeFromParent()
+            tileBoxes.removeValue(forKey: id.uint64Value)
         }
 
         var visible = Set<UInt64>()
@@ -172,9 +178,7 @@ final class TileStreaming {
             entity.isEnabled = visible.contains(id)
         }
         renderedTiles = frame.tilesToRender
-        renderedBounds = frame.tileBounds.map { data in
-            data.withUnsafeBytes { Array($0.bindMemory(to: CNTileBounds.self)) }
-        } ?? []
+        if showsTileBounds { updateTileBoxes(frame) }
 
         let newCredits = frame.credits.map { Credit(text: $0.text, imageURL: $0.imageURL.flatMap(URL.init(string:))) }
         if credits != newCredits { credits = newCredits }
@@ -217,6 +221,36 @@ final class TileStreaming {
         }
     }
 
+    // MARK: Tile bounds
+
+    /// Each box is built once, in its tile's own frame, so it moves with the
+    /// tile; only its colour changes as the tile enters or leaves the view.
+    private func updateTileBoxes(_ frame: CNFrame) {
+        guard let data = frame.tileBounds else { return }
+        data.withUnsafeBytes { buffer in
+            let bounds = buffer.bindMemory(to: CNTileBounds.self)
+            for (index, tile) in frame.tilesToRender.enumerated() where index < bounds.count {
+                let box = bounds[index]
+                let material = box.inView ? insideViewMaterial : outsideViewMaterial
+                if let existing = tileBoxes[tile.identifier] {
+                    if existing.inView != box.inView {
+                        existing.entity.model?.materials = [material]
+                        tileBoxes[tile.identifier]?.inView = box.inView
+                    }
+                } else if let parent = tileEntities[tile.identifier], let mesh = DebugLines.box(box) {
+                    let entity = ModelEntity(mesh: mesh, materials: [material])
+                    parent.addChild(entity)
+                    tileBoxes[tile.identifier] = (entity, box.inView)
+                }
+            }
+        }
+    }
+
+    private func removeTileBoxes() {
+        for box in tileBoxes.values { box.entity.removeFromParent() }
+        tileBoxes = [:]
+    }
+
     // MARK: Applying
 
     private func applyInputs() {
@@ -240,7 +274,7 @@ final class TileStreaming {
         streamer.maximumSimultaneousTileLoads = Int(settings.simultaneousLoads)
         streamer.maximumCachedBytes = Int64(settings.cacheMegabytes * 1024 * 1024)
         streamer.forbidHoles = settings.forbidHoles
-        streamer.reportsTileBounds = reportsTileBounds
+        streamer.reportsTileBounds = showsTileBounds
         tileUploader.setConcurrency(Int(settings.uploadConcurrency))
     }
 

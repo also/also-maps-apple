@@ -88,7 +88,8 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 @end
 
 /// A drawn tile's bounding volume as cesium-native sees it: an oriented
-/// box in the anchor's level frame (see the coordinates note above).
+/// box in the tile's own frame, like its vertices (ECEF-axis offsets from
+/// its centre; place it with the tile's CNFrame.tileTransforms entry).
 typedef struct {
   simd_float3 centre;
   simd_float3 halfAxisA;

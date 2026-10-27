@@ -1222,7 +1222,6 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
       dataWithCapacity:result.tilesToRenderThisFrame.size() *
                        sizeof(simd_float4x4)];
   NSMutableData* bounds = _reportsTileBounds ? [NSMutableData data] : nil;
-  const glm::dmat3 ecefToAnchorRotation(ecefToAnchorRealityKit);
   auto toFloat = [](const glm::dvec3& v) {
     return simd_make_float3(float(v.x), float(v.y), float(v.z));
   };
@@ -1249,12 +1248,12 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
       const CesiumGeometry::OrientedBoundingBox box =
           getOrientedBoundingBoxFromBoundingVolume(volume);
       const glm::dmat3& halfAxes = box.getHalfAxes();
+      // In the tile's own frame, like its vertices.
       CNTileBounds entry;
-      entry.centre = toFloat(
-          glm::dvec3(ecefToAnchorRealityKit * glm::dvec4(box.getCenter(), 1.0)));
-      entry.halfAxisA = toFloat(ecefToAnchorRotation * halfAxes[0]);
-      entry.halfAxisB = toFloat(ecefToAnchorRotation * halfAxes[1]);
-      entry.halfAxisC = toFloat(ecefToAnchorRotation * halfAxes[2]);
+      entry.centre = toFloat(box.getCenter() - mesh.center);
+      entry.halfAxisA = toFloat(halfAxes[0]);
+      entry.halfAxisB = toFloat(halfAxes[1]);
+      entry.halfAxisC = toFloat(halfAxes[2]);
       entry.inView = selectedView && selectedView->isBoundingVolumeVisible(volume);
       [bounds appendBytes:&entry length:sizeof(entry)];
     }

@@ -109,6 +109,7 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - DebugLines.swift
           - Places
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
