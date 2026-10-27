@@ -4,44 +4,50 @@ import UIKit
 /// Debug wireframes for streaming, in the tiles' frame (a child of
 /// `tilesRoot`) so they move with the tiles: the area-of-interest square
 /// (yellow) and the LOD camera's view (pink, its view direction white).
-/// Rebuilt only when the streaming inputs change or the map's scale drifts.
-/// Each tile's own box is drawn by TileStreaming.
+/// Each line is a unit bar placed by its transform, so following the
+/// streaming inputs every frame never rebuilds a mesh. Each tile's own box
+/// is drawn by TileStreaming.
 @MainActor
 final class TileBoundsOverlay {
     let root = Entity()
-    private let areaOfInterest = TileBoundsOverlay.lines(.systemYellow)
-    private let lodView = TileBoundsOverlay.lines(.systemPink)
-    private let lodDirection = TileBoundsOverlay.lines(.white)
-    private var built: (inputs: StreamingInputs, scale: Float)?
+    private let squareBars: [ModelEntity]
+    private let viewBars: [ModelEntity]
+    private let directionBar: ModelEntity
 
     init() {
-        root.isEnabled = false
-        for entity in [areaOfInterest, lodView, lodDirection] {
+        let bar = MeshResource.generateBox(size: 1)
+        func bars(_ count: Int, _ color: UIColor) -> [ModelEntity] {
+            var material = UnlitMaterial(color: color)
+            material.faceCulling = .none
+            return (0..<count).map { _ in ModelEntity(mesh: bar, materials: [material]) }
+        }
+        squareBars = bars(4, .systemYellow)
+        viewBars = bars(12, .systemPink)
+        directionBar = bars(1, .white)[0]
+        for entity in squareBars + viewBars + [directionBar] {
             root.addChild(entity)
         }
+        root.isEnabled = false
     }
 
     var isEnabled: Bool {
         get { root.isEnabled }
-        set {
-            root.isEnabled = newValue
-            built = nil
-        }
+        set { root.isEnabled = newValue }
     }
 
     /// `scale` is the tiles' frame's scale into the map frame; `thickness`
     /// is the lines' half-width in the map frame.
     func update(inputs: StreamingInputs, scale: Float, thickness: Float) {
         guard root.isEnabled, scale > 0 else { return }
-        if let built, built.inputs == inputs, abs(scale / built.scale - 1) < 0.05 { return }
-        built = (inputs, scale)
         let width = thickness / scale
 
         // The square the bridge actually excludes by: axis-aligned in east
         // and north, grown to enclose the turned region.
         let r = Float(inputs.streamingRadius * (abs(sin(inputs.regionHeading)) + abs(cos(inputs.regionHeading))))
         let square: [SIMD3<Float>] = [[-r, 0, -r], [r, 0, -r], [r, 0, r], [-r, 0, r]]
-        let squareEdges = (0..<4).map { (square[$0], square[($0 + 1) % 4]) }
+        for i in 0..<4 {
+            Self.place(squareBars[i], square[i], square[(i + 1) % 4], width * 2)
+        }
 
         // The LOD camera's view, out to twice the streaming radius. It starts
         // a little way out: the camera is usually at the viewer's eyes, where
@@ -62,32 +68,26 @@ final class TileBoundsOverlay {
             }
         }
         let near = rectangle(0.03 * length), far = rectangle(length)
-        var viewEdges: [DebugLines.Segment] = []
         for i in 0..<4 {
             let next = (i + 1) % 4
-            viewEdges += [(near[i], far[i]), (near[i], near[next]), (far[i], far[next])]
+            Self.place(viewBars[3 * i], near[i], far[i], width)
+            Self.place(viewBars[3 * i + 1], near[i], near[next], width)
+            Self.place(viewBars[3 * i + 2], far[i], far[next], width)
         }
-
-        Self.set(areaOfInterest, squareEdges, width * 2)
-        Self.set(lodView, viewEdges, width)
-        Self.set(lodDirection, [(position + 0.03 * length * direction, position + length * direction)], width)
+        Self.place(directionBar, position + 0.03 * length * direction, position + length * direction, width)
     }
 
-    private static func lines(_ color: UIColor) -> ModelEntity {
-        var material = UnlitMaterial(color: color)
-        material.faceCulling = .none
-        let entity = ModelEntity()
-        entity.model = ModelComponent(mesh: .generateBox(size: 0), materials: [material])
-        entity.isEnabled = false
-        return entity
-    }
-
-    private static func set(_ entity: ModelEntity, _ segments: [DebugLines.Segment], _ thickness: Float) {
-        guard let mesh = DebugLines.mesh(segments, thickness: thickness) else {
-            entity.isEnabled = false
+    /// Stretches a unit bar from `a` to `b`, `width` its half-width.
+    private static func place(_ bar: ModelEntity, _ a: SIMD3<Float>, _ b: SIMD3<Float>, _ width: Float) {
+        let along = b - a
+        let length = simd_length(along)
+        guard length > 1e-6, length.isFinite, width.isFinite else {
+            bar.isEnabled = false
             return
         }
-        entity.model?.mesh = mesh
-        entity.isEnabled = true
+        bar.isEnabled = true
+        bar.transform = Transform(scale: [2 * width, 2 * width, length],
+                                  rotation: simd_quatf(from: [0, 0, 1], to: along / length),
+                                  translation: (a + b) / 2)
     }
 }
