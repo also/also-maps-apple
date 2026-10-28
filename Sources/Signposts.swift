@@ -4,7 +4,7 @@ import OSLog
 /// Objective-C++ bridge logs to the same subsystem and categories
 /// (CNTileStreamer.mm); see docs/profiling.md.
 enum Signposts {
-    static let subsystem = "com.ryanberdeen.MapVolume"
+    static let subsystem = "dev.also.maps"
     /// Per-tile work: fetch, flatten, queue wait, mesh, textures.
     static let tiles = OSSignposter(subsystem: subsystem, category: "Tiles")
     /// Per-frame work on the main thread.

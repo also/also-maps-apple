@@ -8,11 +8,11 @@ struct PhoneMapView: View {
 
     private static var initialPlace: Place? {
         let env = ProcessInfo.processInfo.environment
-        if let id = env["MAPVOLUME_PLACE"],
+        if let id = env["ALSOMAPS_PLACE"],
            let place = PlaceLibrary.all.first(where: { $0.id == id }) {
             return place
         }
-        if env["MAPVOLUME_VIEW"] != nil { return nil }
+        if env["ALSOMAPS_VIEW"] != nil { return nil }
         return PlaceLibrary.all.first
     }
 
@@ -26,7 +26,7 @@ struct PhoneMapView: View {
                 } ?? preset, showsDiagnostics: false, creditLineLimit: nil)
                     .id(selection?.id ?? "environment")
             }
-            .navigationTitle(selection?.name ?? "Map Volume")
+            .navigationTitle(selection?.name ?? "Also Maps")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

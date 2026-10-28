@@ -1,6 +1,6 @@
 # Profiling
 
-The tile pipeline is instrumented with signposts (`os_signpost`), so Instruments or `xctrace` can show where the time goes. Subsystem `com.ryanberdeen.MapVolume`; definitions in `Sources/Signposts.swift` (Swift) and `CNSignpostLog` in `Sources/Cesium/CNTileStreamer.mm` (the bridge). They cost almost nothing when nobody is recording.
+The tile pipeline is instrumented with signposts (`os_signpost`), so Instruments or `xctrace` can show where the time goes. Subsystem `dev.also.maps`; definitions in `Sources/Signposts.swift` (Swift) and `CNSignpostLog` in `Sources/Cesium/CNTileStreamer.mm` (the bridge). They cost almost nothing when nobody is recording.
 
 ## What's marked
 
@@ -26,9 +26,9 @@ Use the unsandboxed Debug Mac app (see the README). Launch it under `xctrace` so
 ```
 xctrace record --template 'Time Profiler' --instrument 'os_signpost' \
   --time-limit 15s --output run.trace \
-  --env MAPVOLUME_LAT=37.7955 --env MAPVOLUME_LON=-122.3937 --env MAPVOLUME_RADIUS=800 \
+  --env ALSOMAPS_LAT=37.7955 --env ALSOMAPS_LON=-122.3937 --env ALSOMAPS_RADIUS=800 \
   --launch -- /usr/bin/env -u OS_ACTIVITY_DT_MODE \
-  build/Build/Products/Debug/MapVolume.app/Contents/MacOS/MapVolume
+  build/Build/Products/Debug/AlsoMaps.app/Contents/MacOS/AlsoMaps
 xctrace export --input run.trace \
   --xpath '/trace-toc/run[@number="1"]/data/table[@schema="OSSignpostIntervals"]' > intervals.xml
 python3 Scripts/signpost_summary.py intervals.xml
@@ -41,7 +41,7 @@ Alternatively, start the app yourself and `--attach $pid` (no `env -u` needed), 
 For a quick look without a trace:
 
 ```
-/usr/bin/log stream --signpost --predicate 'subsystem == "com.ryanberdeen.MapVolume"'
+/usr/bin/log stream --signpost --predicate 'subsystem == "dev.also.maps"'
 ```
 
 (In zsh, call `/usr/bin/log`: plain `log` is a shell builtin.)
@@ -77,7 +77,7 @@ Cold, the network dominates (`Fetch` about 190 ms each, 12 connections per host)
 
 ## Upload concurrency
 
-Warm cache, default view (the bay), 607 tile uploads, Mac Debug build. Time is from the first fetch to the last upload finishing; `QueueWait` is the mean time a tile waited for an upload slot. Record with `MAPVOLUME_UPLOADS` and `MAPVOLUME_LOADS` (see `recording headlessly`).
+Warm cache, default view (the bay), 607 tile uploads, Mac Debug build. Time is from the first fetch to the last upload finishing; `QueueWait` is the mean time a tile waited for an upload slot. Record with `ALSOMAPS_UPLOADS` and `ALSOMAPS_LOADS` (see `recording headlessly`).
 
 | Parallel uploads | Simultaneous loads | Load | Mean `QueueWait` |
 |---|---|---|---|

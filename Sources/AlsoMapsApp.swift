@@ -1,8 +1,8 @@
 import SwiftUI
 
 @main
-struct MapVolumeApp: App {
-    @State private var model = MapVolumeModel()
+struct AlsoMapsApp: App {
+    @State private var model = MapModel()
     @State private var soundtrack = Soundtrack()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -14,15 +14,15 @@ struct MapVolumeApp: App {
     }
 
     var body: some Scene {
-        WindowGroup(id: MapVolumeView.windowID) {
-            MapVolumeView()
+        WindowGroup(id: VolumeView.windowID) {
+            VolumeView()
                 .environment(model)
                 .environment(soundtrack)
         }
         .windowStyle(.volumetric)
-        .defaultSize(width: MapVolumeModel.volumeSize.x,
-                     height: MapVolumeModel.volumeSize.y,
-                     depth: MapVolumeModel.volumeSize.z,
+        .defaultSize(width: MapModel.volumeSize.x,
+                     height: MapModel.volumeSize.y,
+                     depth: MapModel.volumeSize.z,
                      in: .meters)
         // Opening the app always brings back the map and its controls, even
         // if another window was the last one open.

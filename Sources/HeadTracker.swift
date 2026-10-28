@@ -19,7 +19,7 @@ final class HeadTracker {
             try await session.run([worldTracking])
         } catch {
             #if DEBUG
-            print("[MapVolume] world tracking failed: \(error.localizedDescription)")
+            print("[AlsoMaps] world tracking failed: \(error.localizedDescription)")
             #endif
             return nil
         }

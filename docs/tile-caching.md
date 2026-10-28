@@ -79,9 +79,9 @@ Not covered: Google doesn't currently send `stale-while-revalidate`, so nothing 
 
 Run the unsandboxed Debug Mac app (see the README) and read the counters in the log, or from outside:
 
-- Delete `~/Library/Caches/com.ryanberdeen.MapVolume/tiles` for a cold run.
+- Delete `~/Library/Caches/dev.also.maps/tiles` for a cold run.
 - `Cache.db` there is SQLite. `cfurl_cache_response` lists request URLs (which include the API key). `cfurl_cache_blob_data.response_object` is a binary plist of the stored response headers. Copy `Cache.db*` before querying while the app runs.
-- Time to 100% comes from the `progress 100%` log line; the log is line-buffered (`setvbuf` in `MapVolumeMacApp`), so it survives the process being killed.
+- Time to 100% comes from the `progress 100%` log line; the log is line-buffered (`setvbuf` in `AlsoMapsMacApp`), so it survives the process being killed.
 
 ## Open questions
 

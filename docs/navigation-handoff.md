@@ -108,7 +108,7 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 
 **Debugging tools**
 
-- **Tile bounds overlay** (`5137146`, `4eef2d4`, `6eb1796`; Tuning "Show tile bounds", or `MAPVOLUME_TILE_BOUNDS=1`):
+- **Tile bounds overlay** (`5137146`, `4eef2d4`, `6eb1796`; Tuning "Show tile bounds", or `ALSOMAPS_TILE_BOUNDS=1`):
   - each drawn tile's box: cyan inside the LOD camera's view, orange outside;
   - yellow: the area-of-interest square;
   - pink: the LOD camera's view, drawn from the camera itself and tapering there;
@@ -123,7 +123,7 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
   - `Sources/Navigation/`: geodesy and a hit-or-miss surface query, camera pose and navigation state with movement heading, georeference and room placement types, streaming inputs, area-of-interest policies, navigation operations and two prototype control styles;
   - the bridge takes a level-of-detail camera as vectors and an area-of-interest heading;
   - tiles are placed relative to whichever anchor is streaming;
-  - the `MapVolumeCoreTests` target.
+  - the `AlsoMapsCoreTests` target.
 - `5bc6e91`, `ff2eb9e`, `1cb1bf4` Stage 2 and fixes:
   - the camera is the stored state;
   - model-flight controls;

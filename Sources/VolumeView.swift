@@ -2,10 +2,10 @@ import GameController
 import RealityKit
 import SwiftUI
 
-struct MapVolumeView: View {
+struct VolumeView: View {
     static let windowID = "volume"
 
-    @Environment(MapVolumeModel.self) private var model
+    @Environment(MapModel.self) private var model
     @Environment(Soundtrack.self) private var soundtrack
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
@@ -90,45 +90,45 @@ struct MapVolumeView: View {
             }
         }
         .task {
-            // Debug: MAPVOLUME_OPEN_TUNING=1 opens the Tuning window, and
-            // MAPVOLUME_PRESENTATION=immersive (or volume) starts in that mode.
-            if ProcessInfo.processInfo.environment["MAPVOLUME_OPEN_TUNING"] == "1" {
+            // Debug: ALSOMAPS_OPEN_TUNING=1 opens the Tuning window, and
+            // ALSOMAPS_PRESENTATION=immersive (or volume) starts in that mode.
+            if ProcessInfo.processInfo.environment["ALSOMAPS_OPEN_TUNING"] == "1" {
                 openWindow(id: TuningView.windowID)
             }
-            // MAPVOLUME_MARKERS=1 shows the debug markers, MAPVOLUME_TILE_BOUNDS=1
-            // the tile bounds, and MAPVOLUME_STATE=<JSON from Copy View State>
+            // ALSOMAPS_MARKERS=1 shows the debug markers, ALSOMAPS_TILE_BOUNDS=1
+            // the tile bounds, and ALSOMAPS_STATE=<JSON from Copy View State>
             // restores that view.
-            if ProcessInfo.processInfo.environment["MAPVOLUME_MARKERS"] == "1" {
+            if ProcessInfo.processInfo.environment["ALSOMAPS_MARKERS"] == "1" {
                 model.showsDebugMarkers = true
             }
-            if ProcessInfo.processInfo.environment["MAPVOLUME_TILE_BOUNDS"] == "1" {
+            if ProcessInfo.processInfo.environment["ALSOMAPS_TILE_BOUNDS"] == "1" {
                 model.showsTileBounds = true
             }
-            // MAPVOLUME_SHOW_TRACK=1 draws the latest track.
-            if ProcessInfo.processInfo.environment["MAPVOLUME_SHOW_TRACK"] == "1" {
+            // ALSOMAPS_SHOW_TRACK=1 draws the latest track.
+            if ProcessInfo.processInfo.environment["ALSOMAPS_SHOW_TRACK"] == "1" {
                 model.showsTrack = true
             }
-            // MAPVOLUME_FULL_IMMERSION=1 opens immersive modes with full immersion,
-            // and MAPVOLUME_HUMAN_SCALE=1 keeps them at human scale.
-            if ProcessInfo.processInfo.environment["MAPVOLUME_FULL_IMMERSION"] == "1" {
+            // ALSOMAPS_FULL_IMMERSION=1 opens immersive modes with full immersion,
+            // and ALSOMAPS_HUMAN_SCALE=1 keeps them at human scale.
+            if ProcessInfo.processInfo.environment["ALSOMAPS_FULL_IMMERSION"] == "1" {
                 model.fullImmersion = true
             }
-            if ProcessInfo.processInfo.environment["MAPVOLUME_HUMAN_SCALE"] == "1" {
+            if ProcessInfo.processInfo.environment["ALSOMAPS_HUMAN_SCALE"] == "1" {
                 model.humanScale = true
             }
-            if let text = ProcessInfo.processInfo.environment["MAPVOLUME_STATE"] {
+            if let text = ProcessInfo.processInfo.environment["ALSOMAPS_STATE"] {
                 do {
                     let state = try MapViewState.parse(text)
                     await Self.restore(state, model: model, open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
                 } catch {
-                    print("[MapVolume] MAPVOLUME_STATE not restored: \(error.localizedDescription)")
+                    print("[AlsoMaps] ALSOMAPS_STATE not restored: \(error.localizedDescription)")
                 }
-            } else if let id = ProcessInfo.processInfo.environment["MAPVOLUME_PRESENTATION"],
+            } else if let id = ProcessInfo.processInfo.environment["ALSOMAPS_PRESENTATION"],
                let presentation = MapPresentation.withID(id) {
                 await present(presentation)
             }
-            // MAPVOLUME_PLAY_TRACK=1 plays the latest track (after any of the above).
-            if ProcessInfo.processInfo.environment["MAPVOLUME_PLAY_TRACK"] == "1" {
+            // ALSOMAPS_PLAY_TRACK=1 plays the latest track (after any of the above).
+            if ProcessInfo.processInfo.environment["ALSOMAPS_PLAY_TRACK"] == "1" {
                 model.startPlayback()
             }
         }
@@ -157,7 +157,7 @@ struct MapVolumeView: View {
     /// Switches presentation, opening or closing the immersive space as
     /// needed. Shared with the Tuning window's state restore.
     static func present(_ presentation: MapPresentation,
-                        model: MapVolumeModel,
+                        model: MapModel,
                         open: OpenImmersiveSpaceAction,
                         dismiss: DismissImmersiveSpaceAction) async {
         switch (model.presentation.host, presentation.host) {
@@ -173,7 +173,7 @@ struct MapVolumeView: View {
 
     /// Switches to a captured state's presentation, then restores the rest.
     static func restore(_ state: MapViewState,
-                        model: MapVolumeModel,
+                        model: MapModel,
                         open: OpenImmersiveSpaceAction,
                         dismiss: DismissImmersiveSpaceAction) async {
         if let presentation = MapPresentation.withID(state.host) {
@@ -186,7 +186,7 @@ struct MapVolumeView: View {
 extension View {
     /// Drag to pan, two-handed pinch to zoom and twist to turn, on the model's
     /// gesture target, in whichever scene is showing the map.
-    func mapGestures(_ model: MapVolumeModel) -> some View {
+    func mapGestures(_ model: MapModel) -> some View {
         self
             .gesture(
                 // Default minimum distance, so a pinch has to actually move
@@ -229,7 +229,7 @@ extension View {
 /// white variant (for dark backgrounds, like this glass), unaltered at its
 /// native size.
 struct AttributionView: View {
-    @Environment(MapVolumeModel.self) private var model
+    @Environment(MapModel.self) private var model
 
     var body: some View {
         VStack(spacing: 4) {

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct MapVolumeTVApp: App {
+struct AlsoMapsTVApp: App {
     init() {
         setvbuf(stdout, nil, _IOLBF, 0)
     }

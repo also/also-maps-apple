@@ -11,12 +11,12 @@ struct TVMapView: View {
 
     private static var initialPlace: Place? {
         let env = ProcessInfo.processInfo.environment
-        if let id = env["MAPVOLUME_PLACE"],
+        if let id = env["ALSOMAPS_PLACE"],
            let place = PlaceLibrary.all.first(where: { $0.id == id }) {
             return place
         }
         // Keep the explicit camera override for comparing the Mac views.
-        if env["MAPVOLUME_VIEW"] != nil { return nil }
+        if env["ALSOMAPS_VIEW"] != nil { return nil }
         return PlaceLibrary.all.first
     }
 
