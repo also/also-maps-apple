@@ -48,6 +48,7 @@ final class MapVolumeModel {
     var presentation = MapPresentation.volume {
         didSet {
             guard presentation != oldValue else { return }
+            stopPlayback()
             endManipulation()
             // In the volume each host's level map has its own pitch; the
             // assist re-targets. Immersive hosts ignore pitch.
@@ -301,6 +302,7 @@ final class MapVolumeModel {
     /// region; the new area streams in.
     func go(to place: Place) {
         if tilesHeld { setTilesHeld(false) }
+        stopPlayback()
         endManipulation()
         // Framed level for this host already.
         settlesPitch = false
@@ -363,6 +365,8 @@ final class MapVolumeModel {
     /// restarts if this kind of gesture began again somewhere new (visionOS
     /// can cancel a gesture without calling onEnded).
     private func beginOrContinue(_ kind: GestureKind, at start: SIMD3<Float>) -> Bool {
+        // The played track has the camera; gestures are ignored.
+        guard trackPlayback == nil else { return false }
         if let existing = manipulation?.starts[kind], existing != start { endManipulation() }
         if manipulation == nil {
             guard let framing else { return false }
@@ -435,7 +439,9 @@ final class MapVolumeModel {
         guard streaming.isStreaming else { return }
         let dt = Double(deltaTime)
         applyInput(deltaTime: dt)
-        if settlesPitch, manipulation == nil {
+        if trackPlayback != nil {
+            advancePlayback(deltaTime: dt)
+        } else if settlesPitch, manipulation == nil {
             // Until the pitch reaches the new host's target: a new scene's
             // first frames can have almost no time step, so a small step
             // doesn't mean it's done.
@@ -479,7 +485,8 @@ final class MapVolumeModel {
         }
         heldActions = input.held
 
-        guard input.isMoving else {
+        // The played track has the camera; movement is ignored.
+        guard input.isMoving, trackPlayback == nil else {
             // Re-sample once movement settles, like the end of a drag.
             if wasMoving {
                 wasMoving = false
@@ -554,7 +561,7 @@ final class MapVolumeModel {
         case .previousPlace where !places.isEmpty:
             let index = ((currentPlaceIndex ?? 0) - 1 + places.count) % places.count
             go(to: places[index])
-        case .faceNorth:
+        case .faceNorth where trackPlayback == nil:
             navigation = NavigationOperations.faceNorth(navigation)
         case .toggleFly:
             setTilesHeld(!tilesHeld)
@@ -791,7 +798,7 @@ final class MapVolumeModel {
     var isRecordingTrack: Bool { trackRecorder != nil }
 
     func startTrack() {
-        guard trackRecorder == nil else { return }
+        guard trackRecorder == nil, trackPlayback == nil else { return }
         do {
             let recorder = try TrackRecorder(directory: Self.tracksDirectory)
             trackRecorder = recorder
@@ -829,6 +836,85 @@ final class MapVolumeModel {
     }
     private let trackOverlay = TrackOverlay()
 
+    // MARK: Track playback
+
+    /// The track being played back: it drives the camera from its first
+    /// sample to its last in real time, by the frame clock. Gestures and
+    /// keyboard or controller movement are ignored meanwhile; jumping to a
+    /// place, restoring a view or switching presentation stops it.
+    private var trackPlayback: TrackPlayback?
+    /// Seconds into the track played, advanced every frame.
+    @ObservationIgnored private var playbackTime: TimeInterval = 0
+    @ObservationIgnored private var lastPlaybackGroundSample: TimeInterval = 0
+    /// Whole seconds played and in all, for the status line (observed, so
+    /// it changes once a second rather than every frame).
+    private(set) var playbackElapsed = 0
+    private(set) var playbackDuration = 0
+    var isPlayingTrack: Bool { trackPlayback != nil }
+
+    /// Plays the latest track from the start.
+    func startPlayback() {
+        guard trackPlayback == nil, trackRecorder == nil, let latestTrack else { return }
+        let playback: TrackPlayback
+        do {
+            guard let track = try TrackPlayback(contentsOf: latestTrack) else {
+                print("[MapVolume] track \(latestTrack.lastPathComponent) has no samples")
+                return
+            }
+            playback = track
+        } catch {
+            print("[MapVolume] couldn't read track \(latestTrack.lastPathComponent): \(error)")
+            return
+        }
+        if tilesHeld { setTilesHeld(false) }
+        endManipulation()
+        // Nothing but the track moves the camera: no pitch easing, and no
+        // ground sample lifting a place's framing.
+        settlesPitch = false
+        placeAwaitsGround = false
+        trackPlayback = playback
+        playbackTime = 0
+        lastPlaybackGroundSample = 0
+        playbackElapsed = 0
+        playbackDuration = Int(playback.duration.rounded(.up))
+        framing = nil
+        setPlayedCamera(playback.pose(at: 0))
+        applyView()
+        requestGroundSample()
+        print("[MapVolume] playing track \(latestTrack.lastPathComponent): \(playback.samples.count) samples, \(String(format: "%.1f", playback.duration)) s")
+    }
+
+    /// Stops playback, leaving the camera where it is.
+    func stopPlayback() {
+        guard trackPlayback != nil else { return }
+        trackPlayback = nil
+        requestGroundSample()
+        #if DEBUG
+        print("[MapVolume] track playback stopped at \(String(format: "%.1f", playbackTime)) s")
+        #endif
+    }
+
+    private func advancePlayback(deltaTime: Double) {
+        guard let playback = trackPlayback else { return }
+        playbackTime = min(playbackTime + deltaTime, playback.duration)
+        setPlayedCamera(playback.pose(at: playbackTime))
+        let elapsed = Int(playbackTime)
+        if playbackElapsed != elapsed { playbackElapsed = elapsed }
+        // The ground estimates otherwise wait for motion to settle.
+        if playbackTime - lastPlaybackGroundSample >= 2 {
+            lastPlaybackGroundSample = playbackTime
+            requestGroundSample()
+        }
+        if playbackTime >= playback.duration { stopPlayback() }
+    }
+
+    private func setPlayedCamera(_ camera: CameraPose) {
+        var state = navigation
+        state.camera = camera
+        if state.headingLink == .linked { state.movementHeading = camera.heading }
+        navigation = state
+    }
+
     // MARK: View state
 
     func captureState() -> MapViewState {
@@ -846,6 +932,7 @@ final class MapVolumeModel {
     /// captured, so the view does too.
     func restore(_ state: MapViewState) {
         if tilesHeld { setTilesHeld(false) }
+        stopPlayback()
         endManipulation()
         settings = state.settings
         groundSampleGeneration += 1  // Drop any sample in flight.

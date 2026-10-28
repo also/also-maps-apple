@@ -40,6 +40,7 @@ struct MapVolumeView: View {
                     .toggleStyle(.button)
                     .labelStyle(.iconOnly)
                     .help("Record the camera's track to a file in Files")
+                    .disabled(model.isPlayingTrack)
                     Toggle(isOn: Binding(get: { model.showsTrack }, set: { model.showsTrack = $0 })) {
                         Label(model.showsTrack ? "Hide Track" : "Show Track",
                               systemImage: "point.topleft.down.to.point.bottomright.curvepath")
@@ -47,6 +48,15 @@ struct MapVolumeView: View {
                     .toggleStyle(.button)
                     .labelStyle(.iconOnly)
                     .help("Draw the track being recorded, or the latest one")
+                    Toggle(isOn: Binding(get: { model.isPlayingTrack },
+                                         set: { $0 ? model.startPlayback() : model.stopPlayback() })) {
+                        Label(model.isPlayingTrack ? "Stop Playback" : "Play Track",
+                              systemImage: model.isPlayingTrack ? "stop.fill" : "play.fill")
+                    }
+                    .toggleStyle(.button)
+                    .labelStyle(.iconOnly)
+                    .help("Fly the latest track in real time")
+                    .disabled(model.isRecordingTrack || model.latestTrack == nil)
                     if let track = model.latestTrack {
                         ShareLink(item: track) {
                             Label("Share Track", systemImage: "square.and.arrow.up")
@@ -116,6 +126,10 @@ struct MapVolumeView: View {
             } else if let id = ProcessInfo.processInfo.environment["MAPVOLUME_PRESENTATION"],
                let presentation = MapPresentation.withID(id) {
                 await present(presentation)
+            }
+            // MAPVOLUME_PLAY_TRACK=1 plays the latest track (after any of the above).
+            if ProcessInfo.processInfo.environment["MAPVOLUME_PLAY_TRACK"] == "1" {
+                model.startPlayback()
             }
         }
     }
@@ -233,6 +247,11 @@ struct AttributionView: View {
                 Text("Recording track")
                     .font(.caption)
             }
+            if model.isPlayingTrack {
+                Text("Playing track · \(Self.minutes(model.playbackElapsed)) / \(Self.minutes(model.playbackDuration))")
+                    .font(.caption)
+                    .monospacedDigit()
+            }
             if model.keyboardConnected {
                 Text(MapInput.keyboardHint)
                     .font(.caption2)
@@ -265,5 +284,10 @@ struct AttributionView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .glassBackgroundEffect()
+    }
+
+    /// "m:ss".
+    private static func minutes(_ seconds: Int) -> String {
+        String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
