@@ -67,6 +67,9 @@ targets:
         GCSupportsControllerUserInteraction: true
         GCSupportedGameControllers:
           - ProfileName: ExtendedGamepad
+        # Documents (camera tracks) shows in the Files app.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
           UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleVolumetricApplication
@@ -157,6 +160,7 @@ targets:
       - path: Sources/Static/StaticView.swift
       - path: Sources/Places/Place.swift
       - path: Tests/Static
+      - path: Sources/Tracks
       - path: Tests/Navigation
     scheme:
       testTargets: [MapVolumeCoreTests]

@@ -32,6 +32,21 @@ struct MapVolumeView: View {
                     .toggleStyle(.button)
                     .labelStyle(.iconOnly)
                     .help("Hold tiles: fly through what's loaded without requesting more")
+                    Toggle(isOn: Binding(get: { model.isRecordingTrack },
+                                         set: { $0 ? model.startTrack() : model.stopTrack() })) {
+                        Label(model.isRecordingTrack ? "Stop Recording" : "Record Track",
+                              systemImage: model.isRecordingTrack ? "stop.circle.fill" : "record.circle")
+                    }
+                    .toggleStyle(.button)
+                    .labelStyle(.iconOnly)
+                    .help("Record the camera's track to a file in Files")
+                    if let track = model.latestTrack {
+                        ShareLink(item: track) {
+                            Label("Share Track", systemImage: "square.and.arrow.up")
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("Share \(track.deletingPathExtension().lastPathComponent)")
+                    }
                     Menu("Places", systemImage: "mappin.and.ellipse") {
                         ForEach(PlaceLibrary.all) { place in
                             Button(place.name) { model.go(to: place) }
@@ -201,6 +216,10 @@ struct AttributionView: View {
             }
             if model.tilesHeld {
                 Text("Tiles held · view requests frozen")
+                    .font(.caption)
+            }
+            if model.isRecordingTrack {
+                Text("Recording track")
                     .font(.caption)
             }
             if model.keyboardConnected {

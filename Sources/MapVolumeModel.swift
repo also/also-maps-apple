@@ -312,6 +312,7 @@ final class MapVolumeModel {
         var camera = Self.framing(place, in: presentation, groundHeight: 0)
         camera.height = context.clampHeight(camera.height)
         navigation = flight.activate(NavigationState(camera: camera))
+        trackRecorder?.markJump()
         applyView()
         requestGroundSample()
     }
@@ -446,6 +447,7 @@ final class MapVolumeModel {
             #endif
         }
         updateGround(deltaTime: dt)
+        trackRecorder?.record(navigation.camera)
         applyView()
         streaming.update(deltaTime: deltaTime)
         tileBoundsOverlay.update(inputs: streaming.inputs, scale: streaming.tilesRoot.transform.scale.x,
@@ -773,6 +775,40 @@ final class MapVolumeModel {
                                streamingRadius: area.radius)
     }
 
+    // MARK: Tracks
+
+    /// Where tracks are saved: the app's Documents folder, which the Files
+    /// app shows. See CameraTrack for the format.
+    static let tracksDirectory = URL.documentsDirectory
+
+    /// The recording in progress, sampling the camera each frame.
+    private(set) var trackRecorder: TrackRecorder?
+    /// The most recent track file, finished or in progress.
+    private(set) var latestTrack: URL? = TrackRecorder.latestTrack(in: tracksDirectory)
+    var isRecordingTrack: Bool { trackRecorder != nil }
+
+    func startTrack() {
+        guard trackRecorder == nil else { return }
+        do {
+            let recorder = try TrackRecorder(directory: Self.tracksDirectory)
+            trackRecorder = recorder
+            latestTrack = recorder.url
+            print("[MapVolume] recording track to \(recorder.url.path)")
+        } catch {
+            print("[MapVolume] couldn't start a track: \(error)")
+        }
+    }
+
+    func stopTrack() {
+        guard let recorder = trackRecorder else { return }
+        recorder.finish()
+        trackRecorder = nil
+        print("[MapVolume] track finished: \(recorder.sampleCount) samples in \(recorder.url.lastPathComponent)")
+    }
+
+    /// Writes buffered samples out, for when the app may be suspended.
+    func flushTrack() { trackRecorder?.flush() }
+
     // MARK: View state
 
     func captureState() -> MapViewState {
@@ -800,6 +836,7 @@ final class MapVolumeModel {
         var navigation = state.navigationState
         navigation.camera.pitch = min(navigation.camera.pitch, pitchLimit(for: navigation.camera))
         self.navigation = navigation
+        trackRecorder?.markJump()
         framing = nil
         if let held = state.heldStreaming {
             streaming.inputs = held

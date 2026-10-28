@@ -29,6 +29,7 @@ struct MapVolumeApp: App {
         .defaultLaunchBehavior(.presented)
         .onChange(of: scenePhase, initial: true) { _, phase in
             soundtrack.setActive(phase == .active)
+            if phase != .active { model.flushTrack() }
         }
 
         WindowGroup(id: TuningView.windowID) {
