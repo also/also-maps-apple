@@ -6,6 +6,11 @@ options:
     macOS: "26.0"
     tvOS: "26.0"
     iOS: "26.0"
+settings:
+  base:
+    # Xcode's recommended project settings, set here so it stops prompting.
+    DEAD_CODE_STRIPPING: YES
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
 packages:
   # cesium-native, prebuilt: https://github.com/also/cesium-native-xcframework
   CesiumNative:

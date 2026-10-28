@@ -207,7 +207,7 @@ final class TileStreaming {
     /// `centre` and reports the lowest hit, metres above the ellipsoid (NaN
     /// if none), on the main thread during a later update. May load tiles.
     func sampleGroundHeight(around centre: GeoCoordinate, radius: Double,
-                            _ completion: @escaping (Double) -> Void) {
+                            _ completion: @escaping @Sendable (Double) -> Void) {
         streamer?.sampleGroundHeight(latitude: centre.latitude, longitude: centre.longitude,
                                      radius: radius, completion: completion)
     }
