@@ -1,0 +1,9 @@
+{
+  "name": "also-maps-branding",
+  "private": true,
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "generate": "node generate-icons.cjs && node generate-vision-icon.cjs && node generate-top-shelf.cjs"
+  },
+  "dependencies": { "sharp": "0.35.5" }
+}
