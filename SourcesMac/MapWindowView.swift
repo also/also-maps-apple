@@ -193,10 +193,14 @@ final class StaticMap {
 }
 
 struct MapWindowView: View {
-    @State private var map: StaticMap
+    private let view: StaticView
+    @State private var map: StaticMap?
+    #if os(tvOS)
+    @State private var viewportSize: CGSize = .zero
+    #endif
 
     init(view: StaticView = .fromEnvironment()) {
-        _map = State(initialValue: StaticMap(view: view))
+        self.view = view
     }
 
     private static func format(_ seconds: Float?) -> String {
@@ -205,25 +209,39 @@ struct MapWindowView: View {
 
     var body: some View {
         RealityView { content in
+            // Construct the model when the scene is made, once per view identity.
+            // Parent updates (such as opening Places) only rebuild this view value.
+            let map = self.map ?? StaticMap(view: view)
+            self.map = map
+            #if os(tvOS)
+            map.resize(to: viewportSize)
+            #endif
             map.attach(&content)
         }
         #if os(tvOS)
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { map.resize(to: $0) }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: {
+            viewportSize = $0
+            map?.resize(to: $0)
+        }
         #else
-        .frame(width: map.view.windowSize.width, height: map.view.windowSize.height)
+        .frame(width: view.windowSize.width, height: view.windowSize.height)
         #endif
         .background(Color(red: 0.55, green: 0.7, blue: 0.85))
         .overlay(alignment: .topLeading) {
-            Text("\(map.streaming.stats.renderedTiles) tiles · \(Int(map.streaming.loadProgress))% · \(map.framesPerSecond) fps · cache \(map.streaming.stats.cacheHits)/\(map.streaming.stats.revalidated)/\(map.streaming.stats.networkLoads) · first \(Self.format(map.secondsToFirstTile)) · done \(Self.format(map.secondsToComplete))")
-                .font(.caption.monospacedDigit())
-                .padding(6)
-                .background(.black.opacity(0.5), in: .rect(cornerRadius: 6))
-                .foregroundStyle(.white)
-                .padding(8)
+            if let map {
+                Text("\(map.streaming.stats.renderedTiles) tiles · \(Int(map.streaming.loadProgress))% · \(map.framesPerSecond) fps · cache \(map.streaming.stats.cacheHits)/\(map.streaming.stats.revalidated)/\(map.streaming.stats.networkLoads) · first \(Self.format(map.secondsToFirstTile)) · done \(Self.format(map.secondsToComplete))")
+                    .font(.caption.monospacedDigit())
+                    .padding(6)
+                    .background(.black.opacity(0.5), in: .rect(cornerRadius: 6))
+                    .foregroundStyle(.white)
+                    .padding(8)
+            }
         }
         .overlay(alignment: .bottom) {
-            AttributionBar(streaming: map.streaming)
-                .padding(8)
+            if let map {
+                AttributionBar(streaming: map.streaming)
+                    .padding(8)
+            }
         }
     }
 }
