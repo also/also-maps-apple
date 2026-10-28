@@ -22,3 +22,8 @@ PNG assets; the small on-screen preview has not been upscaled.
 
 `project.yml` selects `AppIcon` for all four targets. Run `xcodegen generate`
 after changing project settings.
+
+The tvOS brand catalog also includes standard (1920×720) and wide (2320×720)
+static Top Shelf images at 1× and 2×. These use the original full grid and
+`maps.also.dev` title, centered on the warm background. `top-shelf.svg` preserves
+the wide source artwork.
