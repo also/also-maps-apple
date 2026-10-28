@@ -94,11 +94,15 @@ final class StaticMap {
 
 struct StaticMapView: View {
     private let view: StaticView
+    private let showsDiagnostics: Bool
+    private let creditLineLimit: Int?
     @State private var map: StaticMap?
     @State private var viewportSize: CGSize = .zero
 
-    init(view: StaticView) {
+    init(view: StaticView, showsDiagnostics: Bool = true, creditLineLimit: Int? = 1) {
         self.view = view
+        self.showsDiagnostics = showsDiagnostics
+        self.creditLineLimit = creditLineLimit
     }
 
     private static func format(_ seconds: Float?) -> String {
@@ -120,7 +124,7 @@ struct StaticMapView: View {
         }
         .background(Color(red: 0.55, green: 0.7, blue: 0.85))
         .overlay(alignment: .topLeading) {
-            if let map {
+            if let map, showsDiagnostics {
                 Text("\(map.streaming.stats.renderedTiles) tiles · \(Int(map.streaming.loadProgress))% · \(map.framesPerSecond) fps · cache \(map.streaming.stats.cacheHits)/\(map.streaming.stats.revalidated)/\(map.streaming.stats.networkLoads) · first \(Self.format(map.secondsToFirstTile)) · done \(Self.format(map.secondsToComplete))")
                     .font(.caption.monospacedDigit())
                     .padding(6)
@@ -131,7 +135,7 @@ struct StaticMapView: View {
         }
         .overlay(alignment: .bottom) {
             if let map {
-                AttributionBar(streaming: map.streaming)
+                AttributionBar(streaming: map.streaming, creditLineLimit: creditLineLimit)
                     .padding(8)
             }
         }
@@ -143,6 +147,7 @@ struct StaticMapView: View {
 /// white variant, so it sits on a dark backing.
 struct AttributionBar: View {
     let streaming: TileStreaming
+    var creditLineLimit: Int? = 1
 
     var body: some View {
         VStack(spacing: 4) {
@@ -156,7 +161,7 @@ struct AttributionBar: View {
                 }
                 Text(streaming.credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption)
-                    .lineLimit(1)
+                    .lineLimit(creditLineLimit)
             }
         }
         .foregroundStyle(.white)
