@@ -197,7 +197,7 @@ final class MapModel {
         debugMarkers.isEnabled = false
         root.addChild(streaming.tilesRoot)
         streaming.tilesRoot.addChild(tileBoundsOverlay.root)
-        root.addChild(trackOverlay.root)
+        root.addChild(tracks.overlay.root)
         // Indirect only (look + pinch). Allowing direct input meant hands that
         // were merely inside the map's area counted as touching it and
         // dragged the map with no pinch at all.
@@ -315,7 +315,7 @@ final class MapModel {
         var camera = Self.framing(place, in: presentation, groundHeight: 0)
         camera.height = context.clampHeight(camera.height)
         navigation = flight.activate(NavigationState(camera: camera))
-        trackRecorder?.markJump()
+        tracks.markJump()
         applyView()
         requestGroundSample()
     }
@@ -366,7 +366,7 @@ final class MapModel {
     /// can cancel a gesture without calling onEnded).
     private func beginOrContinue(_ kind: GestureKind, at start: SIMD3<Float>) -> Bool {
         // The played track has the camera; gestures are ignored.
-        guard trackPlayback == nil else { return false }
+        guard !tracks.isPlaying else { return false }
         if let existing = manipulation?.starts[kind], existing != start { endManipulation() }
         if manipulation == nil {
             guard let framing else { return false }
@@ -439,7 +439,7 @@ final class MapModel {
         guard streaming.isStreaming else { return }
         let dt = Double(deltaTime)
         applyInput(deltaTime: dt)
-        if trackPlayback != nil {
+        if tracks.isPlaying {
             advancePlayback(deltaTime: dt)
         } else if settlesPitch, manipulation == nil {
             // Until the pitch reaches the new host's target: a new scene's
@@ -454,11 +454,12 @@ final class MapModel {
             #endif
         }
         updateGround(deltaTime: dt)
-        if let sample = trackRecorder?.record(navigation.camera) {
-            trackOverlay.append(sample)
-        }
+        tracks.record(navigation.camera)
         applyView()
-        if let framing { trackOverlay.update(georeference: framing.georeference) }
+        if let framing {
+            tracks.overlay.update(georeference: framing.georeference,
+                                  worldRadius: TrackOverlay.roomRadius / framing.georeference.scale)
+        }
         streaming.update(deltaTime: deltaTime)
         tileBoundsOverlay.update(inputs: streaming.inputs, scale: streaming.tilesRoot.transform.scale.x,
                                  thickness: 0.0006 * Float(presentation.magnification))
@@ -486,7 +487,7 @@ final class MapModel {
         heldActions = input.held
 
         // The played track has the camera; movement is ignored.
-        guard input.isMoving, trackPlayback == nil else {
+        guard input.isMoving, !tracks.isPlaying else {
             // Re-sample once movement settles, like the end of a drag.
             if wasMoving {
                 wasMoving = false
@@ -561,7 +562,7 @@ final class MapModel {
         case .previousPlace where !places.isEmpty:
             let index = ((currentPlaceIndex ?? 0) - 1 + places.count) % places.count
             go(to: places[index])
-        case .faceNorth where trackPlayback == nil:
+        case .faceNorth where !tracks.isPlaying:
             navigation = NavigationOperations.faceNorth(navigation)
         case .toggleFly:
             setTilesHeld(!tilesHeld)
@@ -779,125 +780,60 @@ final class MapModel {
 
     // MARK: Tracks
 
-    /// Where tracks are saved: the app's Documents folder, which the Files
-    /// app shows. See CameraTrack for the format.
-    static let tracksDirectory = URL.documentsDirectory
-
-    /// The recording in progress, sampling the camera each frame.
-    private(set) var trackRecorder: TrackRecorder?
-    /// The most recent track file, finished or in progress.
-    private(set) var latestTrack: URL? = TrackRecorder.latestTrack(in: tracksDirectory)
-    var isRecordingTrack: Bool { trackRecorder != nil }
-
-    func startTrack() {
-        guard trackRecorder == nil, trackPlayback == nil else { return }
-        do {
-            let recorder = try TrackRecorder(directory: Self.tracksDirectory)
-            trackRecorder = recorder
-            latestTrack = recorder.url
-            trackOverlay.path = nil  // Drawn as it's recorded.
-            print("[AlsoMaps] recording track to \(recorder.url.path)")
-        } catch {
-            print("[AlsoMaps] couldn't start a track: \(error)")
-        }
-    }
-
-    func stopTrack() {
-        guard let recorder = trackRecorder else { return }
-        recorder.finish()
-        trackRecorder = nil
-        print("[AlsoMaps] track finished: \(recorder.sampleCount) samples in \(recorder.url.lastPathComponent)")
-    }
-
-    /// Writes buffered samples out, for when the app may be suspended.
-    func flushTrack() { trackRecorder?.flush() }
-
-    /// Draws the track being recorded, or else the latest one, as a tube on
-    /// the map. See TrackOverlay.
-    var showsTrack = false {
-        didSet {
-            trackOverlay.isEnabled = showsTrack
-            if showsTrack, trackOverlay.path == nil, trackRecorder == nil, let latestTrack {
-                do {
-                    trackOverlay.path = try TrackPath(contentsOf: latestTrack)
-                } catch {
-                    print("[AlsoMaps] couldn't read track \(latestTrack.lastPathComponent): \(error)")
-                }
-            }
-        }
-    }
-    private let trackOverlay = TrackOverlay()
-
-    // MARK: Track playback
-
-    /// The track being played back: it drives the camera from its first
-    /// sample to its last in real time, by the frame clock. Gestures and
-    /// keyboard or controller movement are ignored meanwhile; jumping to a
+    /// Recording, drawing and playing back camera tracks, shared with the
+    /// flat-screen map. Playback here also releases held tiles, ends any
+    /// gesture and stops the framing assists; gestures and keyboard or
+    /// controller movement are ignored while it plays, and jumping to a
     /// place, restoring a view or switching presentation stops it.
-    private var trackPlayback: TrackPlayback?
-    /// Seconds into the track played, advanced every frame.
-    @ObservationIgnored private var playbackTime: TimeInterval = 0
+    let tracks = TrackSession()
     @ObservationIgnored private var lastPlaybackGroundSample: TimeInterval = 0
-    /// Whole seconds played and in all, for the status line (observed, so
-    /// it changes once a second rather than every frame).
-    private(set) var playbackElapsed = 0
-    private(set) var playbackDuration = 0
-    var isPlayingTrack: Bool { trackPlayback != nil }
+
+    var isRecordingTrack: Bool { tracks.isRecording }
+    var latestTrack: URL? { tracks.latestTrack }
+    func startTrack() { tracks.startRecording() }
+    func stopTrack() { tracks.stopRecording() }
+    func flushTrack() { tracks.flush() }
+
+    var showsTrack: Bool {
+        get { tracks.showsTrack }
+        set { tracks.showsTrack = newValue }
+    }
+
+    var isPlayingTrack: Bool { tracks.isPlaying }
+    var playbackElapsed: Int { tracks.playbackElapsed }
+    var playbackDuration: Int { tracks.playbackDuration }
 
     /// Plays the latest track from the start.
     func startPlayback() {
-        guard trackPlayback == nil, trackRecorder == nil, let latestTrack else { return }
-        let playback: TrackPlayback
-        do {
-            guard let track = try TrackPlayback(contentsOf: latestTrack) else {
-                print("[AlsoMaps] track \(latestTrack.lastPathComponent) has no samples")
-                return
-            }
-            playback = track
-        } catch {
-            print("[AlsoMaps] couldn't read track \(latestTrack.lastPathComponent): \(error)")
-            return
-        }
+        guard let first = tracks.startPlayback() else { return }
         if tilesHeld { setTilesHeld(false) }
         endManipulation()
         // Nothing but the track moves the camera: no pitch easing, and no
         // ground sample lifting a place's framing.
         settlesPitch = false
         placeAwaitsGround = false
-        trackPlayback = playback
-        playbackTime = 0
         lastPlaybackGroundSample = 0
-        playbackElapsed = 0
-        playbackDuration = Int(playback.duration.rounded(.up))
         framing = nil
-        setPlayedCamera(playback.pose(at: 0))
+        setPlayedCamera(first)
         applyView()
         requestGroundSample()
-        print("[AlsoMaps] playing track \(latestTrack.lastPathComponent): \(playback.samples.count) samples, \(String(format: "%.1f", playback.duration)) s")
     }
 
     /// Stops playback, leaving the camera where it is.
     func stopPlayback() {
-        guard trackPlayback != nil else { return }
-        trackPlayback = nil
+        guard tracks.isPlaying else { return }
+        tracks.stopPlayback()
         requestGroundSample()
-        #if DEBUG
-        print("[AlsoMaps] track playback stopped at \(String(format: "%.1f", playbackTime)) s")
-        #endif
     }
 
     private func advancePlayback(deltaTime: Double) {
-        guard let playback = trackPlayback else { return }
-        playbackTime = min(playbackTime + deltaTime, playback.duration)
-        setPlayedCamera(playback.pose(at: playbackTime))
-        let elapsed = Int(playbackTime)
-        if playbackElapsed != elapsed { playbackElapsed = elapsed }
+        guard let pose = tracks.advancePlayback(deltaTime: deltaTime) else { return }
+        setPlayedCamera(pose)
         // The ground estimates otherwise wait for motion to settle.
-        if playbackTime - lastPlaybackGroundSample >= 2 {
-            lastPlaybackGroundSample = playbackTime
+        if !tracks.isPlaying || tracks.playbackTime - lastPlaybackGroundSample >= 2 {
+            lastPlaybackGroundSample = tracks.playbackTime
             requestGroundSample()
         }
-        if playbackTime >= playback.duration { stopPlayback() }
     }
 
     private func setPlayedCamera(_ camera: CameraPose) {
@@ -935,7 +871,7 @@ final class MapModel {
         var navigation = state.navigationState
         navigation.camera.pitch = min(navigation.camera.pitch, pitchLimit(for: navigation.camera))
         self.navigation = navigation
-        trackRecorder?.markJump()
+        tracks.markJump()
         framing = nil
         if let held = state.heldStreaming {
             streaming.inputs = held

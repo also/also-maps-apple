@@ -120,6 +120,10 @@ targets:
           - Static
           - Screen
           - MapInput.swift
+          - Tracks
+          - TrackSession.swift
+          - TrackOverlay.swift
+          - TubeExtruder.swift
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift
@@ -239,6 +243,10 @@ targets:
           - Static
           - Screen
           - MapInput.swift
+          - Tracks
+          - TrackSession.swift
+          - TrackOverlay.swift
+          - TubeExtruder.swift
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift

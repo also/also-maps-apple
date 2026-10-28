@@ -18,6 +18,10 @@ final class ScreenMap {
     /// Input from on-screen controls (iOS joysticks), merged with the
     /// keyboard and controller each frame.
     @ObservationIgnored var touchInput = MapInput()
+    /// Recording, drawing and playing back camera tracks, shared with
+    /// visionOS. While a track plays it has the camera, and movement input
+    /// is ignored; going to a place stops it.
+    let tracks = TrackSession()
 
     @ObservationIgnored private var flight = ModelFlightStyle()
     @ObservationIgnored private var cameraGround = CameraGround()
@@ -60,6 +64,7 @@ final class ScreenMap {
     func attach(_ content: inout RealityViewCameraContent) {
         content.camera = .virtual
         content.add(streaming.tilesRoot)
+        content.add(tracks.overlay.root)
         content.add(cameraEntity)
         applyView()
         streaming.start()
@@ -86,6 +91,8 @@ final class ScreenMap {
     // MARK: Places
 
     func go(to place: Place) {
+        tracks.stopPlayback()
+        tracks.markJump()
         currentPlaceIndex = PlaceLibrary.all.firstIndex(of: place)
         let camera = ScreenView.framePlace(place, fieldOfView: Self.fieldOfView)
         navigation = flight.activate(NavigationState(camera: camera))
@@ -111,13 +118,24 @@ final class ScreenMap {
         }
     }
 
+    /// Plays the latest track from its first pose.
+    func startPlayback() {
+        guard let first = tracks.startPlayback() else { return }
+        navigation = flight.activate(NavigationState(camera: first))
+    }
+
     // MARK: Frame loop
 
     private func tick(deltaTime: Float) {
         guard streaming.isStreaming else { return }
         let dt = Double(deltaTime)
+        if let played = tracks.advancePlayback(deltaTime: dt) {
+            navigation.camera = played
+            if navigation.headingLink == .linked { navigation.movementHeading = played.heading }
+        }
         applyInput(deltaTime: dt)
         cameraGround.update(camera: navigation.camera, rendered: streaming.renderedHeightRanges(), deltaTime: dt)
+        tracks.record(navigation.camera)
         applyView()
         streaming.update(deltaTime: deltaTime)
         countFrame(deltaTime)
@@ -137,7 +155,7 @@ final class ScreenMap {
         }
         heldActions = input.held
 
-        guard input.isMoving else { return }
+        guard input.isMoving, !tracks.isPlaying else { return }
         flight.dollySurfaceHeight = cameraGround.value
         navigation = flight.step(navigation, input: input.controlInput, deltaTime: deltaTime, context: context)
     }
@@ -149,7 +167,7 @@ final class ScreenMap {
             go(to: places[((currentPlaceIndex ?? -1) + 1) % places.count])
         case .previousPlace where !places.isEmpty:
             go(to: places[((currentPlaceIndex ?? 0) - 1 + places.count) % places.count])
-        case .faceNorth:
+        case .faceNorth where !tracks.isPlaying:
             navigation = NavigationOperations.faceNorth(navigation)
         default:
             break
@@ -171,6 +189,9 @@ final class ScreenMap {
                                                       fieldOfView: Self.fieldOfView, aspect: aspect)
         let georeference = ScreenView.georeference(camera: camera)
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
+        let altitude = max(camera.height - cameraGround.value, Self.minimumAltitude)
+        tracks.overlay.update(georeference: georeference,
+                              worldRadius: TrackOverlay.screenRadiusPerAltitude * altitude)
 
         let (near, far) = ScreenView.clipping(altitude: camera.height - cameraGround.value)
         cameraEntity.components.set(PerspectiveCameraComponent(near: Float(near), far: Float(far),

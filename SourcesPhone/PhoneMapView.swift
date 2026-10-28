@@ -7,6 +7,7 @@ struct PhoneMapView: View {
     @State private var map = PhoneMapView.makeMap()
     @State private var selection = initialPlace
     @State private var showsPlaces = false
+    @Environment(\.scenePhase) private var scenePhase
 
     private static var initialPlace: Place? {
         let env = ProcessInfo.processInfo.environment
@@ -40,7 +41,17 @@ struct PhoneMapView: View {
             // just the Places button, over the map.
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
+            .overlay(alignment: .top) {
+                trackStatus
+            }
+            // Write out the recording in case the app is suspended.
+            .onChange(of: scenePhase) { _, phase in
+                if phase != .active { map.tracks.flush() }
+            }
             .toolbar {
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    trackControls
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
@@ -76,6 +87,49 @@ struct PhoneMapView: View {
                 }
                 .presentationDetents([.medium, .large])
             }
+        }
+    }
+
+    // MARK: Tracks
+
+    /// Record, play, show and share the camera's track, as on visionOS.
+    @ViewBuilder private var trackControls: some View {
+        let tracks = map.tracks
+        Button(tracks.isRecording ? "Stop Recording" : "Record Track",
+               systemImage: tracks.isRecording ? "stop.circle.fill" : "record.circle") {
+            tracks.isRecording ? tracks.stopRecording() : tracks.startRecording()
+        }
+        .tint(tracks.isRecording ? .red : nil)
+        .disabled(tracks.isPlaying)
+        Button(tracks.isPlaying ? "Stop Playback" : "Play Track",
+               systemImage: tracks.isPlaying ? "stop.fill" : "play.fill") {
+            tracks.isPlaying ? tracks.stopPlayback() : map.startPlayback()
+        }
+        .disabled(tracks.isRecording || tracks.latestTrack == nil)
+        Menu("Track", systemImage: "ellipsis.circle") {
+            Toggle("Show Track", systemImage: "point.topleft.down.to.point.bottomright.curvepath",
+                   isOn: Binding(get: { tracks.showsTrack }, set: { tracks.showsTrack = $0 }))
+            if let track = tracks.latestTrack {
+                ShareLink(item: track) {
+                    Label("Share Track", systemImage: "square.and.arrow.up")
+                }
+            }
+        }
+    }
+
+    /// What the track is doing, under the bar.
+    @ViewBuilder private var trackStatus: some View {
+        let tracks = map.tracks
+        if tracks.isRecording || tracks.isPlaying {
+            Text(tracks.isRecording
+                 ? "Recording track"
+                 : "Playing track · \(TrackSession.minutes(tracks.playbackElapsed)) / \(TrackSession.minutes(tracks.playbackDuration))")
+                .font(.caption.monospacedDigit())
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.black.opacity(0.5), in: .capsule)
+                .foregroundStyle(.white)
+                .padding(.top, 4)
         }
     }
 }
