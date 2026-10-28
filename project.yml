@@ -92,6 +92,7 @@ targets:
       base:
         # The soundtrack script reads an optional, undeclared file.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h

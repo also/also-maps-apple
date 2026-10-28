@@ -1,7 +1,8 @@
 # Tile app icon
 
-`tile-icon.svg` preserves the geometry, colors, stroke widths, and padding of
-the maps site's initial `?icon` preview. It uses the light appearance and an
+`tile-icon.svg` preserves the geometry, colors, and padding of
+the maps site's `?icon` preview, with strokes doubled to 2.2 logical units.
+It uses the light appearance and an
 opaque warm background. The SVG is the resolution-independent source for the
 PNG assets; the small on-screen preview has not been upscaled.
 
@@ -13,5 +14,11 @@ PNG assets; the small on-screen preview has not been upscaled.
   separate transparent artwork and opaque background layers. The square
   artwork is centered in the wider TV canvas without stretching.
 
-`project.yml` selects `AppIcon` for these three targets. Run `xcodegen generate`
-after changing project settings. visionOS retains its existing configuration.
+- visionOS: a 1024×1024 layered icon in
+  `Sources/VisionIcon.xcassets/AppIcon.solidimagestack`, with the three buildings
+  on a transparent front layer and a full pale background behind them. No tile
+  outline; the system applies the circular mask. `vision-icon.svg` is the flat
+  source preview. This catalog is included only in the visionOS target.
+
+`project.yml` selects `AppIcon` for all four targets. Run `xcodegen generate`
+after changing project settings.
