@@ -7,7 +7,8 @@ import simd
 /// plane (y = 0, the floor where the user stood when the space opened),
 /// raised slightly.
 struct RoomGeometry: Equatable {
-    /// E: the assumed viewer position, not the tracked head.
+    /// E: the viewer's eye. Assumed, or in the immersive space measured once
+    /// when it opens; never the continuously tracked head.
     var designEye: SIMD3<Double>
     /// C₀: where the georeference point goes when the map is level, on the
     /// base plane.

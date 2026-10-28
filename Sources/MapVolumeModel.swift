@@ -223,6 +223,7 @@ final class MapVolumeModel {
 
     /// The immersive space went away (dismissed by us or the system).
     func immersiveSpaceDidClose() {
+        measuredEye = nil
         anchors[.immersive] = nil
         updateSubscriptions[.immersive] = nil
         if presentation.host == .immersive { presentation = .volume }
@@ -689,10 +690,28 @@ final class MapVolumeModel {
     // MARK: Placement
 
     private var room: RoomGeometry {
-        guard case let .room(room) = presentation.geometry else {
+        guard case var .room(room) = presentation.geometry else {
             preconditionFailure("visionOS hosts are rooms")
         }
+        // Immersive: the eye is where the headset was when the space opened.
+        if presentation.host == .immersive, let measuredEye {
+            room.designEye = roomPlacement.similarity.inverse.apply(measuredEye)
+        }
         return room
+    }
+
+    /// The headset's position in the immersive space when it opened, or nil
+    /// (tracking unavailable, or not measured yet): the assumed eye is used.
+    var measuredEye: SIMD3<Double>? {
+        didSet {
+            guard measuredEye != oldValue else { return }
+            #if DEBUG
+            if let measuredEye {
+                print("[MapVolume] eye measured at \(String(format: "%.2f, %.2f, %.2f", measuredEye.x, measuredEye.y, measuredEye.z)) m")
+            }
+            #endif
+            applyView()
+        }
     }
 
     /// Places everything from the camera: the georeference, the tiles root

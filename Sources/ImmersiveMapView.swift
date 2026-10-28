@@ -11,6 +11,7 @@ struct ImmersiveMapView: View {
 
     @Environment(MapVolumeModel.self) private var model
     @Environment(\.openWindow) private var openWindow
+    @State private var headTracker = HeadTracker()
 
     var body: some View {
         RealityView { content, attachments in
@@ -44,7 +45,16 @@ struct ImmersiveMapView: View {
         // visionOS turns controller input into look-and-pinch events by
         // default; route it to the Game Controller framework for MapInput.
         .handlesGameControllerEvents(matching: .gamepad)
+        .task {
+            // Measured once, on entry: the eye the map is placed around.
+            // Implausible heights (tracking glitches) keep the assumed eye.
+            if let head = await headTracker.headPosition(), (0.5...2.5).contains(head.y) {
+                model.measuredEye = SIMD3<Double>(head)
+            }
+            headTracker.stop()
+        }
         .onDisappear {
+            headTracker.stop()
             model.immersiveSpaceDidClose()
         }
     }
