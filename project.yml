@@ -5,6 +5,7 @@ options:
     visionOS: "26.0"
     macOS: "26.0"
     tvOS: "26.0"
+    iOS: "26.0"
 packages:
   # cesium-native, prebuilt: https://github.com/also/cesium-native-xcframework
   CesiumNative:
@@ -204,5 +205,53 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ryanberdeen.MapVolume
         PRODUCT_NAME: MapVolumeTV
+        SWIFT_VERSION: "5.0"
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/MapVolume-Bridging-Header.h
+
+  # Static map and saved places on iPhone, using the shared scene.
+  MapVolumePhone:
+    type: application
+    platform: iOS
+    scheme: {}
+    sources:
+      - path: SourcesPhone
+      - path: Sources
+        includes:
+          - Assets.xcassets
+          - Navigation
+          - NavigationRealityKit.swift
+          - Static
+          - StreamingSettings.swift
+          - Signposts.swift
+          - TileSource.swift
+          - TileStreaming.swift
+          - TileUploader.swift
+          - DebugLines.swift
+          - Places
+          - Cesium/CNTileStreamer.h
+          - Cesium/CNTileStreamer.mm
+    dependencies:
+      - package: CesiumNative
+      - sdk: libsqlite3.tbd
+      - sdk: libc++.tbd
+    info:
+      path: SourcesPhone/Info.plist
+      properties:
+        CFBundleDisplayName: Map Volume
+        GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
+        CesiumIonToken: $(CESIUM_ION_TOKEN)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      groups: [CesiumBridge]
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ryanberdeen.MapVolume
+        PRODUCT_NAME: MapVolumePhone
+        # Prototype: no iPhone app icon artwork yet.
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/MapVolume-Bridging-Header.h

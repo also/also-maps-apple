@@ -135,3 +135,20 @@ Verified with Debug builds for macOS and the Apple TV 4K (3rd generation)
 simulator on tvOS 27.0. The saved San Francisco scene rendered 160 tiles at
 100% load and 60 fps. These are simulator observations, not measurements on
 Apple TV hardware. Remote-driven picker selection still needs manual verification.
+
+## iPhone static-map prototype
+
+The `MapVolumePhone` target (iOS 26+, iPhone) uses the shared static-map scene
+and the released CesiumNative package. Open Places in the navigation bar to
+choose any bundled location; each uses its saved radius and heading, with
+sampled ground height. Portrait and landscape use the actual scene aspect
+ratio. Credits wrap within the safe area, and the phone hides diagnostic stats.
+
+Run `xcodegen generate`, select `MapVolumePhone`, and run on an iPhone or iOS
+simulator. API keys and `MAPVOLUME_PLACE` / `MAPVOLUME_VIEW` overrides work as
+above. This prototype has no free camera navigation or app icon yet.
+
+Verified: Debug build and launch on the iPhone 18 Pro simulator (iOS 27.0),
+with textured San Francisco tiles, the Places control and wrapped attribution
+visible in portrait. Touch-driven place selection, rotation and physical-device
+performance still need manual verification.
