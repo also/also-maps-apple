@@ -33,10 +33,15 @@ struct PhoneMapView: View {
         NavigationStack {
             ScreenMapView(map: map, showsStatus: false, creditLineLimit: nil)
                 .overlay(alignment: .bottom) {
-                    DroneControls(map: map)
-                        // Clear of the attribution along the bottom.
-                        .padding(.bottom, 64)
+                    // The track has the camera while it plays.
+                    if !map.tracks.isPlaying {
+                        DroneControls(map: map)
+                            // Clear of the attribution along the bottom.
+                            .padding(.bottom, 64)
+                            .transition(.opacity)
+                    }
                 }
+                .animation(.easeInOut(duration: 0.2), value: map.tracks.isPlaying)
             // No title: you fly away from the place you picked. The bar is
             // just the Places button, over the map.
             .navigationBarTitleDisplayMode(.inline)
