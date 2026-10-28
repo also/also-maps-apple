@@ -4,11 +4,12 @@ options:
   deploymentTarget:
     visionOS: "26.0"
     macOS: "26.0"
+    tvOS: "26.0"
 packages:
   # cesium-native, prebuilt: https://github.com/also/cesium-native-xcframework
   CesiumNative:
     url: https://github.com/also/cesium-native-xcframework
-    exactVersion: 0.64.0-1
+    exactVersion: 0.64.0-2
 settingGroups:
   # Compiling against cesium-native: its headers, and the targets that include
   # CNTileStreamer.mm.
@@ -51,6 +52,7 @@ targets:
     platform: visionOS
     sources:
       - path: Sources
+        excludes: [Static]
     dependencies:
       - package: CesiumNative
       - sdk: libsqlite3.tbd
@@ -104,6 +106,7 @@ targets:
           - Assets.xcassets
           - Navigation
           - NavigationRealityKit.swift
+          - Static
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift
@@ -151,6 +154,9 @@ targets:
       - path: Sources/MapViewState.swift
       - path: Sources/StreamingSettings.swift
       - path: Sources/TileSource.swift
+      - path: Sources/Static/StaticView.swift
+      - path: Sources/Places/Place.swift
+      - path: Tests/Static
       - path: Tests/Navigation
     scheme:
       testTargets: [MapVolumeCoreTests]
@@ -159,3 +165,44 @@ targets:
         SWIFT_VERSION: "5.0"
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.ryanberdeen.MapVolumeCoreTests
+
+  # Static map on Apple TV, sharing the Mac scene and streaming pipeline.
+  MapVolumeTV:
+    type: application
+    platform: tvOS
+    scheme: {}
+    sources:
+      - path: SourcesTV
+      - path: Sources
+        includes:
+          - Assets.xcassets
+          - Navigation
+          - NavigationRealityKit.swift
+          - Static
+          - StreamingSettings.swift
+          - Signposts.swift
+          - TileSource.swift
+          - TileStreaming.swift
+          - TileUploader.swift
+          - DebugLines.swift
+          - Places
+          - Cesium/CNTileStreamer.h
+          - Cesium/CNTileStreamer.mm
+    dependencies:
+      - package: CesiumNative
+      - sdk: libsqlite3.tbd
+      - sdk: libc++.tbd
+    info:
+      path: SourcesTV/Info.plist
+      properties:
+        CFBundleDisplayName: Map Volume
+        GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
+        CesiumIonToken: $(CESIUM_ION_TOKEN)
+        UILaunchScreen: {}
+    settings:
+      groups: [CesiumBridge]
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ryanberdeen.MapVolume
+        PRODUCT_NAME: MapVolumeTV
+        SWIFT_VERSION: "5.0"
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/MapVolume-Bridging-Header.h

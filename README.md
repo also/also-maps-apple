@@ -55,7 +55,7 @@ Detail doesn't improve as you zoom in, because nothing new loads while frozen. C
 
 ## Places
 
-The pin button next to the mode picker jumps to a saved place: its position, zoom and facing. The defaults are in `Sources/Places/Places.json` (San Francisco, Boston, New York and Chicago). Each entry has an `id`, `name`, `latitude`, `longitude`, `radius` (view half-width in metres) and an optional `heading` (degrees clockwise from north). `PlaceLibrary` is where user-added places, stored locally or in iCloud, would be merged in later. `MAPVOLUME_PLACE=<id>` starts at that place.
+The pin button next to the mode picker jumps to a saved place: its position, zoom and facing. The defaults are in `Sources/Places/Places.json` (San Francisco, Boston, New York, Chicago, Grand Canyon and Puente Nuevo in Ronda). Each entry has an `id`, `name`, `latitude`, `longitude`, `radius` (view half-width in metres) and an optional `heading` (degrees clockwise from north). `PlaceLibrary` is where user-added places, stored locally or in iCloud, would be merged in later. `MAPVOLUME_PLACE=<id>` starts at that place.
 
 ## Views
 
@@ -106,3 +106,32 @@ Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](
 
 - The main thread still spends 2–3 ms per frame on tile selection and on re-placing every tile, even when the view isn't moving (#2).
 - Below 50 km, ground height is the lowest hit on a 3×3 grid of samples. In a region that's mostly hills with a little low ground, the hills can reach close to the top of the volume.
+
+## tvOS static-map prototype
+
+The `MapVolumeTV` target (tvOS 26+) displays a full-screen,
+static scene selected from the bundled places. The location button in the
+upper-right opens a remote-focusable Places list; selecting an entry replaces
+the scene and streams that location using its saved radius and heading. The
+camera looks down at 45 degrees, with distance proportional to the radius,
+and samples ground height to frame elevated locations.
+
+It shares `Sources/Static/StaticMapView.swift` and the existing tile streaming
+pipeline. Set `MAPVOLUME_PLACE=<id>` to select the starting place, or
+`MAPVOLUME_VIEW=bay` to try the wider Mac view. Detail and concurrency
+overrides apply to both; saved places use their own radius, while
+`MAPVOLUME_RADIUS` overrides the area for an explicit camera preset.
+The LOD camera tracks the actual view aspect ratio.
+
+The project uses the released `CesiumNative` package version `0.64.0-2`,
+which contains arm64 macOS and device/simulator slices for iOS, visionOS and
+tvOS. No sibling framework checkout is required.
+
+Keep `Config/Secrets.xcconfig` configured as above, then run `xcodegen generate`
+and select the `MapVolumeTV` scheme and an Apple TV simulator or device in Xcode.
+This prototype has no free camera navigation or TV app icon/top-shelf artwork yet.
+
+Verified with Debug builds for macOS and the Apple TV 4K (3rd generation)
+simulator on tvOS 27.0. The saved San Francisco scene rendered 160 tiles at
+100% load and 60 fps. These are simulator observations, not measurements on
+Apple TV hardware. Remote-driven picker selection still needs manual verification.

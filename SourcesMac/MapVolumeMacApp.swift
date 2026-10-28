@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct MapVolumeMacApp: App {
+    private let view = StaticView.fromEnvironment()
+
     init() {
         // print() goes to a pipe or file when launched from a tool; make it
         // line-buffered so the log is live and survives being killed.
@@ -10,10 +12,11 @@ struct MapVolumeMacApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MapWindowView()
+            StaticMapView(view: view)
+                .frame(width: view.viewportSize.width, height: view.viewportSize.height)
         }
-        // Square and fixed, so the real camera's field of view matches the
-        // LOD camera's (60° both ways).
+        // Keep the selected preset's window size; the shared scene keeps
+        // its LOD camera matched to the actual viewport.
         .windowResizability(.contentSize)
     }
 }
