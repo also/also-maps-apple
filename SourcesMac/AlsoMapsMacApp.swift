@@ -12,11 +12,10 @@ struct AlsoMapsMacApp: App {
 
     var body: some Scene {
         WindowGroup {
-            StaticMapView(view: view)
-                .frame(width: view.viewportSize.width, height: view.viewportSize.height)
+            // Starts at the selected preset's camera, then flies.
+            ScreenMapView(start: view)
+                .frame(minWidth: 400, minHeight: 300)
         }
-        // Keep the selected preset's window size; the shared scene keeps
-        // its LOD camera matched to the actual viewport.
-        .windowResizability(.contentSize)
+        .defaultSize(width: view.viewportSize.width, height: view.viewportSize.height)
     }
 }

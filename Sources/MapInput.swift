@@ -19,6 +19,9 @@ struct MapInput {
     /// Climb (+) / descend (−), −1…1: right stick up/down and F/R. Normally
     /// that's zooming out/in (altitude is zoom); in Fly it moves vertically.
     var altitude = 0.0
+    /// Look up (+) / down (−), −1…1: T/G. Flat screens only; the visionOS
+    /// hosts set pitch themselves.
+    var pitch = 0.0
     var fast = false
 
     /// One-shot actions; reported while the button is held, so the model
@@ -26,7 +29,12 @@ struct MapInput {
     enum Action: Hashable { case previousPlace, nextPlace, faceNorth, toggleFly }
     var held: Set<Action> = []
 
-    var isMoving: Bool { move != .zero || turn != 0 || zoom != 0 || altitude != 0 }
+    var isMoving: Bool { move != .zero || turn != 0 || zoom != 0 || altitude != 0 || pitch != 0 }
+
+    /// The same values as rates for the control styles.
+    var controlInput: ControlInput {
+        ControlInput(move: move, turn: turn, climb: altitude, dolly: zoom, pitch: pitch, fast: fast)
+    }
 
     /// Keyboard and controller together.
     static func current() -> MapInput {
@@ -41,6 +49,7 @@ struct MapInput {
         turn = min(max(turn + other.turn, -1), 1)
         zoom = min(max(zoom + other.zoom, -1), 1)
         altitude = min(max(altitude + other.altitude, -1), 1)
+        pitch = min(max(pitch + other.pitch, -1), 1)
         fast = fast || other.fast
         held.formUnion(other.held)
     }
@@ -48,6 +57,8 @@ struct MapInput {
     // MARK: Keyboard
 
     static let keyboardHint = "WASD / arrows move · Q E turn · R F descend/climb · = − zoom · Shift faster"
+    /// For flat screens, where you look up and down with the keyboard.
+    static let screenKeyboardHint = "WASD / arrows move · Q E turn · T G look up/down · R F descend/climb · = − zoom · Shift faster"
 
     static var isKeyboardConnected: Bool { GCKeyboard.coalesced != nil }
 
@@ -68,6 +79,7 @@ struct MapInput {
         input.turn = axis(positive: held(.keyE), negative: held(.keyQ))
         input.zoom = axis(positive: held(.equalSign, .keypadPlus), negative: held(.hyphen, .keypadHyphen))
         input.altitude = axis(positive: held(.keyF), negative: held(.keyR))
+        input.pitch = axis(positive: held(.keyT), negative: held(.keyG))
         input.fast = held(.leftShift, .rightShift)
         return input
     }

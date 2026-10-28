@@ -58,7 +58,7 @@ targets:
     platform: visionOS
     sources:
       - path: Sources
-        excludes: [Static]
+        excludes: [Static, Screen]
     dependencies:
       - package: CesiumNative
       - sdk: libsqlite3.tbd
@@ -103,9 +103,9 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
 
   # The macOS app: same bundle ID as the visionOS app, so both ship as one App
-  # Store listing (universal purchase). For now a static view of the map; it
-  # shares the streaming layer (TileStreaming and below) and the cesium-native
-  # bridge, and will gain the rest as they're made to build on macOS.
+  # Store listing (universal purchase). A map flown with the keyboard or a
+  # game controller (Screen), sharing the navigation core, the streaming
+  # layer (TileStreaming and below) and the cesium-native bridge.
   AlsoMapsMac:
     type: application
     platform: macOS
@@ -118,6 +118,8 @@ targets:
           - Navigation
           - NavigationRealityKit.swift
           - Static
+          - Screen
+          - MapInput.swift
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift

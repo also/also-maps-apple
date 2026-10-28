@@ -93,7 +93,7 @@ final class MapModel {
     // (h_env), and the ground under the camera, for speed and limits.
     private var rayHeight = EasedHeight(0)
     private var envelopeHeight = EasedHeight(0)
-    private var cameraGround = EasedHeight(0)
+    private var cameraGround = CameraGround()
     /// Bumped per sample request so a slow, older result can't win.
     private var groundSampleGeneration = 0
     private var wasMoving = false
@@ -610,10 +610,8 @@ final class MapModel {
     /// The envelope used for placement, never above the ray surface.
     private var effectiveEnvelope: Double { min(envelopeHeight.value, rayHeight.value) }
 
-    /// The ground under the camera, every frame, from loaded tiles detailed
-    /// enough to trust: coarse tiles' lowest vertices can be kilometres
-    /// below the real ground. It sets speed and limits only; it never moves
-    /// the view.
+    /// The ground under the camera every frame (see `CameraGround`), for
+    /// speed and limits.
     ///
     /// The georeference ground (where the map sits on the base plane)
     /// comes only from the 3×3 surface sample once motion settles, plus the
@@ -623,14 +621,8 @@ final class MapModel {
     /// changes it while tiles are held or during a gesture.
 
     private func updateGround(deltaTime: Double) {
-        let camera = navigation.camera
-        let altitude = max(camera.height - cameraGround.value, 0)
-        let detailed = streaming.renderedHeightRanges().filter { $0.radius <= max(2 * altitude, 500) }
-        if let ground = GroundEstimates.envelope(detailed, around: camera.coordinate,
-                                                 radius: max(20, 0.05 * altitude), statistic: .minimum) {
-            cameraGround.aim(at: min(max(ground, -500), 9_000))
-        }
-        cameraGround.ease(deltaTime: deltaTime, halfLife95: 0.3)
+        cameraGround.update(camera: navigation.camera, rendered: streaming.renderedHeightRanges(),
+                            deltaTime: deltaTime)
 
         guard !tilesHeld, manipulation == nil, let framing else { return }
         let shown = framing.shownRadius(room)

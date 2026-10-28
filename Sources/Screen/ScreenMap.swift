@@ -1,0 +1,252 @@
+import RealityKit
+import SwiftUI
+
+/// The map on a flat screen (macOS, and iOS next): the window's camera is
+/// the navigation camera, flown with the keyboard or a game controller. The
+/// navigation core, ground estimate and streaming are the same as on
+/// visionOS; only the presentation (`ScreenView`) differs.
+@MainActor
+@Observable
+final class ScreenMap {
+    let streaming: TileStreaming
+    /// The camera, movement heading and heading link: the only stored
+    /// navigation state.
+    private(set) var navigation: NavigationState
+    private(set) var framesPerSecond = 0
+    private(set) var keyboardConnected = false
+    private(set) var controllerName: String?
+
+    @ObservationIgnored private var flight = ModelFlightStyle()
+    @ObservationIgnored private var cameraGround = CameraGround()
+    @ObservationIgnored private var heldActions: Set<MapInput.Action> = []
+    @ObservationIgnored private var currentPlaceIndex: Int?
+    /// Bumped per ground sample so a slow, older result can't win.
+    @ObservationIgnored private var groundSampleGeneration = 0
+    @ObservationIgnored private let cameraEntity = Entity()
+    @ObservationIgnored private var subscription: EventSubscription?
+    @ObservationIgnored private var aspect = 1.0
+    @ObservationIgnored private var frameCount = 0
+    @ObservationIgnored private var frameElapsed: Float = 0
+
+    /// Vertical field of view, radians: the window camera's and the LOD
+    /// camera's.
+    static let fieldOfView = Double.pi / 4
+    /// Lowest camera height above the estimated ground, metres.
+    private static let minimumAltitude = 2.0
+
+    init(camera: CameraPose, settings: StreamingSettings) {
+        navigation = NavigationState(camera: camera)
+        streaming = TileStreaming(inputs: ScreenView.streamingInputs(camera: camera, groundHeight: 0,
+                                                                     fieldOfView: Self.fieldOfView, aspect: 1),
+                                  settings: settings)
+        navigation = flight.activate(navigation)
+    }
+
+    func attach(_ content: inout RealityViewCameraContent) {
+        content.camera = .virtual
+        content.add(streaming.tilesRoot)
+        content.add(cameraEntity)
+        applyView()
+        streaming.start()
+        sampleGround(around: navigation.camera.coordinate, radius: 500, liftsCamera: false)
+        subscription = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
+            MainActor.assumeIsolated {
+                self?.tick(deltaTime: Float(event.deltaTime))
+            }
+        }
+    }
+
+    /// Matches the LOD camera to the window and sets detail as pixels of
+    /// error on this screen.
+    func resize(to size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        aspect = size.width / size.height
+        var settings = streaming.settings
+        settings.detail = StaticView.detail(pixels: 16, windowHeight: size.height)
+        settings.outerDetail = StaticView.detail(pixels: 64, windowHeight: size.height)
+        streaming.settings = settings
+        applyView()
+    }
+
+    // MARK: Places
+
+    func go(to place: Place) {
+        currentPlaceIndex = PlaceLibrary.all.firstIndex(of: place)
+        let camera = ScreenView.framePlace(centre: place.coordinate, radius: max(place.radius, 50),
+                                           heading: place.heading * .pi / 180, fieldOfView: Self.fieldOfView)
+        navigation = flight.activate(NavigationState(camera: camera))
+        cameraGround.reset(to: 0)
+        // Framed on the ellipsoid; lift it by the ground there once known.
+        sampleGround(around: place.coordinate, radius: place.radius, liftsCamera: true)
+    }
+
+    /// Samples the ground around `centre` for the ground estimate. With
+    /// `liftsCamera`, the camera rises by what it finds, so a place framed
+    /// on the ellipsoid ends up framed on the ground.
+    private func sampleGround(around centre: GeoCoordinate, radius: Double, liftsCamera: Bool) {
+        groundSampleGeneration += 1
+        let generation = groundSampleGeneration
+        let assumed = cameraGround.value
+        streaming.sampleGroundHeight(around: centre, radius: radius) { [weak self] height in
+            MainActor.assumeIsolated {
+                guard let self, generation == self.groundSampleGeneration, height.isFinite else { return }
+                let ground = min(max(height, -500), 9_000)
+                if liftsCamera { self.navigation.camera.height += ground - assumed }
+                self.cameraGround.reset(to: ground)
+            }
+        }
+    }
+
+    // MARK: Frame loop
+
+    private func tick(deltaTime: Float) {
+        guard streaming.isStreaming else { return }
+        let dt = Double(deltaTime)
+        applyInput(deltaTime: dt)
+        cameraGround.update(camera: navigation.camera, rendered: streaming.renderedHeightRanges(), deltaTime: dt)
+        applyView()
+        streaming.update(deltaTime: deltaTime)
+        countFrame(deltaTime)
+    }
+
+    private func applyInput(deltaTime: Double) {
+        let connected = MapInput.isKeyboardConnected
+        if keyboardConnected != connected { keyboardConnected = connected }
+        let controller = MapInput.controller?.vendorName ?? (MapInput.controller == nil ? nil : "Controller")
+        if controllerName != controller { controllerName = controller }
+
+        let input = MapInput.current()
+        // Buttons act once, on the frame they go down.
+        for action in input.held.subtracting(heldActions) {
+            perform(action)
+        }
+        heldActions = input.held
+
+        guard input.isMoving else { return }
+        flight.dollySurfaceHeight = cameraGround.value
+        navigation = flight.step(navigation, input: input.controlInput, deltaTime: deltaTime, context: context)
+    }
+
+    private func perform(_ action: MapInput.Action) {
+        let places = PlaceLibrary.all
+        switch action {
+        case .nextPlace where !places.isEmpty:
+            go(to: places[((currentPlaceIndex ?? -1) + 1) % places.count])
+        case .previousPlace where !places.isEmpty:
+            go(to: places[((currentPlaceIndex ?? 0) - 1 + places.count) % places.count])
+        case .faceNorth:
+            navigation = NavigationOperations.faceNorth(navigation)
+        default:
+            break
+        }
+    }
+
+    private var context: NavigationContext {
+        NavigationContext(cameraGround: cameraGround.value,
+                          minimumAltitude: Self.minimumAltitude,
+                          maximumAltitude: streaming.settings.zoomOutLimitKilometres * 1_100)
+    }
+
+    // MARK: Placement
+
+    /// Streams for the camera, then places the tiles and the camera entity.
+    private func applyView() {
+        let camera = navigation.camera
+        streaming.inputs = ScreenView.streamingInputs(camera: camera, groundHeight: cameraGround.value,
+                                                      fieldOfView: Self.fieldOfView, aspect: aspect)
+        let georeference = ScreenView.georeference(camera: camera)
+        streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
+
+        let (near, far) = ScreenView.clipping(altitude: camera.height - cameraGround.value)
+        cameraEntity.components.set(PerspectiveCameraComponent(near: Float(near), far: Float(far),
+                                                               fieldOfViewInDegrees: Float(Self.fieldOfView * 180 / .pi)))
+        cameraEntity.orientation = simd_quatf(vector: SIMD4<Float>(ScreenView.cameraOrientation(camera: camera).vector))
+        cameraEntity.position = .zero
+    }
+
+    private func countFrame(_ deltaTime: Float) {
+        frameCount += 1
+        frameElapsed += deltaTime
+        if frameElapsed >= 1 {
+            framesPerSecond = Int((Float(frameCount) / frameElapsed).rounded())
+            frameCount = 0
+            frameElapsed = 0
+        }
+    }
+}
+
+struct ScreenMapView: View {
+    private let start: StaticView
+    @State private var map: ScreenMap?
+    @State private var viewportSize: CGSize = .zero
+    @FocusState private var focused: Bool
+
+    init(start: StaticView) {
+        self.start = start
+    }
+
+    var body: some View {
+        RealityView { content in
+            let map = self.map ?? ScreenMap(camera: start.cameraPose, settings: start.settings)
+            self.map = map
+            map.resize(to: viewportSize)
+            map.attach(&content)
+        }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: {
+            viewportSize = $0
+            map?.resize(to: $0)
+        }
+        // Keys are read from the keyboard device each frame (MapInput);
+        // taking them here only stops the system beeping at unhandled keys.
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focused)
+        .onKeyPress(phases: .all) { _ in .handled }
+        .onAppear { focused = true }
+        .background(Color(red: 0.55, green: 0.7, blue: 0.85))
+        .overlay(alignment: .topLeading) {
+            if let map {
+                status(map)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if let map {
+                Menu("Places", systemImage: "mappin.and.ellipse") {
+                    ForEach(PlaceLibrary.all) { place in
+                        Button(place.name) { map.go(to: place) }
+                    }
+                }
+                .menuStyle(.button)
+                .fixedSize()
+                .padding(8)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let map {
+                AttributionBar(streaming: map.streaming)
+                    .padding(8)
+            }
+        }
+    }
+
+    private func status(_ map: ScreenMap) -> some View {
+        let camera = map.navigation.camera
+        return VStack(alignment: .leading, spacing: 2) {
+            Text("\(map.streaming.stats.renderedTiles) tiles · \(Int(map.streaming.loadProgress))% · \(map.framesPerSecond) fps")
+            Text(String(format: "%.5f, %.5f · %.0f m · heading %.0f° · pitch %.0f°",
+                        camera.latitude, camera.longitude, camera.height,
+                        camera.heading * 180 / .pi, camera.pitch * 180 / .pi))
+            if map.keyboardConnected {
+                Text(MapInput.screenKeyboardHint)
+            }
+            if map.controllerName != nil {
+                Text(MapInput.controllerHint)
+            }
+        }
+        .font(.caption.monospacedDigit())
+        .padding(6)
+        .background(.black.opacity(0.5), in: .rect(cornerRadius: 6))
+        .foregroundStyle(.white)
+        .padding(8)
+    }
+}

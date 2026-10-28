@@ -8,6 +8,9 @@ struct ControlInput: Equatable {
     var turn = 0.0
     var climb = 0.0
     var dolly = 0.0
+    /// Look up (+) / down (−). Only hosts whose view follows the camera's
+    /// pitch (flat screens) send it.
+    var pitch = 0.0
     var fast = false
 
     var boost: Double { fast ? 3 : 1 }
@@ -26,6 +29,8 @@ struct ModelFlightStyle {
     var climbRate = 1.0
     /// e-folds of range per second.
     var dollyRate = 1.0
+    /// Radians per second.
+    var pitchRate = Double.pi / 4
     /// Surface the dolly target is found on, metres above the ellipsoid.
     var dollySurfaceHeight = 0.0
 
@@ -44,6 +49,9 @@ struct ModelFlightStyle {
         let boost = input.boost
         if input.turn != 0 {
             state = NavigationOperations.turn(state, by: input.turn * turnRate * boost * deltaTime)
+        }
+        if input.pitch != 0 {
+            state = NavigationOperations.pitch(state, by: input.pitch * pitchRate * boost * deltaTime)
         }
         if input.climb != 0 {
             let altitude = context.altitude(of: state.camera)

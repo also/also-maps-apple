@@ -15,6 +15,14 @@ struct StaticView {
     var far: Float
     var samplesGround = false
 
+    /// The navigation camera at this view's LOD camera.
+    var cameraPose: CameraPose {
+        let toECEF = inputs.anchor.ecefFromAnchor
+        return CameraPose(position: toECEF.apply(inputs.lod.position),
+                          forward: toECEF.rotation.act(inputs.lod.direction),
+                          fallbackHeading: inputs.regionHeading)
+    }
+
     /// The bridge selects detail as if the view were this many pixels tall
     /// (see `ViewState` in CNTileStreamer.mm), whatever the window is.
     private static let assumedViewportHeight = 2048.0
