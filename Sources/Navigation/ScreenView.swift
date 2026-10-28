@@ -52,11 +52,15 @@ enum ScreenView {
         return (near, far)
     }
 
+    /// How far places are looked down on: shallow, like a drone shot, so
+    /// the horizon is in view.
+    static let placeElevation = 12 * Double.pi / 180
+
     /// A pose looking at `centre` (on ground at `groundHeight`) from
     /// `elevation` radians above its horizon, facing `heading`, far enough
     /// back that `radius` metres around it fill the view.
     static func framePlace(centre: GeoCoordinate, radius: Double, heading: Double,
-                           groundHeight: Double = 0, elevation: Double = .pi / 4,
+                           groundHeight: Double = 0, elevation: Double = placeElevation,
                            fieldOfView: Double = .pi / 4) -> CameraPose {
         let target = Geodesy.ecef(centre, height: groundHeight)
         let frame = Geodesy.enu(latitude: centre.latitude, longitude: centre.longitude)

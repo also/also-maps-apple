@@ -46,10 +46,11 @@ struct ScreenViewTests {
         let toCentre = simd_normalize(centre - pose.position)
         #expect(simd_distance(toCentre, pose.basis.forward) < 1e-6)
         #expect(abs(simd_distance(centre, pose.position) - radius / tan(Double.pi / 8)) < 1e-3 * radius)
-        // 45° down at the centre; at the camera, less by the Earth's curve
-        // between them.
-        let curve = simd_distance(centre, pose.position) * cos(Double.pi / 4) / GeoMath.earthRadius
-        #expect(abs(pose.pitch + .pi / 4) < curve + 1e-3)
+        // Looking down at the centre by the place elevation; at the camera,
+        // less by the Earth's curve between them.
+        let elevation = ScreenView.placeElevation
+        let curve = simd_distance(centre, pose.position) * cos(elevation) / GeoMath.earthRadius
+        #expect(abs(pose.pitch + elevation) < curve + 1e-3)
     }
 
     @Test
