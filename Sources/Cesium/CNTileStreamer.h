@@ -117,12 +117,12 @@ typedef struct {
 
 @interface CNTileStreamer : NSObject
 
-- (instancetype)initWithTilesetURL:(NSString *)url NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithTilesetURL:(NSString *)url;
 /// A Cesium ion asset, e.g. 96188 (Cesium OSM Buildings). The token needs
 /// only the assets:read scope.
 - (instancetype)initWithIonAssetID:(int64_t)assetID
                        accessToken:(NSString *)accessToken
-                     smoothNormals:(BOOL)smoothNormals NS_DESIGNATED_INITIALIZER;
+                     smoothNormals:(BOOL)smoothNormals;
 /// smoothNormals: have cesium-native generate smooth normals for content
 /// without any (terrain); otherwise flat ones are computed (buildings).
 - (instancetype)init NS_UNAVAILABLE;
