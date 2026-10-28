@@ -199,15 +199,20 @@ struct ScreenMapView: View {
     @State private var viewportSize: CGSize = .zero
 
     var body: some View {
-        RealityView { content in
-            map.resize(to: viewportSize)
-            map.attach(&content)
+        // The map fills the screen, under bars and around the notch; the
+        // controls over it stay in the safe area.
+        ZStack {
+            RealityView { content in
+                map.resize(to: viewportSize)
+                map.attach(&content)
+            }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: {
+                viewportSize = $0
+                map.resize(to: $0)
+            }
+            .background(Color(red: 0.55, green: 0.7, blue: 0.85))
+            .ignoresSafeArea()
         }
-        .onGeometryChange(for: CGSize.self) { $0.size } action: {
-            viewportSize = $0
-            map.resize(to: $0)
-        }
-        .background(Color(red: 0.55, green: 0.7, blue: 0.85))
         .overlay(alignment: .topLeading) {
             if showsStatus {
                 status

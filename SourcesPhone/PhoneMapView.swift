@@ -36,8 +36,10 @@ struct PhoneMapView: View {
                         // Clear of the attribution along the bottom.
                         .padding(.bottom, 64)
                 }
-            .navigationTitle(selection?.name ?? "Also Maps")
+            // No title: you fly away from the place you picked. The bar is
+            // just the Places button, over the map.
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Places", systemImage: "mappin.and.ellipse") {

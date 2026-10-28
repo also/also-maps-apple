@@ -58,22 +58,22 @@ struct Joystick: View {
     }
 }
 
-/// Drone-style ("mode 2") sticks over the map: the left stick climbs and
-/// turns, the right one moves forward, back and sideways. A slider on the
-/// right edge tilts the view up and down.
+/// Sticks over the map laid out like the game controller's (MapInput):
+/// the left stick moves forward, back and sideways, the right one turns
+/// and climbs. A slider between them tilts the view up and down.
 struct DroneControls: View {
     let map: ScreenMap
 
     var body: some View {
         HStack(alignment: .bottom) {
-            Joystick(label: "climb · turn") { value in
-                map.touchInput.altitude = value.y
-                map.touchInput.turn = value.x
+            Joystick(label: "move") { value in
+                map.touchInput.move = value
             }
             Spacer()
             TiltControl { map.touchInput.pitch = $0 }
-            Joystick(label: "move") { value in
-                map.touchInput.move = value
+            Joystick(label: "turn · climb") { value in
+                map.touchInput.turn = value.x
+                map.touchInput.altitude = value.y
             }
         }
         .padding(.horizontal, 20)
