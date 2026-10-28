@@ -61,7 +61,7 @@ final class StaticMap {
         if secondsToComplete == nil, streaming.stats.renderedTiles > 0, streaming.loadProgress >= 100 {
             secondsToComplete = elapsed
             #if DEBUG
-            print("[MapVolume] \(view.name): first tile \(String(format: "%.1f", secondsToFirstTile ?? 0)) s, loaded \(String(format: "%.1f", elapsed)) s, \(streaming.stats.renderedTiles) tiles, \(String(format: "%.1f", streaming.stats.networkMegabytes)) MB downloaded")
+            print("[AlsoMaps] \(view.name): first tile \(String(format: "%.1f", secondsToFirstTile ?? 0)) s, loaded \(String(format: "%.1f", elapsed)) s, \(streaming.stats.renderedTiles) tiles, \(String(format: "%.1f", streaming.stats.networkMegabytes)) MB downloaded")
             #endif
         }
         frameCount += 1
@@ -69,7 +69,7 @@ final class StaticMap {
         if frameElapsed >= 1 {
             framesPerSecond = Int((Float(frameCount) / frameElapsed).rounded())
             #if DEBUG
-            print("[MapVolume] \(framesPerSecond) fps")
+            print("[AlsoMaps] \(framesPerSecond) fps")
             #endif
             frameCount = 0
             frameElapsed = 0

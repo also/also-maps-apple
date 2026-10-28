@@ -11,7 +11,7 @@ import UIKit
 /// docs/camera-core.md.
 @MainActor
 @Observable
-final class MapVolumeModel {
+final class MapModel {
     /// Volume extents in metres (width, height, depth).
     nonisolated static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
 
@@ -178,15 +178,15 @@ final class MapVolumeModel {
         let settings = StreamingSettings.load()
         self.settings = settings
 
-        // Debug overrides: MAPVOLUME_LAT/_LON/_RADIUS/_HEADING pick the
-        // starting view, and MAPVOLUME_TILESET_URL streams any 3D Tiles
+        // Debug overrides: ALSOMAPS_LAT/_LON/_RADIUS/_HEADING pick the
+        // starting view, and ALSOMAPS_TILESET_URL streams any 3D Tiles
         // tileset instead of Google's, no key needed.
         let env = ProcessInfo.processInfo.environment
         var place = Self.defaultPlace
-        place.latitude = env["MAPVOLUME_LAT"].flatMap(Double.init) ?? place.latitude
-        place.longitude = env["MAPVOLUME_LON"].flatMap(Double.init) ?? place.longitude
-        place.radius = env["MAPVOLUME_RADIUS"].flatMap(Double.init) ?? place.radius
-        place.heading = env["MAPVOLUME_HEADING"].flatMap(Double.init) ?? place.heading
+        place.latitude = env["ALSOMAPS_LAT"].flatMap(Double.init) ?? place.latitude
+        place.longitude = env["ALSOMAPS_LON"].flatMap(Double.init) ?? place.longitude
+        place.radius = env["ALSOMAPS_RADIUS"].flatMap(Double.init) ?? place.radius
+        place.heading = env["ALSOMAPS_HEADING"].flatMap(Double.init) ?? place.heading
         let camera = Self.framing(place, in: .volume, groundHeight: 0)
         navigation = ModelFlightStyle().activate(NavigationState(camera: camera))
 
@@ -270,9 +270,9 @@ final class MapVolumeModel {
         applyView()
         requestGroundSample()
 
-        // Debug: MAPVOLUME_PLACE=<id from Places.json> starts at that place.
+        // Debug: ALSOMAPS_PLACE=<id from Places.json> starts at that place.
         let env = ProcessInfo.processInfo.environment
-        if let id = env["MAPVOLUME_PLACE"], let place = PlaceLibrary.all.first(where: { $0.id == id }) {
+        if let id = env["ALSOMAPS_PLACE"], let place = PlaceLibrary.all.first(where: { $0.id == id }) {
             go(to: place)
         }
     }
@@ -449,7 +449,7 @@ final class MapVolumeModel {
             settlesPitch = abs(pitchTarget(for: navigation.camera) - navigation.camera.pitch) > 1e-4
             #if DEBUG
             if !settlesPitch {
-                print("[MapVolume] pitch settled at \(String(format: "%.2f", navigation.camera.pitch * 180 / .pi))° for \(presentation.id)")
+                print("[AlsoMaps] pitch settled at \(String(format: "%.2f", navigation.camera.pitch * 180 / .pi))° for \(presentation.id)")
             }
             #endif
         }
@@ -473,7 +473,7 @@ final class MapVolumeModel {
         if controllerName != controller {
             controllerName = controller
             #if DEBUG
-            print("[MapVolume] game controller: \(controller ?? "none")")
+            print("[AlsoMaps] game controller: \(controller ?? "none")")
             #endif
         }
 
@@ -667,7 +667,7 @@ final class MapVolumeModel {
                 guard height.isFinite else { return }
                 let ground = min(max(height, -500), 9_000)
                 #if DEBUG
-                print("[MapVolume] ground sample \(Int(ground)) m (was \(Int(self.envelopeHeight.value)) m)")
+                print("[AlsoMaps] ground sample \(Int(ground)) m (was \(Int(self.envelopeHeight.value)) m)")
                 #endif
                 if self.placeAwaitsGround {
                     // Places are framed relative to the ground.
@@ -720,7 +720,7 @@ final class MapVolumeModel {
             guard measuredEye != oldValue else { return }
             #if DEBUG
             if let measuredEye {
-                print("[MapVolume] eye measured at \(String(format: "%.2f, %.2f, %.2f", measuredEye.x, measuredEye.y, measuredEye.z)) m")
+                print("[AlsoMaps] eye measured at \(String(format: "%.2f, %.2f, %.2f", measuredEye.x, measuredEye.y, measuredEye.z)) m")
             }
             #endif
             applyView()
@@ -741,7 +741,7 @@ final class MapVolumeModel {
                                                  envelopeHeight: effectiveEnvelope)
         } else {
             #if DEBUG
-            print("[MapVolume] view ray missed the surface (pitch \(camera.pitch * 180 / .pi)°); keeping the last framing")
+            print("[AlsoMaps] view ray missed the surface (pitch \(camera.pitch * 180 / .pi)°); keeping the last framing")
             #endif
         }
         guard let framing else { return }
@@ -804,9 +804,9 @@ final class MapVolumeModel {
             trackRecorder = recorder
             latestTrack = recorder.url
             trackOverlay.path = nil  // Drawn as it's recorded.
-            print("[MapVolume] recording track to \(recorder.url.path)")
+            print("[AlsoMaps] recording track to \(recorder.url.path)")
         } catch {
-            print("[MapVolume] couldn't start a track: \(error)")
+            print("[AlsoMaps] couldn't start a track: \(error)")
         }
     }
 
@@ -814,7 +814,7 @@ final class MapVolumeModel {
         guard let recorder = trackRecorder else { return }
         recorder.finish()
         trackRecorder = nil
-        print("[MapVolume] track finished: \(recorder.sampleCount) samples in \(recorder.url.lastPathComponent)")
+        print("[AlsoMaps] track finished: \(recorder.sampleCount) samples in \(recorder.url.lastPathComponent)")
     }
 
     /// Writes buffered samples out, for when the app may be suspended.
@@ -829,7 +829,7 @@ final class MapVolumeModel {
                 do {
                     trackOverlay.path = try TrackPath(contentsOf: latestTrack)
                 } catch {
-                    print("[MapVolume] couldn't read track \(latestTrack.lastPathComponent): \(error)")
+                    print("[AlsoMaps] couldn't read track \(latestTrack.lastPathComponent): \(error)")
                 }
             }
         }
@@ -858,12 +858,12 @@ final class MapVolumeModel {
         let playback: TrackPlayback
         do {
             guard let track = try TrackPlayback(contentsOf: latestTrack) else {
-                print("[MapVolume] track \(latestTrack.lastPathComponent) has no samples")
+                print("[AlsoMaps] track \(latestTrack.lastPathComponent) has no samples")
                 return
             }
             playback = track
         } catch {
-            print("[MapVolume] couldn't read track \(latestTrack.lastPathComponent): \(error)")
+            print("[AlsoMaps] couldn't read track \(latestTrack.lastPathComponent): \(error)")
             return
         }
         if tilesHeld { setTilesHeld(false) }
@@ -881,7 +881,7 @@ final class MapVolumeModel {
         setPlayedCamera(playback.pose(at: 0))
         applyView()
         requestGroundSample()
-        print("[MapVolume] playing track \(latestTrack.lastPathComponent): \(playback.samples.count) samples, \(String(format: "%.1f", playback.duration)) s")
+        print("[AlsoMaps] playing track \(latestTrack.lastPathComponent): \(playback.samples.count) samples, \(String(format: "%.1f", playback.duration)) s")
     }
 
     /// Stops playback, leaving the camera where it is.
@@ -890,7 +890,7 @@ final class MapVolumeModel {
         trackPlayback = nil
         requestGroundSample()
         #if DEBUG
-        print("[MapVolume] track playback stopped at \(String(format: "%.1f", playbackTime)) s")
+        print("[AlsoMaps] track playback stopped at \(String(format: "%.1f", playbackTime)) s")
         #endif
     }
 
@@ -952,7 +952,7 @@ final class MapVolumeModel {
         }
         applyView()
         #if DEBUG
-        print("[MapVolume] restored view state: \(captureState().json())")
+        print("[AlsoMaps] restored view state: \(captureState().json())")
         #endif
     }
 

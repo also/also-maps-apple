@@ -4,7 +4,7 @@ import simd
 /// Everything needed to put the view back as it was: the camera and
 /// navigation state, ground estimates, host, room placement, held tiles and
 /// the settings that shape navigation. Copied as JSON from Tuning; restored
-/// from the clipboard or, at launch, from MAPVOLUME_STATE.
+/// from the clipboard or, at launch, from ALSOMAPS_STATE.
 ///
 /// Version 2 is camera-centric. Older (focus, radius, Fly) states aren't
 /// supported.

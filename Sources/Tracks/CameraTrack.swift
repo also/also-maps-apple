@@ -165,7 +165,7 @@ final class TrackRecorder {
         do {
             try handle.write(contentsOf: Data(buffer.utf8))
         } catch {
-            print("[MapVolume] couldn't write track \(url.lastPathComponent): \(error)")
+            print("[AlsoMaps] couldn't write track \(url.lastPathComponent): \(error)")
         }
         buffer = ""
     }

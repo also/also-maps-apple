@@ -1,11 +1,11 @@
 import Foundation
 
 /// A fixed camera and what to stream for it. The camera is also the camera
-/// level of detail is selected for. Pick one with MAPVOLUME_VIEW (`bay`, the
+/// level of detail is selected for. Pick one with ALSOMAPS_VIEW (`bay`, the
 /// default, or `ferry`). Streaming can be overridden for quick experiments:
-/// MAPVOLUME_RADIUS (area of interest half-width, metres),
-/// MAPVOLUME_DETAIL and MAPVOLUME_OUTER_DETAIL (pixels of error on screen),
-/// MAPVOLUME_LOADS and MAPVOLUME_UPLOADS (concurrency).
+/// ALSOMAPS_RADIUS (area of interest half-width, metres),
+/// ALSOMAPS_DETAIL and ALSOMAPS_OUTER_DETAIL (pixels of error on screen),
+/// ALSOMAPS_LOADS and ALSOMAPS_UPLOADS (concurrency).
 struct StaticView {
     var name: String
     var inputs: StreamingInputs
@@ -74,12 +74,12 @@ struct StaticView {
                           near: 10, far: 400_000)
     }()
 
-    /// The view named by MAPVOLUME_VIEW, with any streaming overrides.
+    /// The view named by ALSOMAPS_VIEW, with any streaming overrides.
     static func fromEnvironment(defaultView: StaticView = .bay,
                                 viewportSize: CGSize? = nil) -> StaticView {
         let env = ProcessInfo.processInfo.environment
         var view: StaticView
-        switch env["MAPVOLUME_VIEW"] {
+        switch env["ALSOMAPS_VIEW"] {
         case "ferry": view = ferry
         case "bay": view = bay
         default: view = defaultView
@@ -89,15 +89,15 @@ struct StaticView {
             view.inputs.lod.aspect = viewportSize.width / viewportSize.height
         }
         func number(_ key: String) -> Double? { env[key].flatMap(Double.init) }
-        if let radius = number("MAPVOLUME_RADIUS") { view.inputs.streamingRadius = radius }
-        if let pixels = number("MAPVOLUME_DETAIL") {
+        if let radius = number("ALSOMAPS_RADIUS") { view.inputs.streamingRadius = radius }
+        if let pixels = number("ALSOMAPS_DETAIL") {
             view.settings.detail = detail(pixels: pixels, windowHeight: view.viewportSize.height)
         }
-        if let pixels = number("MAPVOLUME_OUTER_DETAIL") {
+        if let pixels = number("ALSOMAPS_OUTER_DETAIL") {
             view.settings.outerDetail = detail(pixels: pixels, windowHeight: view.viewportSize.height)
         }
-        if let loads = number("MAPVOLUME_LOADS") { view.settings.simultaneousLoads = loads }
-        if let uploads = number("MAPVOLUME_UPLOADS") { view.settings.uploadConcurrency = uploads }
+        if let loads = number("ALSOMAPS_LOADS") { view.settings.simultaneousLoads = loads }
+        if let uploads = number("ALSOMAPS_UPLOADS") { view.settings.uploadConcurrency = uploads }
         return view
     }
 }

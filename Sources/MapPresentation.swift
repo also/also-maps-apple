@@ -62,6 +62,6 @@ struct MapPresentation: Identifiable, Hashable {
         return .room(RoomGeometry(designEye: SIMD3<Double>(viewerPosition),
                                   placementLevel: level,
                                   placementDown: SIMD3(level.x, downHeight, level.z),
-                                  contentHalfWidth: MapVolumeModel.volumeSize.x / 2 * magnification))
+                                  contentHalfWidth: MapModel.volumeSize.x / 2 * magnification))
     }
 }

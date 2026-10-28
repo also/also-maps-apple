@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct MapVolumePhoneApp: App {
+struct AlsoMapsPhoneApp: App {
     var body: some Scene {
         WindowGroup {
             PhoneMapView()

@@ -49,7 +49,7 @@ final class TileUploader: @unchecked Sendable {
                 parts.append(Part(mesh: mesh, image: image(for: primitive),
                                   lit: primitive.normals != nil, baseColor: primitive.baseColor))
             } catch {
-                print("[MapVolume] tile \(tile.identifier) mesh failed: \(error)")
+                print("[AlsoMaps] tile \(tile.identifier) mesh failed: \(error)")
             }
         }
         signposter.endInterval("BuildMesh", meshes)

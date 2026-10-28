@@ -9,7 +9,7 @@ struct ImmersiveMapView: View {
     static let spaceID = "map"
     private static let attributionID = "attribution"
 
-    @Environment(MapVolumeModel.self) private var model
+    @Environment(MapModel.self) private var model
     @Environment(\.openWindow) private var openWindow
     @State private var headTracker = HeadTracker()
 
@@ -24,7 +24,7 @@ struct ImmersiveMapView: View {
             // origin plane, as the presentation changes size.
             guard let attribution = attachments.entity(for: Self.attributionID) else { return }
             let presentation = model.presentation
-            let halfWidth = Float(MapVolumeModel.volumeSize.x / 2 * presentation.magnification)
+            let halfWidth = Float(MapModel.volumeSize.x / 2 * presentation.magnification)
             attribution.position = presentation.groundPosition + [0, 0.35, halfWidth + 0.1]
         } attachments: {
             Attachment(id: Self.attributionID) {
@@ -33,7 +33,7 @@ struct ImmersiveMapView: View {
                     // offer a way back instead of stranding the user here.
                     if !model.volumeIsOpen {
                         Button("Show Controls", systemImage: "map") {
-                            openWindow(id: MapVolumeView.windowID)
+                            openWindow(id: VolumeView.windowID)
                         }
                     }
                     AttributionView()

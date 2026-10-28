@@ -181,8 +181,8 @@ static os_log_t CNSignpostLog(const char* category) {
   static os_log_t tiles, frame;
   static dispatch_once_t once;
   dispatch_once(&once, ^{
-    tiles = os_log_create("com.ryanberdeen.MapVolume", "Tiles");
-    frame = os_log_create("com.ryanberdeen.MapVolume", "Frame");
+    tiles = os_log_create("dev.also.maps", "Tiles");
+    frame = os_log_create("dev.also.maps", "Frame");
   });
   return category[0] == 'F' ? frame : tiles;
 }
@@ -361,7 +361,7 @@ public:
                  create:YES
                   error:nil];
     // Unsandboxed builds share ~/Library/Caches, so namespace by bundle.
-    NSString* bundleName = NSBundle.mainBundle.bundleIdentifier ?: @"MapVolume";
+    NSString* bundleName = NSBundle.mainBundle.bundleIdentifier ?: @"AlsoMaps";
     NSURL* tilesDir = [[cachesDir URLByAppendingPathComponent:bundleName
                                                   isDirectory:YES]
         URLByAppendingPathComponent:@"tiles"

@@ -26,7 +26,7 @@ for e in root.iter():
     elif e.tag == "row":
         rows.append({c: val(x) for c, x in zip(cols, list(e))})
 
-mine = [r for r in rows if r.get("subsystem") == "com.ryanberdeen.MapVolume"]
+mine = [r for r in rows if r.get("subsystem") == "dev.also.maps"]
 by = collections.defaultdict(list)
 for r in mine:
     by[(r["category"], r["name"])].append(int(r["duration"]) / 1e6)

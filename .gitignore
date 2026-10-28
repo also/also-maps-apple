@@ -1,5 +1,5 @@
 Config/Secrets.xcconfig
-MapVolume.xcodeproj/
+AlsoMaps.xcodeproj/
 build/
 DerivedData/
 Vendor/CesiumNative.xcframework/

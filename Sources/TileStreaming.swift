@@ -97,8 +97,8 @@ final class TileStreaming {
         let env = ProcessInfo.processInfo.environment
         let streamer: CNTileStreamer
         showsGoogleLogo = false
-        // Debug: MAPVOLUME_TILESET_URL streams any 3D Tiles tileset, no key.
-        if let override = env["MAPVOLUME_TILESET_URL"], !override.isEmpty {
+        // Debug: ALSOMAPS_TILESET_URL streams any 3D Tiles tileset, no key.
+        if let override = env["ALSOMAPS_TILESET_URL"], !override.isEmpty {
             streamer = CNTileStreamer(tilesetURL: override)
         } else if let assetID = settings.tileSource.ionAssetID {
             guard let token = Self.secret(environment: "CESIUM_ION_TOKEN", infoKey: "CesiumIonToken") else {
@@ -197,7 +197,7 @@ final class TileStreaming {
         debugLogElapsed += deltaTime
         if debugLogElapsed > 1 {
             debugLogElapsed = 0
-            print("[MapVolume] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB)")
+            print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB)")
             debugSlowestUpdate = 0
         }
         #endif

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct MapVolumeMacApp: App {
+struct AlsoMapsMacApp: App {
     private let view = StaticView.fromEnvironment()
 
     init() {

@@ -5,7 +5,7 @@ import SwiftUI
 struct TuningView: View {
     static let windowID = "tuning"
 
-    @Environment(MapVolumeModel.self) private var model
+    @Environment(MapModel.self) private var model
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @State private var stateNote: String?
@@ -115,7 +115,7 @@ struct TuningView: View {
                     Button("Copy View State") {
                         let json = model.captureState().json()
                         UIPasteboard.general.string = json
-                        print("[MapVolume] view state: \(json)")
+                        print("[AlsoMaps] view state: \(json)")
                         stateNote = "Copied (also printed to the console)."
                     }
                     Button("Restore from Clipboard") {
@@ -131,7 +131,7 @@ struct TuningView: View {
                             return
                         }
                         Task {
-                            await MapVolumeView.restore(state, model: model,
+                            await VolumeView.restore(state, model: model,
                                                         open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
                             stateNote = "Restored."
                         }

@@ -76,13 +76,13 @@ final class TrackOverlay {
                 model.model = ModelComponent(mesh: try MeshResource(from: mesh), materials: [Self.material])
             }
         } catch {
-            print("[MapVolume] couldn't build the track's mesh: \(error)")
+            print("[AlsoMaps] couldn't build the track's mesh: \(error)")
         }
         drawn = (path.version, step)
         lastDraw = now
         #if DEBUG
         let kept = polylines.reduce(0) { $0 + $1.count }
-        print("[MapVolume] track drawn: \(kept) of \(path.pointCount) points in \(polylines.count) segments, radius \(String(format: "%.3g", radius)) m")
+        print("[AlsoMaps] track drawn: \(kept) of \(path.pointCount) points in \(polylines.count) segments, radius \(String(format: "%.3g", radius)) m")
         #endif
     }
 

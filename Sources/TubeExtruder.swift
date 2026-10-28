@@ -1,7 +1,7 @@
 /*
 Adapted from Apple's sample "Creating a spatial drawing app with RealityKit"
 (RealityKitDrawingApp/Brushes/Solid/CurveExtruder.swift): a 2D circle swept
-along polylines into a growable LowLevelMesh. Changed for MapVolume: several
+along polylines into a growable LowLevelMesh. Changed for AlsoMaps: several
 polylines per mesh with no faces between them, frames computed from the
 points (no SmoothCurveSampler), mitred corners, constant radius, and only
 position and normal per vertex (no colour, material properties or curve
