@@ -154,6 +154,9 @@ targets:
       - path: Sources/MapViewState.swift
       - path: Sources/StreamingSettings.swift
       - path: Sources/TileSource.swift
+      - path: Sources/Static/StaticView.swift
+      - path: Sources/Places/Place.swift
+      - path: Tests/Static
       - path: Tests/Navigation
     scheme:
       testTargets: [MapVolumeCoreTests]
