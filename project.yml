@@ -227,7 +227,7 @@ targets:
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
 
-  # The flying map on iPhone, with drone-style on-screen sticks and saved
+  # The flying map on iPhone and iPad, with drone-style on-screen sticks and saved
   # places, sharing the Mac's screen map (Screen).
   AlsoMapsPhone:
     type: application
@@ -271,12 +271,19 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # iPad: every orientation, so it can share the screen with other apps.
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     settings:
       groups: [CesiumBridge]
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
         PRODUCT_NAME: AlsoMapsPhone
-        TARGETED_DEVICE_FAMILY: "1"
+        # iPhone and iPad, natively (not iPad's scaled iPhone mode).
+        TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
