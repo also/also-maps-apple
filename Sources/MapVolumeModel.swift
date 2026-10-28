@@ -196,6 +196,7 @@ final class MapVolumeModel {
         debugMarkers.isEnabled = false
         root.addChild(streaming.tilesRoot)
         streaming.tilesRoot.addChild(tileBoundsOverlay.root)
+        root.addChild(trackOverlay.root)
         // Indirect only (look + pinch). Allowing direct input meant hands that
         // were merely inside the map's area counted as touching it and
         // dragged the map with no pinch at all.
@@ -447,8 +448,11 @@ final class MapVolumeModel {
             #endif
         }
         updateGround(deltaTime: dt)
-        trackRecorder?.record(navigation.camera)
+        if let sample = trackRecorder?.record(navigation.camera) {
+            trackOverlay.append(sample)
+        }
         applyView()
+        if let framing { trackOverlay.update(georeference: framing.georeference) }
         streaming.update(deltaTime: deltaTime)
         tileBoundsOverlay.update(inputs: streaming.inputs, scale: streaming.tilesRoot.transform.scale.x,
                                  thickness: 0.0006 * Float(presentation.magnification))
@@ -793,6 +797,7 @@ final class MapVolumeModel {
             let recorder = try TrackRecorder(directory: Self.tracksDirectory)
             trackRecorder = recorder
             latestTrack = recorder.url
+            trackOverlay.path = nil  // Drawn as it's recorded.
             print("[MapVolume] recording track to \(recorder.url.path)")
         } catch {
             print("[MapVolume] couldn't start a track: \(error)")
@@ -808,6 +813,22 @@ final class MapVolumeModel {
 
     /// Writes buffered samples out, for when the app may be suspended.
     func flushTrack() { trackRecorder?.flush() }
+
+    /// Draws the track being recorded, or else the latest one, as a tube on
+    /// the map. See TrackOverlay.
+    var showsTrack = false {
+        didSet {
+            trackOverlay.isEnabled = showsTrack
+            if showsTrack, trackOverlay.path == nil, trackRecorder == nil, let latestTrack {
+                do {
+                    trackOverlay.path = try TrackPath(contentsOf: latestTrack)
+                } catch {
+                    print("[MapVolume] couldn't read track \(latestTrack.lastPathComponent): \(error)")
+                }
+            }
+        }
+    }
+    private let trackOverlay = TrackOverlay()
 
     // MARK: View state
 

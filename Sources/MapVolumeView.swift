@@ -40,6 +40,13 @@ struct MapVolumeView: View {
                     .toggleStyle(.button)
                     .labelStyle(.iconOnly)
                     .help("Record the camera's track to a file in Files")
+                    Toggle(isOn: Binding(get: { model.showsTrack }, set: { model.showsTrack = $0 })) {
+                        Label(model.showsTrack ? "Hide Track" : "Show Track",
+                              systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                    }
+                    .toggleStyle(.button)
+                    .labelStyle(.iconOnly)
+                    .help("Draw the track being recorded, or the latest one")
                     if let track = model.latestTrack {
                         ShareLink(item: track) {
                             Label("Share Track", systemImage: "square.and.arrow.up")
@@ -86,6 +93,10 @@ struct MapVolumeView: View {
             }
             if ProcessInfo.processInfo.environment["MAPVOLUME_TILE_BOUNDS"] == "1" {
                 model.showsTileBounds = true
+            }
+            // MAPVOLUME_SHOW_TRACK=1 draws the latest track.
+            if ProcessInfo.processInfo.environment["MAPVOLUME_SHOW_TRACK"] == "1" {
+                model.showsTrack = true
             }
             // MAPVOLUME_FULL_IMMERSION=1 opens immersive modes with full immersion,
             // and MAPVOLUME_HUMAN_SCALE=1 keeps them at human scale.

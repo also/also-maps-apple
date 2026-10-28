@@ -147,14 +147,17 @@ final class TrackRecorder {
 
     func markJump() { sampler.markJump() }
 
-    func record(_ pose: CameraPose, at time: Date = Date()) {
-        guard let sample = sampler.sample(pose, at: time) else { return }
+    /// Returns the sample recorded, if one was due.
+    @discardableResult
+    func record(_ pose: CameraPose, at time: Date = Date()) -> CameraTrack.Sample? {
+        guard let sample = sampler.sample(pose, at: time) else { return nil }
         buffer += CameraTrack.line(sample) + "\n"
         sampleCount += 1
         if time.timeIntervalSince(lastFlush) >= flushInterval {
             flush()
             lastFlush = time
         }
+        return sample
     }
 
     func flush() {
