@@ -15,6 +15,9 @@ final class ScreenMap {
     private(set) var framesPerSecond = 0
     private(set) var keyboardConnected = false
     private(set) var controllerName: String?
+    /// Input from on-screen controls (iOS joysticks), merged with the
+    /// keyboard and controller each frame.
+    @ObservationIgnored var touchInput = MapInput()
 
     @ObservationIgnored private var flight = ModelFlightStyle()
     @ObservationIgnored private var cameraGround = CameraGround()
@@ -34,7 +37,19 @@ final class ScreenMap {
     /// Lowest camera height above the estimated ground, metres.
     private static let minimumAltitude = 2.0
 
-    init(camera: CameraPose, settings: StreamingSettings) {
+    /// Where to sample the ground first, and whether the start camera was
+    /// framed on the ellipsoid, to be lifted by the ground found there.
+    @ObservationIgnored private let startGround: (centre: GeoCoordinate, radius: Double, lifts: Bool)
+
+    convenience init(place: Place, settings: StreamingSettings) {
+        self.init(camera: ScreenView.framePlace(place, fieldOfView: Self.fieldOfView), settings: settings,
+                  startGround: (place.coordinate, place.radius, true))
+        currentPlaceIndex = PlaceLibrary.all.firstIndex(of: place)
+    }
+
+    init(camera: CameraPose, settings: StreamingSettings,
+         startGround: (centre: GeoCoordinate, radius: Double, lifts: Bool)? = nil) {
+        self.startGround = startGround ?? (camera.coordinate, 500, false)
         navigation = NavigationState(camera: camera)
         streaming = TileStreaming(inputs: ScreenView.streamingInputs(camera: camera, groundHeight: 0,
                                                                      fieldOfView: Self.fieldOfView, aspect: 1),
@@ -48,7 +63,7 @@ final class ScreenMap {
         content.add(cameraEntity)
         applyView()
         streaming.start()
-        sampleGround(around: navigation.camera.coordinate, radius: 500, liftsCamera: false)
+        sampleGround(around: startGround.centre, radius: startGround.radius, liftsCamera: startGround.lifts)
         subscription = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             MainActor.assumeIsolated {
                 self?.tick(deltaTime: Float(event.deltaTime))
@@ -72,8 +87,7 @@ final class ScreenMap {
 
     func go(to place: Place) {
         currentPlaceIndex = PlaceLibrary.all.firstIndex(of: place)
-        let camera = ScreenView.framePlace(centre: place.coordinate, radius: max(place.radius, 50),
-                                           heading: place.heading * .pi / 180, fieldOfView: Self.fieldOfView)
+        let camera = ScreenView.framePlace(place, fieldOfView: Self.fieldOfView)
         navigation = flight.activate(NavigationState(camera: camera))
         cameraGround.reset(to: 0)
         // Framed on the ellipsoid; lift it by the ground there once known.
@@ -115,7 +129,8 @@ final class ScreenMap {
         let controller = MapInput.controller?.vendorName ?? (MapInput.controller == nil ? nil : "Controller")
         if controllerName != controller { controllerName = controller }
 
-        let input = MapInput.current()
+        var input = MapInput.current()
+        input.merge(touchInput)
         // Buttons act once, on the frame they go down.
         for action in input.held.subtracting(heldActions) {
             perform(action)
@@ -175,61 +190,36 @@ final class ScreenMap {
     }
 }
 
+/// The map in a window: the scene, its attribution and, optionally, a
+/// status line. Hosts add their own controls around it.
 struct ScreenMapView: View {
-    private let start: StaticView
-    @State private var map: ScreenMap?
+    let map: ScreenMap
+    var showsStatus = true
+    var creditLineLimit: Int? = 1
     @State private var viewportSize: CGSize = .zero
-    @FocusState private var focused: Bool
-
-    init(start: StaticView) {
-        self.start = start
-    }
 
     var body: some View {
         RealityView { content in
-            let map = self.map ?? ScreenMap(camera: start.cameraPose, settings: start.settings)
-            self.map = map
             map.resize(to: viewportSize)
             map.attach(&content)
         }
         .onGeometryChange(for: CGSize.self) { $0.size } action: {
             viewportSize = $0
-            map?.resize(to: $0)
+            map.resize(to: $0)
         }
-        // Keys are read from the keyboard device each frame (MapInput);
-        // taking them here only stops the system beeping at unhandled keys.
-        .focusable()
-        .focusEffectDisabled()
-        .focused($focused)
-        .onKeyPress(phases: .all) { _ in .handled }
-        .onAppear { focused = true }
         .background(Color(red: 0.55, green: 0.7, blue: 0.85))
         .overlay(alignment: .topLeading) {
-            if let map {
-                status(map)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            if let map {
-                Menu("Places", systemImage: "mappin.and.ellipse") {
-                    ForEach(PlaceLibrary.all) { place in
-                        Button(place.name) { map.go(to: place) }
-                    }
-                }
-                .menuStyle(.button)
-                .fixedSize()
-                .padding(8)
+            if showsStatus {
+                status
             }
         }
         .overlay(alignment: .bottom) {
-            if let map {
-                AttributionBar(streaming: map.streaming)
-                    .padding(8)
-            }
+            AttributionBar(streaming: map.streaming, creditLineLimit: creditLineLimit)
+                .padding(8)
         }
     }
 
-    private func status(_ map: ScreenMap) -> some View {
+    private var status: some View {
         let camera = map.navigation.camera
         return VStack(alignment: .leading, spacing: 2) {
             Text("\(map.streaming.stats.renderedTiles) tiles · \(Int(map.streaming.loadProgress))% · \(map.framesPerSecond) fps")
@@ -248,5 +238,13 @@ struct ScreenMapView: View {
         .background(.black.opacity(0.5), in: .rect(cornerRadius: 6))
         .foregroundStyle(.white)
         .padding(8)
+    }
+}
+
+private extension ScreenView {
+    /// A place framed on the ellipsoid, from its radius and heading.
+    static func framePlace(_ place: Place, fieldOfView: Double) -> CameraPose {
+        framePlace(centre: place.coordinate, radius: max(place.radius, 50),
+                   heading: place.heading * .pi / 180, fieldOfView: fieldOfView)
     }
 }

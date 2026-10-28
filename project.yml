@@ -223,7 +223,8 @@ targets:
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
 
-  # Static map and saved places on iPhone, using the shared scene.
+  # The flying map on iPhone, with drone-style on-screen sticks and saved
+  # places, sharing the Mac's screen map (Screen).
   AlsoMapsPhone:
     type: application
     platform: iOS
@@ -236,6 +237,8 @@ targets:
           - Navigation
           - NavigationRealityKit.swift
           - Static
+          - Screen
+          - MapInput.swift
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift

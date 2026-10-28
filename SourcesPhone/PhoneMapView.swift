@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// iPhone owns its navigation and safe-area layout; the shared scene owns
-/// the camera and streaming. A new place creates a new scene identity.
+/// The flying map on iPhone: drone-style sticks over the shared screen
+/// map, with places in a sheet. The view owns safe-area layout; the map
+/// owns the camera and streaming.
 struct PhoneMapView: View {
+    @State private var map = PhoneMapView.makeMap()
     @State private var selection = initialPlace
     @State private var showsPlaces = false
 
@@ -16,16 +18,24 @@ struct PhoneMapView: View {
         return PlaceLibrary.all.first
     }
 
+    /// Starts at ALSOMAPS_PLACE, the first place, or (with ALSOMAPS_VIEW)
+    /// that preset's camera.
+    private static func makeMap() -> ScreenMap {
+        let preset = StaticView.fromEnvironment(defaultView: .ferry)
+        if let place = initialPlace {
+            return ScreenMap(place: place, settings: preset.settings)
+        }
+        return ScreenMap(camera: preset.cameraPose, settings: preset.settings)
+    }
+
     var body: some View {
         NavigationStack {
-            GeometryReader { geometry in
-                let preset = StaticView.fromEnvironment(defaultView: .ferry,
-                                                         viewportSize: geometry.size)
-                StaticMapView(view: selection.map {
-                    StaticView.place($0, viewportSize: geometry.size, settings: preset.settings)
-                } ?? preset, showsDiagnostics: false, creditLineLimit: nil)
-                    .id(selection?.id ?? "environment")
-            }
+            ScreenMapView(map: map, showsStatus: false, creditLineLimit: nil)
+                .overlay(alignment: .bottom) {
+                    DroneControls(map: map)
+                        // Clear of the attribution along the bottom.
+                        .padding(.bottom, 64)
+                }
             .navigationTitle(selection?.name ?? "Also Maps")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -40,6 +50,7 @@ struct PhoneMapView: View {
                     List(PlaceLibrary.all) { place in
                         Button {
                             selection = place
+                            map.go(to: place)
                             showsPlaces = false
                         } label: {
                             HStack {

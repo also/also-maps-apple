@@ -43,7 +43,8 @@ struct MapInput {
         return input
     }
 
-    private mutating func merge(_ other: MapInput) {
+    /// Adds `other` in, keeping each value in range.
+    mutating func merge(_ other: MapInput) {
         move += other.move
         if simd_length(move) > 1 { move = simd_normalize(move) }
         turn = min(max(turn + other.turn, -1), 1)

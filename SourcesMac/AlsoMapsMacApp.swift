@@ -13,9 +13,40 @@ struct AlsoMapsMacApp: App {
     var body: some Scene {
         WindowGroup {
             // Starts at the selected preset's camera, then flies.
-            ScreenMapView(start: view)
+            MacMapView(start: view)
                 .frame(minWidth: 400, minHeight: 300)
         }
         .defaultSize(width: view.viewportSize.width, height: view.viewportSize.height)
+    }
+}
+
+/// The flying map with a Places menu. Keys are read from the keyboard
+/// device each frame (MapInput); the view takes them only so the system
+/// doesn't beep at unhandled keys.
+struct MacMapView: View {
+    @State private var map: ScreenMap
+    @FocusState private var focused: Bool
+
+    init(start: StaticView) {
+        _map = State(initialValue: ScreenMap(camera: start.cameraPose, settings: start.settings))
+    }
+
+    var body: some View {
+        ScreenMapView(map: map)
+            .focusable()
+            .focusEffectDisabled()
+            .focused($focused)
+            .onKeyPress(phases: .all) { _ in .handled }
+            .onAppear { focused = true }
+            .overlay(alignment: .topTrailing) {
+                Menu("Places", systemImage: "mappin.and.ellipse") {
+                    ForEach(PlaceLibrary.all) { place in
+                        Button(place.name) { map.go(to: place) }
+                    }
+                }
+                .menuStyle(.button)
+                .fixedSize()
+                .padding(8)
+            }
     }
 }
