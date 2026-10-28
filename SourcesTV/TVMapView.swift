@@ -3,6 +3,9 @@ import SwiftUI
 /// A saved location is a static orbit on TV. Replacing the scene also drops
 /// the old streamer and its camera, frame subscription and tile entities.
 struct TVMapView: View {
+    private static let viewportSize = CGSize(width: 1920, height: 1080)
+    private let initialView = StaticView.fromEnvironment(defaultView: .ferry,
+                                                         viewportSize: viewportSize)
     @State private var selection = initialPlace
     @State private var showsPlaces = false
 
@@ -18,7 +21,9 @@ struct TVMapView: View {
     }
 
     var body: some View {
-        MapWindowView(view: selection.map(StaticView.place) ?? .fromEnvironment())
+        StaticMapView(view: selection.map {
+            StaticView.place($0, viewportSize: Self.viewportSize, settings: initialView.settings)
+        } ?? initialView)
             .id(selection?.id ?? "environment")
             .ignoresSafeArea()
             .overlay(alignment: .topTrailing) {
@@ -50,24 +55,5 @@ struct TVMapView: View {
                     .navigationTitle("Places")
                 }
             }
-    }
-}
-
-extension StaticView {
-    static func place(_ place: Place) -> StaticView {
-        let radius = max(place.radius, 50)
-        let heading = place.heading * .pi / 180
-        var lod = LODCamera.orbit(heading: heading, elevation: .pi / 4,
-                                  distance: radius * 2.5)
-        lod.aspect = 16.0 / 9.0
-        return StaticView(name: place.name,
-                          inputs: StreamingInputs(anchor: StreamingAnchor(coordinate: place.coordinate),
-                                                  lod: lod,
-                                                  regionHeading: heading,
-                                                  streamingRadius: radius),
-                          settings: StaticView.fromEnvironment().settings,
-                          windowSize: CGSize(width: 1920, height: 1080),
-                          near: 1, far: Float(max(100_000, radius * 20)),
-                          samplesGround: true)
     }
 }

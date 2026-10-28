@@ -52,6 +52,7 @@ targets:
     platform: visionOS
     sources:
       - path: Sources
+        excludes: [Static]
     dependencies:
       - package: CesiumNative
       - sdk: libsqlite3.tbd
@@ -105,6 +106,7 @@ targets:
           - Assets.xcassets
           - Navigation
           - NavigationRealityKit.swift
+          - Static
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift
@@ -168,12 +170,12 @@ targets:
     scheme: {}
     sources:
       - path: SourcesTV
-      - path: SourcesMac/MapWindowView.swift
       - path: Sources
         includes:
           - Assets.xcassets
           - Navigation
           - NavigationRealityKit.swift
+          - Static
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift

@@ -116,7 +116,7 @@ the scene and streams that location using its saved radius and heading. The
 camera looks down at 45 degrees, with distance proportional to the radius,
 and samples ground height to frame elevated locations.
 
-It shares `SourcesMac/MapWindowView.swift` and the existing tile streaming
+It shares `Sources/Static/StaticMapView.swift` and the existing tile streaming
 pipeline. Set `MAPVOLUME_PLACE=<id>` to select the starting place, or
 `MAPVOLUME_VIEW=bay` to try the
 wider Mac view; the existing detail, radius and concurrency overrides work too.
