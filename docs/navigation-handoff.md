@@ -24,6 +24,7 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
   - **Drone mode (today's):** always a level base (tangent to the geoid). Far enough away you'd need to look straight down to see anything, so some tilt is helpful. The current tilt-versus-altitude curve is fairly arbitrary.
   - **Google Earth VR:** a button toggles tilt between two extremes ("ground" and "globe"), with overlapping altitude limits. You reach ground mode's maximum altitude, then toggle to globe mode to go higher.
 - **Flat screens** (macOS): some "looks level" behaviour tied to positions may make sense there. It isn't the VR rule.
+- **The camera is the eye, always.** In the immersive space the camera is never a point in space disconnected from the viewer's eye, at any altitude or tilt: tracks, speed, tile loading and saved views all mean "where you are". Tilt therefore turns the world about the eye. (An earlier tilt pivoted about the map's centre point and moved the camera off the eye above 50 km; recorded tracks exposed it.)
 
 **Modes and streaming**
 

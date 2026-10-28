@@ -1,20 +1,22 @@
 import Foundation
 import simd
 
-/// The immersive hosts' presentation: the camera is at the viewer's eye,
-/// and the map is level unless the tilt tips it.
+/// The immersive hosts' presentation: the camera is at the viewer's eye at
+/// every altitude, and the map is level unless the tilt tips it.
 ///
 /// - Untilted, the ground beneath the camera sits on the base plane below
 ///   the design eye point, and the camera's heading faces away from the
 ///   viewer. The scale makes the camera's height above that ground the
-///   eye's height above the base plane. The camera's pitch plays no part.
+///   eye's height above the base plane (or is fixed, as at human scale).
+///   The camera's pitch plays no part.
 /// - The tilt follows altitude: none below 50 km above the ground, a quarter
-///   turn by 500 km. As it grows, the camera's ground point slides out to
-///   the map's centre point, C₀, which rises toward C₁, and the map turns
-///   about the room's right axis there to face the viewer, like a globe.
+///   turn by 500 km. It turns the world about the room's right axis through
+///   the eye, so the camera stays on the eye and the ground below comes up
+///   to straight ahead, like looking down at a globe.
 ///
-/// The returned framing's georeference point is the ground at C₀: what
-/// tilting and framing places are about.
+/// The returned framing's georeference point is the ground at the map's
+/// centre point, C₀, before tilting: what framing places is about, and what
+/// gestures grab.
 enum EyeLevelModel {
     /// 0 up to 50 km above the ground, 1 from 500 km, on a smoothstep in
     /// log(altitude).
@@ -27,44 +29,31 @@ enum EyeLevelModel {
     static func tilt(weight: Double) -> Double { weight * .pi / 2 }
 
     /// The framing for `camera` over ground at `groundHeight` (metres above
-    /// the ellipsoid), tilted by `tiltWeight` (0...1). With `fixedScale`,
-    /// the scale stays put (1 is human scale) and the camera stays on the
-    /// eye: the ground is wherever the camera's height puts it, and the
-    /// tilt turns the world about the eye, bringing the ground below up to
-    /// straight ahead.
+    /// the ellipsoid), tilted by `tiltWeight` (0...1). With `fixedScale`
+    /// (1 is human scale) the scale stays put and the ground is wherever the
+    /// camera's height puts it; otherwise the ground is on the base plane.
     static func framing(camera: CameraPose, room: RoomGeometry, groundHeight: Double,
                         tiltWeight w: Double, fixedScale: Double? = nil) -> AdaptiveModel.Framing {
-        if let fixedScale {
-            return framing(camera: camera, eye: room.designEye, groundHeight: groundHeight,
-                           tiltWeight: w, scale: fixedScale)
-        }
         let eye = room.designEye
         let base = room.placementLevel
         let eyeHeight = max(eye.y - base.y, 0.01)
         let above = max(camera.height - groundHeight, AdaptiveModel.minimumRange)
-        let scale = eyeHeight / above
+        let scale = fixedScale ?? eyeHeight / above
         let rotation = levelRotation(camera)
 
-        // The ground beneath the camera goes below the eye, sliding out to C₀
-        // as the map tilts.
-        let ground = Geodesy.ecef(camera.coordinate, height: groundHeight)
-        let footprint = SIMD3(eye.x + (base.x - eye.x) * w, base.y, eye.z + (base.z - eye.z) * w)
+        // The camera on the eye, level, then tilted about the eye.
         let level = Similarity(scale: scale, rotation: rotation,
-                               translation: footprint - scale * rotation.act(ground))
-
-        // Tilt about the room's right axis through C₀, which rises toward C₁.
-        let centre = base + (room.placementDown - base) * w
+                               translation: eye - scale * rotation.act(camera.position))
         let tilt = Similarity(scale: 1, rotation: simd_quatd(angle: tilt(weight: w), axis: SIMD3(1, 0, 0)),
                               translation: .zero)
-        let tilted = Similarity(translation: centre)
-            .after(tilt)
-            .after(Similarity(translation: -base))
-            .after(level)
+        let tilted = Similarity(translation: eye).after(tilt).after(Similarity(translation: -eye)).after(level)
 
-        let georeferencePoint = level.inverse.apply(base)
+        // The ground beneath where C₀ is while level.
+        let ahead = Geodesy.geodetic(level.inverse.apply(base)).coordinate
+        let georeferencePoint = Geodesy.ecef(ahead, height: groundHeight)
         return AdaptiveModel.Framing(georeference: Georeference(tilted),
                                      georeferencePoint: georeferencePoint,
-                                     placementPoint: centre,
+                                     placementPoint: tilted.apply(georeferencePoint),
                                      range: simd_distance(georeferencePoint, camera.position))
     }
 
@@ -74,22 +63,6 @@ enum EyeLevelModel {
         let forward = frame.north * cos(camera.heading) + frame.east * sin(camera.heading)
         let right = frame.east * cos(camera.heading) - frame.north * sin(camera.heading)
         return simd_quatd(simd_double3x3(rows: [right, frame.up, -forward]))
-    }
-
-    /// The fixed-scale framing: the camera on the eye, tilting about it.
-    private static func framing(camera: CameraPose, eye: SIMD3<Double>, groundHeight: Double,
-                                tiltWeight w: Double, scale: Double) -> AdaptiveModel.Framing {
-        let rotation = levelRotation(camera)
-        let level = Similarity(scale: scale, rotation: rotation,
-                               translation: eye - scale * rotation.act(camera.position))
-        let tilt = Similarity(scale: 1, rotation: simd_quatd(angle: tilt(weight: w), axis: SIMD3(1, 0, 0)),
-                              translation: .zero)
-        let tilted = Similarity(translation: eye).after(tilt).after(Similarity(translation: -eye)).after(level)
-        let ground = Geodesy.ecef(camera.coordinate, height: groundHeight)
-        return AdaptiveModel.Framing(georeference: Georeference(tilted),
-                                     georeferencePoint: ground,
-                                     placementPoint: tilted.apply(ground),
-                                     range: simd_distance(ground, camera.position))
     }
 
     /// A pose framing a place, untilted: the centre (at `groundHeight`) on

@@ -47,16 +47,25 @@ struct EyeLevelTests {
         #expect(EyeLevelModel.tiltWeight(altitude: altitude) == 0)
     }
 
+    @Test(arguments: [0.0, 0.4, 1])
+    func theCameraStaysOnTheEyeAtAnyTilt(weight: Double) {
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 600_000,
+                                heading: 0.5, pitch: -0.3)
+        let f = framing(camera, weight: weight)
+        #expect(simd_distance(f.georeference.map(camera.position), immersive.designEye) < 1e-6)
+    }
+
     @Test
     func tiltFacesTheViewerFarOut() {
         #expect(EyeLevelModel.tiltWeight(altitude: 600_000) == 1)
         let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 600_000,
                                 heading: 0, pitch: -0.3)
         let f = framing(camera, weight: 1)
-        // The ground beneath the camera is on the raised centre, and the
-        // local up there points back at the viewer.
+        // The ground beneath the camera is straight ahead, as far as the base
+        // plane is below the eye, and the local up there points back at the
+        // viewer.
         let nadir = Geodesy.ecef(ronda, height: 565)
-        #expect(simd_distance(f.georeference.map(nadir), immersive.placementDown) < 1e-6)
+        #expect(simd_distance(f.georeference.map(nadir), immersive.designEye - SIMD3(0, 0, 1.58)) < 1e-6)
         let up = Geodesy.enu(latitude: ronda.latitude, longitude: ronda.longitude).up
         #expect(simd_distance(simd_normalize(f.georeference.rotation.act(up)), SIMD3(0, 0, 1)) < 1e-9)
     }

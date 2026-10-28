@@ -763,8 +763,7 @@ final class MapVolumeModel {
             ? .horizon(limitPerAltitude: settings.limitsImmersiveReach ? settings.immersiveReach : nil)
             : .georeference(regionMultiplier: 1)
         // The viewer is the eye, wherever the placement puts it in the world:
-        // at the camera while the map is level, in front of the globe once
-        // it tilts, where much more of the Earth is in view.
+        // in the immersive space, always the camera.
         let (viewer, eyeHeight) = Geodesy.geodetic(framing.georeference.ecef(map: room.designEye))
         let altitude = usesEyeLevel ? eyeHeight - effectiveEnvelope : camera.height - cameraGround.value
         let area = policy.area(viewerNadir: viewer,
