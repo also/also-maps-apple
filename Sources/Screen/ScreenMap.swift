@@ -18,6 +18,8 @@ final class ScreenMap {
     /// Input from on-screen controls (iOS joysticks), merged with the
     /// keyboard and controller each frame.
     @ObservationIgnored var touchInput = MapInput()
+    /// Leave CPU/GPU time for the network controller while its screen is open.
+    @ObservationIgnored var isPaused = false
     /// Recording, drawing and playing back camera tracks, shared with
     /// visionOS. While a track plays it has the camera, and movement input
     /// is ignored; going to a place stops it.
@@ -127,7 +129,7 @@ final class ScreenMap {
     // MARK: Frame loop
 
     private func tick(deltaTime: Float) {
-        guard streaming.isStreaming else { return }
+        guard streaming.isStreaming, !isPaused else { return }
         let dt = Double(deltaTime)
         if let played = tracks.advancePlayback(deltaTime: dt) {
             navigation.camera = played

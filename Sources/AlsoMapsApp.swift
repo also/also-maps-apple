@@ -29,7 +29,10 @@ struct AlsoMapsApp: App {
         .defaultLaunchBehavior(.presented)
         .onChange(of: scenePhase, initial: true) { _, phase in
             soundtrack.setActive(phase == .active)
-            if phase != .active { model.flushTrack() }
+            if phase != .active {
+                model.flushTrack()
+                model.remoteControl.stop()
+            }
         }
 
         WindowGroup(id: TuningView.windowID) {
@@ -38,6 +41,13 @@ struct AlsoMapsApp: App {
         }
         .defaultSize(width: 520, height: 760)
         // A utility window: only opened on request, never restored at launch.
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
+
+        WindowGroup(id: RemoteControlHostView.windowID) {
+            RemoteControlHostView().environment(model)
+        }
+        .defaultSize(width: 520, height: 540)
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
 
