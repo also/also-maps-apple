@@ -14,7 +14,7 @@ router is optional. There is no cloud service or Bluetooth transport.
 2. In the Vision Pro map's bottom controls, open **iPhone Controller** and
    enable **Allow iPhone Controller**. Allow local-network access if prompted.
 3. On iPhone, tap the game-controller button in the map toolbar. Select the
-   headset name and enter the 12-digit code displayed on Vision Pro.
+   headset name and enter the 6-digit code displayed on Vision Pro.
 4. Use the left stick to move and the right stick to turn and climb. The
    centre slider zooms. Buttons change places, face north, toggle Fly, or
    enable faster motion. The controls support portrait and landscape.

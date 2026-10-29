@@ -19,7 +19,7 @@ struct RemoteControlHostView: View {
                     Section("Pair your iPhone") {
                         Text("Open Also Maps on iPhone, tap the controller button, and select this headset.")
                         LabeledContent("Headset", value: remote.hostName)
-                        Text(remote.pairingCode.chunkedCode)
+                        Text(remote.pairingCode)
                             .font(.largeTitle.monospacedDigit())
                             .textSelection(.enabled)
                             .accessibilityLabel("Pairing code \(remote.pairingCode)")
@@ -36,11 +36,4 @@ struct RemoteControlHostView: View {
     }
 }
 
-private extension String {
-    var chunkedCode: String {
-        stride(from: 0, to: count, by: 4).map { offset in
-            String(dropFirst(offset).prefix(4))
-        }.joined(separator: " ")
-    }
-}
 #endif

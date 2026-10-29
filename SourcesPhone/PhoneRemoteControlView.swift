@@ -38,13 +38,13 @@ struct PhoneRemoteControlView: View {
                             }
                         }
                         Section("Pairing code from Vision Pro") {
-                            TextField("12-digit code", text: $code)
+                            TextField("6-digit code", text: $code)
                                 .keyboardType(.numberPad)
                                 .textContentType(.oneTimeCode)
                             Button("Connect") {
                                 if let selectedPeer { remote.connect(to: selectedPeer, code: code) }
                             }
-                            .disabled(selectedPeer == nil || code.filter { $0.isASCII && $0.isNumber }.count != 12 || remote.isConnecting)
+                            .disabled(selectedPeer == nil || code.filter { $0.isASCII && $0.isNumber }.count != 6 || remote.isConnecting)
                             Button("Search Again") {
                                 selectedPeer = nil
                                 remote.browse()

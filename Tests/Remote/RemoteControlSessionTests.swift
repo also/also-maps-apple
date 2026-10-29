@@ -53,7 +53,7 @@ final class RemoteControlSessionTests: XCTestCase {
         let phone = RemoteControlSession(role: .controller)
         defer { phone.stop(); host.stop() }
         let peer = try await discover(host, phone)
-        let wrongCode = host.pairingCode == "000000000000" ? "111111111111" : "000000000000"
+        let wrongCode = host.pairingCode == "000000" ? "111111" : "000000"
         phone.connect(to: peer, code: wrongCode)
         try await waitUntil({ !phone.isConnecting }, seconds: 12)
         XCTAssertFalse(host.isConnected)

@@ -53,7 +53,7 @@ final class RemoteControlSession {
     func startHosting() {
         stop()
         guard role == .host else { return }
-        pairingCode = String(format: "%012llu", UInt64.random(in: 0...999_999_999_999))
+        pairingCode = String(format: "%06u", UInt32.random(in: 0...999_999))
         hostName = "Also Maps \(Int.random(in: 1000...9999))"
         do {
             let listener = try NWListener(using: Self.parameters(code: pairingCode))
@@ -115,7 +115,7 @@ final class RemoteControlSession {
     func connect(to peer: NWBrowser.Result, code: String) {
         guard role == .controller else { return }
         let digits = code.filter { $0.isASCII && $0.isNumber }
-        guard digits.count == 12 else { status = "Enter the 12-digit code shown on Vision Pro"; return }
+        guard digits.count == 6 else { status = "Enter the 6-digit code shown on Vision Pro"; return }
         disconnect()
         accept(NWConnection(to: peer.endpoint, using: Self.parameters(code: digits)))
     }
