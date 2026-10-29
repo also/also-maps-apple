@@ -71,6 +71,11 @@ struct VolumeView: View {
                     }
                     .labelStyle(.iconOnly)
                     .help("Go to a place")
+                    Button("iPhone Controller", systemImage: "iphone.gen3.radiowaves.left.and.right") {
+                        openWindow(id: RemoteControlHostView.windowID)
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Pair an iPhone to control this map")
                     Button("Tuning", systemImage: "slider.horizontal.3") {
                         openWindow(id: TuningView.windowID)
                     }

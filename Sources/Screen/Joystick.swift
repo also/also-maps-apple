@@ -84,6 +84,7 @@ struct DroneControls: View {
 struct TiltControl: View {
     var onChange: (Double) -> Void
     var height: CGFloat = 132
+    var label = "Look up or down"
     @State private var offset: CGFloat = 0
 
     var body: some View {
@@ -114,6 +115,6 @@ struct TiltControl: View {
                     onChange(0)
                 }
         )
-        .accessibilityLabel("Look up or down")
+        .accessibilityLabel(label)
     }
 }

@@ -7,6 +7,7 @@ struct PhoneMapView: View {
     @State private var map = PhoneMapView.makeMap()
     @State private var selection = initialPlace
     @State private var showsPlaces = false
+    @State private var showsRemote = false
     @Environment(\.scenePhase) private var scenePhase
 
     private static var initialPlace: Place? {
@@ -58,10 +59,22 @@ struct PhoneMapView: View {
                     trackControls
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button("Control Vision Pro", systemImage: "gamecontroller") {
+                        map.touchInput = MapInput()
+                        showsRemote = true
+                    }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
                     }
                 }
+            }
+            .onChange(of: showsRemote) { _, showing in
+                map.isPaused = showing
+                map.touchInput = MapInput()
+                if showing { map.tracks.flush() }
+            }
+            .fullScreenCover(isPresented: $showsRemote) {
+                PhoneRemoteControlView()
             }
             .sheet(isPresented: $showsPlaces) {
                 NavigationStack {

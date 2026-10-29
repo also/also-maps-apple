@@ -67,6 +67,9 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: Also Maps
+        NSLocalNetworkUsageDescription: Connect your iPhone controls to Also Maps on Vision Pro.
+        NSBonjourServices:
+          - _alsomaps-rc._tcp
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         # Game controllers drive the map (MapInput) rather than system navigation.
@@ -185,6 +188,24 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps.CoreTests
 
+  # Networking tests run separately from the platform-neutral navigation core.
+  AlsoMapsRemoteTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Sources/Navigation
+      - path: Sources/MapInput.swift
+      - path: Sources/Remote/RemoteControlProtocol.swift
+      - path: Sources/Remote/RemoteControlSession.swift
+      - path: Tests/Remote
+    scheme:
+      testTargets: [AlsoMapsRemoteTests]
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps.RemoteTests
+
   # Static map on Apple TV, sharing the Mac scene and streaming pipeline.
   AlsoMapsTV:
     type: application
@@ -243,6 +264,8 @@ targets:
           - Static
           - Screen
           - MapInput.swift
+          - Remote/RemoteControlProtocol.swift
+          - Remote/RemoteControlSession.swift
           - Tracks
           - TrackSession.swift
           - TrackOverlay.swift
@@ -264,6 +287,11 @@ targets:
       path: SourcesPhone/Info.plist
       properties:
         CFBundleDisplayName: Also Maps
+        NSLocalNetworkUsageDescription: Connect your iPhone controls to Also Maps on Vision Pro.
+        NSBonjourServices:
+          - _alsomaps-rc._tcp
+        # Uses platform TLS for tile HTTPS and the local controller connection.
+        ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         UILaunchScreen: {}
