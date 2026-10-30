@@ -91,7 +91,7 @@ The macOS target's **Debug** build is unsandboxed (`SourcesMac/AlsoMapsMac.Debug
 ```
 xcodebuild -scheme AlsoMapsMac -configuration Debug -destination 'platform=macOS' -derivedDataPath build build
 ALSOMAPS_LAT=37.7955 ALSOMAPS_LON=-122.3937 ALSOMAPS_RADIUS=800 \
-  build/Build/Products/Debug/AlsoMaps.app/Contents/MacOS/AlsoMaps > run.log 2>&1 &
+  "build/Build/Products/Debug/Also Maps.app/Contents/MacOS/Also Maps" > run.log 2>&1 &
 ```
 
 It needs a logged-in macOS session, since it opens a window. Kill it by PID when done. The API key comes from `Config/Secrets.xcconfig` via Info.plist, or from `GOOGLE_MAPS_API_KEY` in the environment.

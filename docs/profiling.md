@@ -28,7 +28,7 @@ xctrace record --template 'Time Profiler' --instrument 'os_signpost' \
   --time-limit 15s --output run.trace \
   --env ALSOMAPS_LAT=37.7955 --env ALSOMAPS_LON=-122.3937 --env ALSOMAPS_RADIUS=800 \
   --launch -- /usr/bin/env -u OS_ACTIVITY_DT_MODE \
-  build/Build/Products/Debug/AlsoMaps.app/Contents/MacOS/AlsoMaps
+  "build/Build/Products/Debug/Also Maps.app/Contents/MacOS/Also Maps"
 xctrace export --input run.trace \
   --xpath '/trace-toc/run[@number="1"]/data/table[@schema="OSSignpostIntervals"]' > intervals.xml
 python3 Scripts/signpost_summary.py intervals.xml
