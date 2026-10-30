@@ -234,7 +234,7 @@ targets:
 
   # The flying map on iPhone and iPad, with drone-style on-screen sticks and saved
   # places, sharing the Mac's screen map (Screen).
-  AlsoMapsPhone:
+  AlsoMapsiOS:
     type: application
     platform: iOS
     scheme: {}

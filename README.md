@@ -138,13 +138,13 @@ Apple TV hardware. Remote-driven picker selection still needs manual verificatio
 
 ## iPhone static-map prototype
 
-The `AlsoMapsPhone` target (iOS 26+, iPhone) uses the shared static-map scene
+The `AlsoMapsiOS` target (iOS 26+, iPhone) uses the shared static-map scene
 and the released CesiumNative package. Open Places in the navigation bar to
 choose any bundled location; each uses its saved radius and heading, with
 sampled ground height. Portrait and landscape use the actual scene aspect
 ratio. Credits wrap within the safe area, and the phone hides diagnostic stats.
 
-Run `xcodegen generate`, select `AlsoMapsPhone`, and run on an iPhone or iOS
+Run `xcodegen generate`, select `AlsoMapsiOS`, and run on an iPhone or iOS
 simulator. API keys and `ALSOMAPS_PLACE` / `ALSOMAPS_VIEW` overrides work as
 above. This prototype has no free camera navigation or app icon yet.
 
