@@ -43,7 +43,7 @@ configFiles:
   Debug: Config/App.xcconfig
   Release: Config/App.xcconfig
 targets:
-  AlsoMaps:
+  AlsoMapsVision:
     scheme:
       # Tick ALSOMAPS_* to stream the public Cesium sample instead of Google's tiles.
       environmentVariables:
