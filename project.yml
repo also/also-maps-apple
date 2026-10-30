@@ -147,6 +147,8 @@ targets:
     settings:
       groups: [CesiumBridge]
       base:
+        # CesiumNative.xcframework has no x86_64 macOS slice.
+        ARCHS: arm64
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
         PRODUCT_NAME: AlsoMaps
