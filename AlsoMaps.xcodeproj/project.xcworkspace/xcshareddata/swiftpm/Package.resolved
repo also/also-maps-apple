@@ -1,0 +1,15 @@
+{
+  "originHash" : "8cb0fb01518a0f1fb490d7b6daf4c5371bd272056a74f301350538186f2c31cd",
+  "pins" : [
+    {
+      "identity" : "cesium-native-xcframework",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/also/cesium-native-xcframework",
+      "state" : {
+        "revision" : "8c33f3908f6d0be8cedabd87ad0147eb8c8b6bd8",
+        "version" : "0.64.0-2"
+      }
+    }
+  ],
+  "version" : 3
+}
