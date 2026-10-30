@@ -123,7 +123,7 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
   - `Sources/Navigation/`: geodesy and a hit-or-miss surface query, camera pose and navigation state with movement heading, georeference and room placement types, streaming inputs, area-of-interest policies, navigation operations and two prototype control styles;
   - the bridge takes a level-of-detail camera as vectors and an area-of-interest heading;
   - tiles are placed relative to whichever anchor is streaming;
-  - the `AlsoMapsCoreTests` target.
+  - the `Also Maps Core Tests` target.
 - `5bc6e91`, `ff2eb9e`, `1cb1bf4` Stage 2 and fixes:
   - the camera is the stored state;
   - model-flight controls;

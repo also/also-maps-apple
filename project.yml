@@ -43,7 +43,7 @@ configFiles:
   Debug: Config/App.xcconfig
   Release: Config/App.xcconfig
 targets:
-  AlsoMapsVision:
+  Also Maps visionOS:
     scheme:
       # Tick ALSOMAPS_* to stream the public Cesium sample instead of Google's tiles.
       environmentVariables:
@@ -111,7 +111,7 @@ targets:
   # Store listing (universal purchase). A map flown with the keyboard or a
   # game controller (Screen), sharing the navigation core, the streaming
   # layer (TileStreaming and below) and the cesium-native bridge.
-  AlsoMapsMac:
+  Also Maps macOS:
     type: application
     platform: macOS
     scheme: {}
@@ -169,7 +169,7 @@ targets:
 
   # The platform-neutral navigation core (Sources/Navigation), tested on
   # macOS without a scene, cesium-native or the network.
-  AlsoMapsCoreTests:
+  Also Maps Core Tests:
     type: bundle.unit-test
     platform: macOS
     sources:
@@ -184,7 +184,7 @@ targets:
       - path: Sources/Tracks
       - path: Tests/Navigation
     scheme:
-      testTargets: [AlsoMapsCoreTests]
+      testTargets: ["Also Maps Core Tests"]
     settings:
       base:
         SWIFT_VERSION: "5.0"
@@ -192,7 +192,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps.CoreTests
 
   # Static map on Apple TV, sharing the Mac scene and streaming pipeline.
-  AlsoMapsTV:
+  Also Maps tvOS:
     type: application
     platform: tvOS
     scheme: {}
@@ -234,7 +234,7 @@ targets:
 
   # The flying map on iPhone and iPad, with drone-style on-screen sticks and saved
   # places, sharing the Mac's screen map (Screen).
-  AlsoMapsiOS:
+  Also Maps iOS:
     type: application
     platform: iOS
     scheme: {}

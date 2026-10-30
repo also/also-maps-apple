@@ -39,7 +39,7 @@ Status: design for review, revision 6 (2026-10-26).
 
 ### Engineering goals
 
-8. **Platform-neutral core.** The navigation maths is Foundation and simd only, tested on macOS without a scene (`AlsoMapsCoreTests`).
+8. **Platform-neutral core.** The navigation maths is Foundation and simd only, tested on macOS without a scene (`Also Maps Core Tests`).
 9. **Total and stable.** Every input has a defined result, with no NaN transforms. Estimates that move the view change only when they're trustworthy, and they ease when they do.
 
 ### Non-goals
