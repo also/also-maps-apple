@@ -1,15 +1,13 @@
 #!/bin/sh
-# Xcode Cloud runs this after cloning. The project is generated and signing
-# lives in the gitignored Secrets.xcconfig, so write the team that owns the app.
+# Xcode Cloud runs this after cloning, to generate the project. xcodebuild doesn't
+# read the workflow's DEVELOPMENT_TEAM environment variable as a build setting, so
+# pass it on through the gitignored Secrets.xcconfig.
 # No API keys yet, so these builds launch but don't stream the Google tiles.
 set -euo pipefail
 cd "$CI_PRIMARY_REPOSITORY_PATH"
 
 brew install xcodegen
 
-cat > Config/Secrets.xcconfig <<SECRETS
-DEVELOPMENT_TEAM = RU9XZG48W2
-CODE_SIGN_STYLE = Automatic
-SECRETS
+echo "DEVELOPMENT_TEAM = $DEVELOPMENT_TEAM" > Config/Secrets.xcconfig
 
 xcodegen generate
