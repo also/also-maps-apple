@@ -26,7 +26,12 @@
 #include <CesiumGltf/Model.h>
 #include <CesiumGltfContent/GltfUtilities.h>
 #include <CesiumImage/ImageAsset.h>
+#include <CesiumRasterOverlays/RasterOverlayTile.h>
+#include <CesiumUtility/Color.h>
 #include <CesiumUtility/CreditSystem.h>
+#include <CesiumVectorData/GeoJsonDocument.h>
+#include <CesiumVectorData/VectorStyle.h>
+#include <CesiumVectorOverlays/GeoJsonDocumentRasterOverlay.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -50,6 +55,7 @@ using CesiumGeospatial::Ellipsoid;
 @interface CNPrimitive ()
 - (instancetype)initWithPositions:(NSData *)positions
                         texcoords:(nullable NSData *)texcoords
+                 overlayTexcoords:(nullable NSData *)overlayTexcoords
                           normals:(nullable NSData *)normals
                           indices:(NSData *)indices
                              rgba:(nullable NSData *)rgba
@@ -58,9 +64,14 @@ using CesiumGeospatial::Ellipsoid;
                         baseColor:(simd_float4)baseColor;
 @end
 
+@interface CNRasterImage ()
+- (instancetype)initWithRGBA:(NSData *)rgba width:(NSInteger)width height:(NSInteger)height;
+@end
+
 @implementation CNPrimitive
 - (instancetype)initWithPositions:(NSData *)positions
                         texcoords:(NSData *)texcoords
+                 overlayTexcoords:(NSData *)overlayTexcoords
                           normals:(NSData *)normals
                           indices:(NSData *)indices
                              rgba:(NSData *)rgba
@@ -70,12 +81,24 @@ using CesiumGeospatial::Ellipsoid;
   if ((self = [super init])) {
     _positions = positions;
     _texcoords = texcoords;
+    _overlayTexcoords = overlayTexcoords;
     _normals = normals;
     _indices = indices;
     _rgba = rgba;
     _textureWidth = width;
     _textureHeight = height;
     _baseColor = baseColor;
+  }
+  return self;
+}
+@end
+
+@implementation CNRasterImage
+- (instancetype)initWithRGBA:(NSData *)rgba width:(NSInteger)width height:(NSInteger)height {
+  if ((self = [super init])) {
+    _rgba = rgba;
+    _width = width;
+    _height = height;
   }
   return self;
 }
@@ -634,6 +657,27 @@ CNTileMesh* _Nullable buildTileMesh(
           }
         }
 
+        // Overlay coordinates, which cesium-native adds to the glTF when the
+        // tileset has a raster overlay. Only unlit, textured tiles use them.
+        NSMutableData* overlayTexcoordData = nil;
+        if (rgba) {
+          auto overlayIt = primitive.attributes.find("_CESIUMOVERLAY_0");
+          if (overlayIt != primitive.attributes.end()) {
+            AccessorView<glm::vec2> uvs(gltf, overlayIt->second);
+            if (uvs.status() == AccessorViewStatus::Valid &&
+                size_t(uvs.size()) == vertexCount) {
+              overlayTexcoordData =
+                  [NSMutableData dataWithLength:vertexCount * 2 * sizeof(float)];
+              float* t = static_cast<float*>(overlayTexcoordData.mutableBytes);
+              for (size_t i = 0; i < vertexCount; ++i) {
+                const glm::vec2 uv = uvs[int64_t(i)];
+                t[i * 2 + 0] = uv.x;
+                t[i * 2 + 1] = uv.y;
+              }
+            }
+          }
+        }
+
         std::vector<uint32_t> indices;
         if (const Accessor* pIndices =
                 Model::getSafe(&gltf.accessors, primitive.indices)) {
@@ -746,6 +790,7 @@ CNTileMesh* _Nullable buildTileMesh(
         NSInteger height = rgba && pImage ? pImage->height : 0;
         [primitives addObject:[[CNPrimitive alloc] initWithPositions:positionData
                                                            texcoords:texcoordData
+                                                    overlayTexcoords:overlayTexcoordData
                                                              normals:normalData
                                                              indices:indexData
                                                                 rgba:rgba
@@ -835,31 +880,61 @@ public:
   }
 
   void* prepareRasterInLoadThread(
-      CesiumImage::ImageAsset&,
+      CesiumImage::ImageAsset& image,
       const std::any&) override {
-    return nullptr;
+    NSData* rgba = [NSData dataWithBytes:image.pixelData.data()
+                                  length:image.pixelData.size()];
+    CNRasterImage* raster = [[CNRasterImage alloc] initWithRGBA:rgba
+                                                          width:image.width
+                                                         height:image.height];
+    return (__bridge_retained void*)raster;
   }
   void* prepareRasterInMainThread(
       CesiumRasterOverlays::RasterOverlayTile&,
-      void*) override {
-    return nullptr;
+      void* pLoadThreadResult) override {
+    // As with tiles, ownership moves to the main-thread slot unchanged.
+    return pLoadThreadResult;
   }
   void freeRaster(
       const CesiumRasterOverlays::RasterOverlayTile&,
-      void*,
-      void*) noexcept override {}
+      void* pLoadThreadResult,
+      void* pMainThreadResult) noexcept override {
+    void* p = pMainThreadResult ? pMainThreadResult : pLoadThreadResult;
+    if (p) {
+      CNRasterImage* raster = (__bridge_transfer CNRasterImage*)p;
+      (void)raster;
+    }
+  }
   void attachRasterInMainThread(
-      const Tile&,
+      const Tile& tile,
       int32_t,
       const CesiumRasterOverlays::RasterOverlayTile&,
-      void*,
-      const glm::dvec2&,
-      const glm::dvec2&) override {}
+      void* pMainThreadRendererResources,
+      const glm::dvec2& translation,
+      const glm::dvec2& scale) override {
+    CNTileMesh* mesh = meshForTile(tile);
+    if (mesh && pMainThreadRendererResources && _rasterAttachHandler) {
+      _rasterAttachHandler(
+          mesh,
+          (__bridge CNRasterImage*)pMainThreadRendererResources,
+          simd_make_float2(float(translation.x), float(translation.y)),
+          simd_make_float2(float(scale.x), float(scale.y)));
+    }
+  }
   void detachRasterInMainThread(
-      const Tile&,
+      const Tile& tile,
       int32_t,
       const CesiumRasterOverlays::RasterOverlayTile&,
-      void*) noexcept override {}
+      void*) noexcept override {
+    CNTileMesh* mesh = meshForTile(tile);
+    if (mesh && _rasterDetachHandler) {
+      _rasterDetachHandler(mesh);
+    }
+  }
+
+  // Both are only set and used on the main thread.
+  CNRasterAttachHandler _rasterAttachHandler;
+  CNRasterDetachHandler _rasterDetachHandler;
 
   CNTileLoadHandler tileLoadHandler() {
     std::lock_guard<std::mutex> lock(_handlerMutex);
@@ -872,6 +947,12 @@ public:
   }
 
 private:
+  static CNTileMesh* meshForTile(const Tile& tile) {
+    const TileRenderContent* pContent = tile.getContent().getRenderContent();
+    void* p = pContent ? pContent->getRenderResources() : nullptr;
+    return p ? (__bridge CNTileMesh*)p : nil;
+  }
+
   std::atomic<uint64_t> _nextID{1};
   std::mutex _handlerMutex;
   CNTileLoadHandler _handler;
@@ -1055,6 +1136,61 @@ NSString* stripHTML(const std::string& html) {
 
 - (void)setTileLoadHandler:(CNTileLoadHandler)handler {
   _resources->setTileLoadHandler(handler);
+}
+
+- (CNRasterAttachHandler)rasterAttachHandler {
+  return _resources->_rasterAttachHandler;
+}
+
+- (void)setRasterAttachHandler:(CNRasterAttachHandler)handler {
+  _resources->_rasterAttachHandler = handler;
+}
+
+- (CNRasterDetachHandler)rasterDetachHandler {
+  return _resources->_rasterDetachHandler;
+}
+
+- (void)setRasterDetachHandler:(CNRasterDetachHandler)handler {
+  _resources->_rasterDetachHandler = handler;
+}
+
+- (void)addGeoJSONOverlayFromPath:(NSString*)path
+                        lineWidth:(double)lineWidth
+                            color:(simd_float4)color {
+  using CesiumVectorData::GeoJsonDocument;
+  auto document = _asyncSystem->runInWorkerThread([path]() {
+    NSData* data = [NSData dataWithContentsOfFile:path];
+    auto result = GeoJsonDocument::fromGeoJson(std::span<const std::byte>(
+        static_cast<const std::byte*>(data.bytes),
+        data.length));
+    if (!result.value) {
+      NSLog(@"[cesium] couldn't read the overlay at %@", path);
+      for (const std::string& error : result.errors.errors) {
+        NSLog(@"[cesium] %s", error.c_str());
+      }
+      return std::make_shared<GeoJsonDocument>();
+    }
+    return std::make_shared<GeoJsonDocument>(std::move(*result.value));
+  });
+
+  CesiumVectorData::LineStyle line;
+  line.color = CesiumUtility::Color(
+      uint8_t(color.x * 255),
+      uint8_t(color.y * 255),
+      uint8_t(color.z * 255),
+      uint8_t(color.w * 255));
+  line.width = lineWidth;
+  line.widthMode = CesiumVectorData::LineWidthMode::Pixels;
+
+  CesiumVectorOverlays::GeoJsonDocumentRasterOverlayOptions options{
+      .defaultStyle = CesiumVectorData::VectorStyle(line, {}),
+      .ellipsoid = _tileset->getOptions().ellipsoid};
+
+  _tileset->getOverlays().add(
+      new CesiumVectorOverlays::GeoJsonDocumentRasterOverlay(
+          "traces",
+          std::move(document),
+          options));
 }
 
 - (double)maximumScreenSpaceError {

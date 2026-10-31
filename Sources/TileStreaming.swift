@@ -62,6 +62,10 @@ final class TileStreaming {
 
     private var streamer: CNTileStreamer?
     private let tileUploader = TileUploader()
+    private let drape = TraceDrape()
+    /// sRGB, the teal the traces are drawn in on the web.
+    private static let traceColor = SIMD4<Float>(0, 0.863, 0.761, 1)
+    private var startedLoading = Date()
     private var tileEntities: [UInt64: Entity] = [:]
     private var renderedTiles: [CNTileMesh] = []
     /// Draw each drawn tile's bounding box as a wireframe child of the tile:
@@ -119,7 +123,16 @@ final class TileStreaming {
         tileUploader.untexturedColor = settings.tileSource.untexturedColor
         // Before the first update, so every tile goes through it.
         streamer.tileLoadHandler = tileUploader.handler
+        // Debug: ALSOMAPS_TRACES=<path to GeoJSON> drapes its lines over the tiles.
+        if let traces = env["ALSOMAPS_TRACES"], !traces.isEmpty {
+            streamer.rasterAttachHandler = { [drape] tile, raster, translation, scale in
+                drape.attach(tile, raster: raster, translation: translation, scale: scale)
+            }
+            streamer.rasterDetachHandler = { [drape] tile in drape.detach(tile) }
+            streamer.addGeoJSONOverlay(path: traces, lineWidth: 2, color: Self.traceColor)
+        }
         self.streamer = streamer
+        startedLoading = Date()
         applySettings()
         applyInputs()
     }
@@ -152,6 +165,7 @@ final class TileStreaming {
         defer { debugSlowestUpdate = max(debugSlowestUpdate, Date().timeIntervalSince(updateStart)) }
         #endif
         let frame = streamer.update(withDeltaTime: deltaTime)
+        drape.finishFrame()
 
         for id in frame.freedTileIDs {
             tileEntities.removeValue(forKey: id.uint64Value)?.removeFromParent()
@@ -184,6 +198,9 @@ final class TileStreaming {
         if credits != newCredits { credits = newCredits }
         if frame.loadProgress >= 100, loadProgress < 100 {
             Signposts.tiles.emitEvent("LoadComplete")
+            #if DEBUG
+            print("[AlsoMaps] load complete \(String(format: "%.1f", Date().timeIntervalSince(startedLoading))) s after start, \(frame.tilesToRender.count) tiles")
+            #endif
         }
         loadProgress = frame.loadProgress
         let fetch = streamer.fetchStats()
@@ -197,7 +214,8 @@ final class TileStreaming {
         debugLogElapsed += deltaTime
         if debugLogElapsed > 1 {
             debugLogElapsed = 0
-            print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB)")
+            print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB), rasters \(drape.attachedRasters) attached / \(drape.emptyRasters) empty / \(drape.undrapableTiles) undrapable, \(drape.drapedTiles) draped")
+            fflush(stdout)
             debugSlowestUpdate = 0
         }
         #endif
