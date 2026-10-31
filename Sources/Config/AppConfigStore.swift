@@ -23,9 +23,10 @@ final class AppConfigStore {
         let fetch: Fetch = { try await session.data(for: $0) }
         if let override = ProcessInfo.processInfo.environment["ALSOMAPS_CONFIG_URL"],
            let url = URL(string: override) {
-            return AppConfigStore(url: url, cacheFile: nil, fetch: fetch)
+            return AppConfigStore(url: url, cacheFile: nil, fetch: fetch, keySource: { CredentialStore.shared.keySource })
         }
-        return AppConfigStore(url: defaultURL, cacheFile: defaultCacheFile, fetch: fetch)
+        return AppConfigStore(url: defaultURL, cacheFile: defaultCacheFile, fetch: fetch,
+                              keySource: { CredentialStore.shared.keySource })
     }()
 
     /// Caches, the only local storage tvOS keeps, so it's the same everywhere.
@@ -50,11 +51,13 @@ final class AppConfigStore {
     @ObservationIgnored private let fetch: Fetch
     @ObservationIgnored private let platform: String
     @ObservationIgnored private let version: AppVersion
+    @ObservationIgnored private let keySource: () -> String
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var lastFetch: Date?
 
     init(url: URL, cacheFile: URL?, defaults: UserDefaults = .standard, fetch: @escaping Fetch,
          platform: String = AppPlatform.current, version: AppVersion = .current,
+         keySource: @escaping () -> String = { "app" },
          now: @escaping () -> Date = Date.init) {
         self.url = url
         self.cacheFile = cacheFile
@@ -62,6 +65,7 @@ final class AppConfigStore {
         self.fetch = fetch
         self.platform = platform
         self.version = version
+        self.keySource = keySource
         self.now = now
         if let cacheFile, let data = try? Data(contentsOf: cacheFile) {
             config = try? AppConfig.decode(data)
@@ -109,9 +113,15 @@ final class AppConfigStore {
         Set(defaults.stringArray(forKey: Self.dismissedKey) ?? [])
     }
 
+    /// The key source changed, so different notices may apply.
+    func reevaluate() {
+        evaluate()
+    }
+
     private func evaluate() {
+        let source = keySource()
         let applicable = (config?.notices ?? []).filter {
-            $0.applies(platform: platform, version: version, now: now())
+            $0.applies(platform: platform, version: version, keySource: source, now: now())
         }
         let dismissed = dismissedIDs
         blocking = applicable.first { $0.severity == .blocking }

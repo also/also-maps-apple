@@ -66,11 +66,15 @@ struct Notice: Decodable, Identifiable, Equatable {
     /// The lowest and highest app versions this applies to, inclusive.
     var minVersion: AppVersion?
     var maxVersion: AppVersion?
+    /// "app" or "own": who's using which key. Limits a notice about the shared
+    /// key, so people with their own keep going.
+    var keySource: String?
     /// When this stops applying, even if the file is never updated.
     var expires: Date?
 
-    func applies(platform: String, version: AppVersion, now: Date) -> Bool {
+    func applies(platform: String, version: AppVersion, keySource: String, now: Date) -> Bool {
         if let platforms, !platforms.contains(platform) { return false }
+        if let source = self.keySource, source != keySource { return false }
         if let minVersion, version < minVersion { return false }
         if let maxVersion, version > maxVersion { return false }
         if let expires, now >= expires { return false }
@@ -100,8 +104,10 @@ struct AppConfig: Decodable {
     let notices: [Notice]
     /// Replaces the bundled places. Nil if the file has none that are usable.
     let places: [Place]?
+    /// False turns off the app's shared key, leaving people's own.
+    let appKeysEnabled: Bool
 
-    private enum CodingKeys: String, CodingKey { case notices, places }
+    private enum CodingKeys: String, CodingKey { case notices, places, appKeys }
 
     private struct Lossy<Value: Decodable>: Decodable {
         let value: Value?
@@ -116,6 +122,7 @@ struct AppConfig: Decodable {
             .compactMap(\.value)
             .filter { $0.isValid && seen.insert($0.id).inserted }
         self.places = places.isEmpty ? nil : places
+        appKeysEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .appKeys)) ?? true
     }
 
     static func decode(_ data: Data) throws -> AppConfig {

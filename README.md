@@ -18,7 +18,7 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 
 ## Setup
 
-1. **Add an API key.** Copy `Config/Secrets.example.xcconfig` to `Config/Secrets.xcconfig` and set `GOOGLE_MAPS_API_KEY`. The key needs the Map Tiles API enabled. Restrict it to iOS apps with bundle ID `dev.also.maps`; the app sends `X-Ios-Bundle-Identifier`. You can also set `GOOGLE_MAPS_API_KEY` in the scheme's environment.
+1. **Add an API key.** Copy `Config/Secrets.example.xcconfig` to `Config/Secrets.xcconfig` and set `GOOGLE_MAPS_API_KEY`. This is for Debug builds; see [Keys](#keys). The key needs the Map Tiles API enabled. Restrict it to iOS apps with bundle ID `dev.also.maps`; the app sends `X-Ios-Bundle-Identifier`. You can also set `GOOGLE_MAPS_API_KEY` in the scheme's environment.
 
 2. **Generate the project and run it.**
 
@@ -75,6 +75,7 @@ Every platform reads `https://maps.also.dev/config/v1.json`, a static file publi
       "platforms": ["visionos", "ios", "macos", "tvos"],
       "minVersion": "1.0",
       "maxVersion": "1.1.9",
+      "keySource": "app",
       "expires": "2027-01-01T00:00:00Z"
     }
   ],
@@ -82,15 +83,26 @@ Every platform reads `https://maps.also.dev/config/v1.json`, a static file publi
 }
 ```
 
-Both top-level keys are optional. A notice needs `id`, `severity`, `title` and `body`; everything else narrows who sees it. Versions compare against `CFBundleShortVersionString`, inclusive at both ends, so a fix that a notice shouldn't reach needs a new version number. `expires` takes ISO 8601 without fractional seconds.
+All the top-level keys are optional. A notice needs `id`, `severity`, `title` and `body`; everything else narrows who sees it. Versions compare against `CFBundleShortVersionString`, inclusive at both ends, so a fix that a notice shouldn't reach needs a new version number. `expires` takes ISO 8601 without fractional seconds.
 
 - **`info`** shows as an alert, once. Give a new message a new `id`.
 - **`blocking`** replaces the app, stopping streaming, until it no longer applies. With no version range it's the kill switch; with `maxVersion` it's a minimum version. Don't let one match a build in App Review, or the reviewer sees a blocked app.
 - **`places`** has the format of `Places.json`, and replaces the bundled list when it has at least one usable entry.
+- **`keySource`** on a notice limits it to people on the app's key (`"app"`) or their own (`"own"`). A blocking `"app"` notice offers **Use Your Own Key**, so it can stop the shared key without stopping everyone.
+- **`"appKeys": false`** at the top level turns off the app's key. People on it see how to add their own.
 
 The app fails open: launch never waits for the file, it starts from the last good copy (or the bundled places), and an outage or a bad file leaves that in place. Unusable notices and places are skipped, while older builds ignore unknown fields. Don't add a new way to narrow a notice's audience to a live notice: older builds would ignore it and show the notice more widely. Change the format incompatibly only at a new URL (`v2.json`). The file is public, so it must never hold secrets. The block is enforced by the app, so it doesn't reach older builds or protect the API keys; those need quotas on the services themselves.
 
 `ALSOMAPS_CONFIG_URL=<url>` reads another file instead, without touching the saved copy, and accepts `file://` URLs.
+
+## Keys
+
+Release builds contain no keys, except on tvOS. Where there's no key yet, the first launch asks how to load the map: with the app's shared key, which may be throttled, or with your own. Change it later in Keys (a button on iPhone and iPad, Settings on the Mac, Tuning on visionOS). `Sources/Credentials/` holds this.
+
+- **The app's key** comes from the credentials API in also-maps-site, which needs App Attest, so `AppKeyClient` proves the app is genuine, saves what it gets in the Keychain and refreshes it daily. Where `isSupported` is false, the app offers only your own key: macOS 26, and simulators. The Mac needs macOS 27 or later, where the API also requires Apple's key policy (full security mode and System Integrity Protection). Refreshes run only while a window is active. Device builds need the App Attest capability on the App ID.
+- **Your own key** is saved in the Keychain, and follows you between devices through iCloud Keychain. Saving one makes one request to check it, which for Google counts as a map session.
+- **Which wins**: a scheme's `GOOGLE_MAPS_API_KEY` or `CESIUM_ION_TOKEN`, then your own, then the app's, then one built in from `Config/Secrets.xcconfig` (Debug builds, and tvOS). `ALSOMAPS_CREDENTIALS_URL=<url>` points at another deployment of the API.
+- **Rotation**: streaming restarts whenever the key changes. When a service rejects the app's key, the app fetches a new one straight away, so an old key can be deleted at any time. See also-maps-site/docs/credentials-api.md.
 
 ## Views
 

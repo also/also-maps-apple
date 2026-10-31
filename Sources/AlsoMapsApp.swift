@@ -20,6 +20,7 @@ struct AlsoMapsApp: App {
             VolumeView()
                 .environment(model)
                 .environment(soundtrack)
+                .credentialGate()
                 .appGate()
         }
         .windowStyle(.volumetric)

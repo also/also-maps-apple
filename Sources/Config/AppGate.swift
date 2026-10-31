@@ -69,6 +69,7 @@ private struct BlockingNoticeView: View {
     let notice: Notice
 
     @Environment(\.openURL) private var openURL
+    @State private var showsKeys = false
 
     var body: some View {
         ContentUnavailableView {
@@ -80,11 +81,28 @@ private struct BlockingNoticeView: View {
                 Button(link.title) { openURL(link.url) }
                     .buttonStyle(.borderedProminent)
             }
+            #if !os(tvOS)
+            if notice.keySource == "app" {
+                Button("Use Your Own Key") { showsKeys = true }
+            }
+            #endif
             Button("Try Again") {
                 Task { await AppConfigStore.shared.refresh(force: true) }
             }
             .disabled(AppConfigStore.shared.isRefreshing)
         }
+        #if !os(tvOS)
+        .sheet(isPresented: $showsKeys) {
+            NavigationStack {
+                KeysView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showsKeys = false }
+                        }
+                    }
+            }
+        }
+        #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

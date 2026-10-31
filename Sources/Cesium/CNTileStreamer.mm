@@ -241,6 +241,7 @@ struct FetchCounters {
   std::atomic<uint64_t> networkLoads{0};   // full download
   std::atomic<uint64_t> other{0};
   std::atomic<uint64_t> networkBytes{0};   // response body bytes off the wire
+  std::atomic<int> keyFailureStatus{0};    // last 400, 401, 403 or 429
 };
 
 /// Google sends `Cache-Control: private, max-age=14400, must-revalidate`.
@@ -347,7 +348,8 @@ namespace {
 /// HTTP cache for free (within Google's caching terms).
 class URLSessionAssetAccessor final : public IAssetAccessor {
 public:
-  explicit URLSessionAssetAccessor(std::shared_ptr<FetchCounters> counters) {
+  explicit URLSessionAssetAccessor(std::shared_ptr<FetchCounters> counters)
+      : _counters(counters) {
     NSURLSessionConfiguration* config =
         [NSURLSessionConfiguration defaultSessionConfiguration];
     config.HTTPMaximumConnectionsPerHost = 12;
@@ -427,6 +429,7 @@ public:
     os_log_t log = CNSignpostLog("Tiles");
     const os_signpost_id_t signpostID = os_signpost_id_generate(log);
     os_signpost_interval_begin(log, signpostID, "Fetch");
+    std::shared_ptr<FetchCounters> failures = _counters;
     NSURLSessionDataTask* task = [_session
         dataTaskWithRequest:req
           completionHandler:^(
@@ -446,6 +449,10 @@ public:
               promise.reject(
                   std::runtime_error(error.localizedDescription.UTF8String));
               return;
+            }
+            if (status == 400 || status == 401 || status == 403 ||
+                status == 429) {
+              failures->keyFailureStatus = int(status);
             }
             auto pResponse = std::make_unique<SessionResponse>();
             if ([response isKindOfClass:NSHTTPURLResponse.class]) {
@@ -474,6 +481,7 @@ public:
 private:
   NSURLSession* _session;
   std::string _bundleID;
+  std::shared_ptr<FetchCounters> _counters;
 };
 
 // RealityKit axes from local east-north-up: x = east, y = up, z = south.
@@ -1114,6 +1122,10 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
 - (void)setMaximumSimultaneousTileLoads:(NSInteger)value {
   _tileset->getOptions().maximumSimultaneousTileLoads =
       uint32_t(std::max<NSInteger>(1, value));
+}
+
+- (NSInteger)takeKeyFailureStatus {
+  return _fetchCounters->keyFailureStatus.exchange(0);
 }
 
 - (CNFetchStats*)fetchStats {

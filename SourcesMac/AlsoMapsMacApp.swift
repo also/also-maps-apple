@@ -15,9 +15,15 @@ struct AlsoMapsMacApp: App {
             // Starts at the selected preset's camera, then flies.
             MacMapView(start: view)
                 .frame(minWidth: 400, minHeight: 300)
+                .credentialGate()
                 .appGate()
         }
         .defaultSize(width: view.viewportSize.width, height: view.viewportSize.height)
+
+        Settings {
+            KeysView()
+                .frame(width: 480, height: 520)
+        }
     }
 }
 
@@ -47,6 +53,12 @@ struct MacMapView: View {
                 }
                 .menuStyle(.button)
                 .fixedSize()
+                .padding(8)
+            }
+            .overlay(alignment: .topLeading) {
+                SettingsLink {
+                    Label("Keys", systemImage: "key")
+                }
                 .padding(8)
             }
     }

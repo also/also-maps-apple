@@ -27,6 +27,8 @@ final class ScreenMap {
     @ObservationIgnored private var cameraGround = CameraGround()
     @ObservationIgnored private var heldActions: Set<MapInput.Action> = []
     @ObservationIgnored private var currentPlaceID: String?
+    /// Sampled again if there was no streamer to ask.
+    @ObservationIgnored private var lastGroundSample: (centre: GeoCoordinate, radius: Double, liftsCamera: Bool)?
     /// Bumped per ground sample so a slow, older result can't win.
     @ObservationIgnored private var groundSampleGeneration = 0
     @ObservationIgnored private let cameraEntity = Entity()
@@ -107,6 +109,7 @@ final class ScreenMap {
     /// `liftsCamera`, the camera rises by what it finds, so a place framed
     /// on the ellipsoid ends up framed on the ground.
     private func sampleGround(around centre: GeoCoordinate, radius: Double, liftsCamera: Bool) {
+        lastGroundSample = (centre, radius, liftsCamera)
         groundSampleGeneration += 1
         let generation = groundSampleGeneration
         let assumed = cameraGround.value
@@ -130,7 +133,15 @@ final class ScreenMap {
     // MARK: Frame loop
 
     private func tick(deltaTime: Float) {
-        guard streaming.isStreaming else { return }
+        guard streaming.isStreaming else {
+            // Waiting for a key. Once there is one, the ground sample that
+            // had no streamer to ask can run.
+            streaming.updateKey()
+            if streaming.isStreaming, let sample = lastGroundSample {
+                sampleGround(around: sample.centre, radius: sample.radius, liftsCamera: sample.liftsCamera)
+            }
+            return
+        }
         let dt = Double(deltaTime)
         if let played = tracks.advancePlayback(deltaTime: dt) {
             navigation.camera = played

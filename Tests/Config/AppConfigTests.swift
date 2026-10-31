@@ -75,12 +75,12 @@ struct NoticeTargetingTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
     @Test func appliesEverywhereByDefault() throws {
-        #expect(try decoded("").applies(platform: "ios", version: AppVersion("1.0")!, now: now))
+        #expect(try decoded("").applies(platform: "ios", version: AppVersion("1.0")!, keySource: "app", now: now))
     }
 
     @Test func versionRangeIsInclusive() throws {
         let notice = try decoded(#", "minVersion": "1.2", "maxVersion": "1.3""#)
-        let applies = { notice.applies(platform: "ios", version: AppVersion($0)!, now: self.now) }
+        let applies = { notice.applies(platform: "ios", version: AppVersion($0)!, keySource: "app", now: self.now) }
         #expect(!applies("1.1.9"))
         #expect(applies("1.2"))
         #expect(applies("1.3.0"))
@@ -89,15 +89,21 @@ struct NoticeTargetingTests {
 
     @Test func filtersByPlatform() throws {
         let notice = try decoded(#", "platforms": ["tvos", "macos"]"#)
-        #expect(notice.applies(platform: "tvos", version: AppVersion("1")!, now: now))
-        #expect(!notice.applies(platform: "ios", version: AppVersion("1")!, now: now))
+        #expect(notice.applies(platform: "tvos", version: AppVersion("1")!, keySource: "app", now: now))
+        #expect(!notice.applies(platform: "ios", version: AppVersion("1")!, keySource: "app", now: now))
+    }
+
+    @Test func filtersByKeySource() throws {
+        let notice = try decoded(#", "keySource": "app""#)
+        #expect(notice.applies(platform: "ios", version: AppVersion("1")!, keySource: "app", now: now))
+        #expect(!notice.applies(platform: "ios", version: AppVersion("1")!, keySource: "own", now: now))
     }
 
     @Test func expires() throws {
         let notice = try decoded(#", "expires": "2027-01-15T08:00:00Z""#)
         let expiry = try #require(notice.expires)
-        #expect(notice.applies(platform: "ios", version: AppVersion("1")!, now: expiry - 1))
-        #expect(!notice.applies(platform: "ios", version: AppVersion("1")!, now: expiry))
+        #expect(notice.applies(platform: "ios", version: AppVersion("1")!, keySource: "app", now: expiry - 1))
+        #expect(!notice.applies(platform: "ios", version: AppVersion("1")!, keySource: "app", now: expiry))
     }
 }
 

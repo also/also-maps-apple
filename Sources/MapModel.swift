@@ -443,7 +443,13 @@ final class MapModel {
     // MARK: Frame loop
 
     private func tick(deltaTime: Float) {
-        guard streaming.isStreaming else { return }
+        guard streaming.isStreaming else {
+            // Waiting for a key. Once there is one, the ground sample that
+            // had no streamer to ask can run.
+            streaming.updateKey()
+            if streaming.isStreaming { requestGroundSample() }
+            return
+        }
         let dt = Double(deltaTime)
         applyInput(deltaTime: dt)
         if tracks.isPlaying {
