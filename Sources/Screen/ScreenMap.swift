@@ -31,7 +31,8 @@ final class ScreenMap {
     @ObservationIgnored private var groundSampleGeneration = 0
     @ObservationIgnored private let cameraEntity = Entity()
     @ObservationIgnored private var subscription: EventSubscription?
-    @ObservationIgnored private var aspect = 1.0
+    @ObservationIgnored private var viewportSize = SIMD2<Double>(1, 1)
+    @ObservationIgnored private var touch = TouchState()
     @ObservationIgnored private var frameCount = 0
     @ObservationIgnored private var frameElapsed: Float = 0
 
@@ -80,7 +81,7 @@ final class ScreenMap {
     /// error on this screen.
     func resize(to size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
-        aspect = size.width / size.height
+        viewportSize = SIMD2(size.width, size.height)
         var settings = streaming.settings
         settings.detail = StaticView.detail(pixels: 16, windowHeight: size.height)
         settings.outerDetail = StaticView.detail(pixels: 64, windowHeight: size.height)
@@ -91,6 +92,7 @@ final class ScreenMap {
     // MARK: Places
 
     func go(to place: Place) {
+        touch = TouchState()
         tracks.stopPlayback()
         tracks.markJump()
         currentPlaceIndex = PlaceLibrary.all.firstIndex(of: place)
@@ -121,6 +123,7 @@ final class ScreenMap {
     /// Plays the latest track from its first pose.
     func startPlayback() {
         guard let first = tracks.startPlayback() else { return }
+        touch = TouchState()
         navigation = flight.activate(NavigationState(camera: first))
     }
 
@@ -134,6 +137,7 @@ final class ScreenMap {
             if navigation.headingLink == .linked { navigation.movementHeading = played.heading }
         }
         applyInput(deltaTime: dt)
+        applyGlide(deltaTime: dt)
         cameraGround.update(camera: navigation.camera, rendered: streaming.renderedHeightRanges(), deltaTime: dt)
         tracks.record(navigation.camera)
         applyView()
@@ -186,7 +190,7 @@ final class ScreenMap {
     private func applyView() {
         let camera = navigation.camera
         streaming.inputs = ScreenView.streamingInputs(camera: camera, groundHeight: cameraGround.value,
-                                                      fieldOfView: Self.fieldOfView, aspect: aspect)
+                                                      fieldOfView: Self.fieldOfView, aspect: viewport.aspect)
         let georeference = ScreenView.georeference(camera: camera)
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
         let altitude = max(camera.height - cameraGround.value, Self.minimumAltitude)
@@ -198,6 +202,153 @@ final class ScreenMap {
                                                                fieldOfViewInDegrees: Float(Self.fieldOfView * 180 / .pi)))
         cameraEntity.orientation = simd_quatf(vector: SIMD4<Float>(ScreenView.cameraOrientation(camera: camera).vector))
         cameraEntity.position = .zero
+    }
+
+    // MARK: Touch
+
+    /// Direct manipulation, in screen points of the map view. The ground
+    /// you touch stays under your finger (see ScreenGestures); a track
+    /// playing has the camera, so these do nothing meanwhile.
+    private struct TouchState {
+        /// The ground under the finger, or between two fingers, ECEF.
+        var grab: SIMD3<Double>?
+        var twoFingers = TwoFingerClassifier()
+        var lastScale = 1.0
+        var lastRotation = 0.0
+        var lastTranslationY = 0.0
+        /// What a two-finger tilt swings about, the ground at the centre.
+        var tiltPivot: SIMD3<Double>?
+        /// After a flick: metres per second forward and right of the
+        /// movement heading, dying away.
+        var coast = SIMD2<Double>.zero
+        /// A tap's zoom, eased over a moment.
+        var zoom: (pivot: SIMD3<Double>, rate: Double, remaining: Double)?
+    }
+
+    /// How long a tap's zoom takes, seconds.
+    private static let zoomDuration = 0.25
+    /// Tilt, radians for the fingers crossing the screen's height.
+    private static let tiltPerScreen = 2.0
+
+    private var viewport: ScreenViewport {
+        ScreenViewport(size: viewportSize, fieldOfView: Self.fieldOfView)
+    }
+
+    private func groundPoint(under point: SIMD2<Double>) -> SIMD3<Double>? {
+        ScreenGestures.groundPoint(camera: navigation.camera, point: point, viewport: viewport,
+                                   groundHeight: cameraGround.value)
+    }
+
+    private func panned(_ state: NavigationState, to point: SIMD2<Double>) -> NavigationState {
+        guard let grab = touch.grab else { return state }
+        return ScreenGestures.pan(state, grab: grab, to: point, viewport: viewport,
+                                  groundHeight: cameraGround.value)
+    }
+
+    func beginDrag(at point: SIMD2<Double>) {
+        guard !tracks.isPlaying else { return }
+        touch = TouchState()
+        touch.grab = groundPoint(under: point)
+    }
+
+    func drag(to point: SIMD2<Double>) {
+        guard !tracks.isPlaying else { return }
+        navigation = panned(navigation, to: point)
+    }
+
+    /// `velocity` is points per second: a flick keeps the map coasting.
+    func endDrag(at point: SIMD2<Double>, velocity: SIMD2<Double>) {
+        defer { touch.grab = nil }
+        guard !tracks.isPlaying, simd_length(velocity) > 150,
+              let from = groundPoint(under: point),
+              let to = groundPoint(under: point + velocity * 0.05)
+        else { return }
+        let (forward, right) = ScreenGestures.alongMovement(navigation, (from - to) / 0.05)
+        let coast = SIMD2(forward, right)
+        let fastest = 3 * context.altitude(of: navigation.camera)
+        touch.coast = simd_length(coast) > fastest ? simd_normalize(coast) * fastest : coast
+    }
+
+    func beginTwoFingers(at centre: SIMD2<Double>) {
+        guard !tracks.isPlaying else { return }
+        touch = TouchState()
+        touch.grab = groundPoint(under: centre)
+    }
+
+    /// `translation`, `scale` and `rotation` are since the fingers came
+    /// down; `rotation` is radians clockwise on screen.
+    func twoFingers(at centre: SIMD2<Double>, translation: SIMD2<Double>, scale: Double, rotation: Double) {
+        guard !tracks.isPlaying else { return }
+        switch touch.twoFingers.update(translation: translation, scale: scale, rotation: rotation) {
+        case .undecided:
+            break
+        case .tilt:
+            if touch.tiltPivot == nil { touch.tiltPivot = groundPoint(under: viewport.centre) }
+            guard let pivot = touch.tiltPivot else { return }
+            let rise = touch.lastTranslationY - translation.y
+            touch.lastTranslationY = translation.y
+            navigation = NavigationOperations.tilt(navigation, about: pivot,
+                                                   by: rise / viewportSize.y * Self.tiltPerScreen,
+                                                   range: (-Double.pi / 2)...ScreenGestures.levelestTilt,
+                                                   context: context)
+        case .follow:
+            guard let grab = touch.grab else { return }
+            var state = ScreenGestures.zoom(navigation, about: grab, scale: scale / touch.lastScale, context: context)
+            // Turning the map clockwise swings the camera the other way.
+            state = NavigationOperations.orbit(state, about: grab, by: touch.lastRotation - rotation, context: context)
+            touch.lastScale = scale
+            touch.lastRotation = rotation
+            navigation = panned(state, to: centre)
+        }
+    }
+
+    func endTwoFingers() {
+        touch.grab = nil
+    }
+
+    /// Zooms by `factor` about the ground under a point, a moment at a
+    /// time: a double tap (2), a two-finger tap (0.5).
+    func zoom(at point: SIMD2<Double>, by factor: Double) {
+        guard !tracks.isPlaying, let pivot = groundPoint(under: point) else { return }
+        touch = TouchState()
+        touch.zoom = (pivot, log(factor) / Self.zoomDuration, Self.zoomDuration)
+    }
+
+    func beginZoomDrag(at point: SIMD2<Double>) {
+        guard !tracks.isPlaying else { return }
+        touch = TouchState()
+        touch.grab = groundPoint(under: point)
+    }
+
+    /// Zooms directly by `scale` since the last call, about the ground the
+    /// drag began on: a double tap held and dragged.
+    func zoomDrag(by scale: Double) {
+        guard !tracks.isPlaying, let grab = touch.grab else { return }
+        navigation = ScreenGestures.zoom(navigation, about: grab, scale: scale, context: context)
+    }
+
+    func endZoomDrag() {
+        touch.grab = nil
+    }
+
+    /// What's left of a flick and a tap's zoom.
+    private func applyGlide(deltaTime: Double) {
+        guard !tracks.isPlaying else { return }
+        if touch.coast != .zero {
+            let step = touch.coast * deltaTime
+            navigation = NavigationOperations.move(navigation, forward: step.x, right: step.y)
+            touch.coast *= exp(-3 * deltaTime)
+            if simd_length(touch.coast) < 0.02 * context.altitude(of: navigation.camera) {
+                touch.coast = .zero
+            }
+        }
+        if var zoom = touch.zoom {
+            let step = min(deltaTime, zoom.remaining)
+            navigation = ScreenGestures.zoom(navigation, about: zoom.pivot, scale: exp(zoom.rate * step),
+                                             context: context)
+            zoom.remaining -= step
+            touch.zoom = zoom.remaining > 0 ? zoom : nil
+        }
     }
 
     private func countFrame(_ deltaTime: Float) {
