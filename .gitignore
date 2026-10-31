@@ -1,5 +1,13 @@
 Config/Secrets.xcconfig
-AlsoMaps.xcodeproj/
+# The project is generated; Package.resolved inside it is the lockfile.
+AlsoMaps.xcodeproj/*
+!AlsoMaps.xcodeproj/project.xcworkspace/
+AlsoMaps.xcodeproj/project.xcworkspace/*
+!AlsoMaps.xcodeproj/project.xcworkspace/xcshareddata/
+AlsoMaps.xcodeproj/project.xcworkspace/xcshareddata/*
+!AlsoMaps.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+AlsoMaps.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/*
+!AlsoMaps.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 build/
 DerivedData/
 Vendor/CesiumNative.xcframework/

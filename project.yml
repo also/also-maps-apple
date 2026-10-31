@@ -34,11 +34,16 @@ settingGroups:
       - LIBASYNC_STATIC
       - SPDLOG_COMPILED_LIB
       - SPDLOG_FMT_EXTERNAL
+  # One app on every platform. The Mac shows this name, not the display name, in
+  # Finder and the menu bar; Swift module names can't have spaces.
+  AppName:
+    PRODUCT_NAME: Also Maps
+    PRODUCT_MODULE_NAME: AlsoMaps
 configFiles:
   Debug: Config/App.xcconfig
   Release: Config/App.xcconfig
 targets:
-  AlsoMaps:
+  Also Maps visionOS:
     scheme:
       # Tick ALSOMAPS_* to stream the public Cesium sample instead of Google's tiles.
       environmentVariables:
@@ -93,7 +98,7 @@ targets:
             rm -f "$dst"
           fi
     settings:
-      groups: [CesiumBridge]
+      groups: [CesiumBridge, AppName]
       base:
         # The soundtrack script reads an optional, undeclared file.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
@@ -106,7 +111,7 @@ targets:
   # Store listing (universal purchase). A map flown with the keyboard or a
   # game controller (Screen), sharing the navigation core, the streaming
   # layer (TileStreaming and below) and the cesium-native bridge.
-  AlsoMapsMac:
+  Also Maps macOS:
     type: application
     platform: macOS
     scheme: {}
@@ -145,11 +150,12 @@ targets:
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         LSApplicationCategoryType: public.app-category.navigation
     settings:
-      groups: [CesiumBridge]
+      groups: [CesiumBridge, AppName]
       base:
+        # CesiumNative.xcframework has no x86_64 macOS slice.
+        ARCHS: arm64
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
-        PRODUCT_NAME: AlsoMaps
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
       configs:
@@ -163,7 +169,7 @@ targets:
 
   # The platform-neutral navigation core (Sources/Navigation), tested on
   # macOS without a scene, cesium-native or the network.
-  AlsoMapsCoreTests:
+  Also Maps Core Tests:
     type: bundle.unit-test
     platform: macOS
     sources:
@@ -178,7 +184,7 @@ targets:
       - path: Sources/Tracks
       - path: Tests/Navigation
     scheme:
-      testTargets: [AlsoMapsCoreTests]
+      testTargets: ["Also Maps Core Tests"]
     settings:
       base:
         SWIFT_VERSION: "5.0"
@@ -186,7 +192,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps.CoreTests
 
   # Static map on Apple TV, sharing the Mac scene and streaming pipeline.
-  AlsoMapsTV:
+  Also Maps tvOS:
     type: application
     platform: tvOS
     scheme: {}
@@ -219,17 +225,16 @@ targets:
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         UILaunchScreen: {}
     settings:
-      groups: [CesiumBridge]
+      groups: [CesiumBridge, AppName]
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
-        PRODUCT_NAME: AlsoMapsTV
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
 
   # The flying map on iPhone and iPad, with drone-style on-screen sticks and saved
   # places, sharing the Mac's screen map (Screen).
-  AlsoMapsPhone:
+  Also Maps iOS:
     type: application
     platform: iOS
     scheme: {}
@@ -280,11 +285,10 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
     settings:
-      groups: [CesiumBridge]
+      groups: [CesiumBridge, AppName]
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
-        PRODUCT_NAME: AlsoMapsPhone
         # iPhone and iPad, natively (not iPad's scaled iPhone mode).
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.0"

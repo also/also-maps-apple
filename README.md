@@ -12,7 +12,7 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
   - a level-of-detail camera given as position, direction and up in the anchor's frame
 - `Sources/TileUploader.swift`: builds each loaded tile's RealityKit meshes and textures asynchronously, a few at a time, before cesium-native counts the tile as loaded. Meshes are built off the main thread.
 - `Sources/TileStreaming.swift`: runs one cesium-native update per RealityKit frame from its streaming inputs (anchor, area of interest, LOD camera), adds ready tile entities, hides tiles that aren't selected and removes freed ones.
-- `Sources/Navigation/`: the platform-neutral navigation core, being introduced in stages (see [docs/camera-core.md](docs/camera-core.md)): WGS84 geodesy and surface queries, camera pose and navigation state, the georeference (world → map frame), streaming inputs, and prototype control styles. `AlsoMapsCoreTests` tests it on macOS without a scene or network: `xcodebuild -scheme AlsoMapsCoreTests -destination 'platform=macOS' test`.
+- `Sources/Navigation/`: the platform-neutral navigation core, being introduced in stages (see [docs/camera-core.md](docs/camera-core.md)): WGS84 geodesy and surface queries, camera pose and navigation state, the georeference (world → map frame), streaming inputs, and prototype control styles. `Also Maps Core Tests` tests it on macOS without a scene or network: `xcodebuild -scheme AlsoMapsCoreTests -destination 'platform=macOS' test`.
 - `Sources/MapModel.swift`: navigation and presentation. It stores the camera (`NavigationState`), steers it with the core's model-flight style and anchored gestures, and shows it in each host. The volume uses the adaptive model: the world is scaled so the camera sits at the design eye point and what it looks at sits low in the volume. The immersive space uses the eye-level model (`Sources/Navigation/EyeLevelModel.swift`): the camera is at your eye and the map is level on the origin plane, whatever the camera's pitch, with the scale making the camera's height above the ground your eye's height above the floor. Far up, the map tilts with altitude about your eye, so the ground below comes up in front of you as a globe; the camera stays at your eye at every altitude. Tiles are placed relative to whichever anchor is streaming, so held tiles stay put while you fly.
 - The Shared Space provides no head pose, so a synthetic camera in front of the volume, 45° up, drives level of detail.
 
@@ -89,9 +89,9 @@ At launch, `ALSOMAPS_STATE=<that JSON>` restores a state and `ALSOMAPS_MARKERS=1
 The macOS target's **Debug** build is unsandboxed (`SourcesMac/AlsoMapsMac.Debug.entitlements`: network client only), so you can launch the binary directly, pass `ALSOMAPS_*` variables, capture its stdout, and read its on-disk state. **Release** keeps the sandbox (`SourcesMac/AlsoMapsMac.entitlements`). The sandboxed build keeps its files in `~/Library/Containers/dev.also.maps/`, which the shell can't list ("Operation not permitted").
 
 ```
-xcodebuild -scheme AlsoMapsMac -configuration Debug -destination 'platform=macOS' -derivedDataPath build build
+xcodebuild -scheme "Also Maps macOS" -configuration Debug -destination 'platform=macOS' -derivedDataPath build build
 ALSOMAPS_LAT=37.7955 ALSOMAPS_LON=-122.3937 ALSOMAPS_RADIUS=800 \
-  build/Build/Products/Debug/AlsoMaps.app/Contents/MacOS/AlsoMaps > run.log 2>&1 &
+  "build/Build/Products/Debug/Also Maps.app/Contents/MacOS/Also Maps" > run.log 2>&1 &
 ```
 
 It needs a logged-in macOS session, since it opens a window. Kill it by PID when done. The API key comes from `Config/Secrets.xcconfig` via Info.plist, or from `GOOGLE_MAPS_API_KEY` in the environment.
@@ -109,7 +109,7 @@ Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](
 
 ## tvOS static-map prototype
 
-The `AlsoMapsTV` target (tvOS 26+) displays a full-screen,
+The `Also Maps tvOS` target (tvOS 26+) displays a full-screen,
 static scene selected from the bundled places. The location button in the
 upper-right opens a remote-focusable Places list; selecting an entry replaces
 the scene and streams that location using its saved radius and heading. The
@@ -128,7 +128,7 @@ which contains arm64 macOS and device/simulator slices for iOS, visionOS and
 tvOS. No sibling framework checkout is required.
 
 Keep `Config/Secrets.xcconfig` configured as above, then run `xcodegen generate`
-and select the `AlsoMapsTV` scheme and an Apple TV simulator or device in Xcode.
+and select the `Also Maps tvOS` scheme and an Apple TV simulator or device in Xcode.
 This prototype has no free camera navigation or TV app icon/top-shelf artwork yet.
 
 Verified with Debug builds for macOS and the Apple TV 4K (3rd generation)
@@ -138,13 +138,13 @@ Apple TV hardware. Remote-driven picker selection still needs manual verificatio
 
 ## iPhone static-map prototype
 
-The `AlsoMapsPhone` target (iOS 26+, iPhone) uses the shared static-map scene
+The `Also Maps iOS` target (iOS 26+, iPhone) uses the shared static-map scene
 and the released CesiumNative package. Open Places in the navigation bar to
 choose any bundled location; each uses its saved radius and heading, with
 sampled ground height. Portrait and landscape use the actual scene aspect
 ratio. Credits wrap within the safe area, and the phone hides diagnostic stats.
 
-Run `xcodegen generate`, select `AlsoMapsPhone`, and run on an iPhone or iOS
+Run `xcodegen generate`, select `Also Maps iOS`, and run on an iPhone or iOS
 simulator. API keys and `ALSOMAPS_PLACE` / `ALSOMAPS_VIEW` overrides work as
 above. This prototype has no free camera navigation or app icon yet.
 
