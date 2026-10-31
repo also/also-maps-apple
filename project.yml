@@ -72,6 +72,8 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: Also Maps
+        # Only HTTPS to the tile servers: exempt, so TestFlight skips the export compliance question.
+        ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         # Game controllers drive the map (MapInput) rather than system navigation.
@@ -146,6 +148,8 @@ targets:
       path: SourcesMac/Info.plist
       properties:
         CFBundleDisplayName: Also Maps
+        # Only HTTPS to the tile servers: exempt, so TestFlight skips the export compliance question.
+        ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         LSApplicationCategoryType: public.app-category.navigation
@@ -221,6 +225,8 @@ targets:
       path: SourcesTV/Info.plist
       properties:
         CFBundleDisplayName: Also Maps
+        # Only HTTPS to the tile servers: exempt, so TestFlight skips the export compliance question.
+        ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         UILaunchScreen: {}
