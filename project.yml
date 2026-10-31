@@ -138,6 +138,7 @@ targets:
           - TileStreaming.swift
           - TileUploader.swift
           - DebugLines.swift
+          - Config
           - Places
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
@@ -186,6 +187,9 @@ targets:
       - path: Sources/TileSource.swift
       - path: Sources/Static/StaticView.swift
       - path: Sources/Places/Place.swift
+      - path: Sources/Config/AppConfig.swift
+      - path: Sources/Config/AppConfigStore.swift
+      - path: Tests/Config
       - path: Tests/Static
       - path: Sources/Tracks
       - path: Tests/Navigation
@@ -216,6 +220,7 @@ targets:
           - TileStreaming.swift
           - TileUploader.swift
           - DebugLines.swift
+          - Config
           - Places
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
@@ -267,6 +272,7 @@ targets:
           - TileStreaming.swift
           - TileUploader.swift
           - DebugLines.swift
+          - Config
           - Places
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm

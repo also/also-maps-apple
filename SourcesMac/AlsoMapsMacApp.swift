@@ -15,6 +15,7 @@ struct AlsoMapsMacApp: App {
             // Starts at the selected preset's camera, then flies.
             MacMapView(start: view)
                 .frame(minWidth: 400, minHeight: 300)
+                .appGate()
         }
         .defaultSize(width: view.viewportSize.width, height: view.viewportSize.height)
     }

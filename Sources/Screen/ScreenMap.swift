@@ -26,7 +26,7 @@ final class ScreenMap {
     @ObservationIgnored private var flight = ModelFlightStyle()
     @ObservationIgnored private var cameraGround = CameraGround()
     @ObservationIgnored private var heldActions: Set<MapInput.Action> = []
-    @ObservationIgnored private var currentPlaceIndex: Int?
+    @ObservationIgnored private var currentPlaceID: String?
     /// Bumped per ground sample so a slow, older result can't win.
     @ObservationIgnored private var groundSampleGeneration = 0
     @ObservationIgnored private let cameraEntity = Entity()
@@ -49,7 +49,7 @@ final class ScreenMap {
     convenience init(place: Place, settings: StreamingSettings) {
         self.init(camera: ScreenView.framePlace(place, fieldOfView: Self.fieldOfView), settings: settings,
                   startGround: (place.coordinate, place.radius, true))
-        currentPlaceIndex = PlaceLibrary.all.firstIndex(of: place)
+        currentPlaceID = place.id
     }
 
     init(camera: CameraPose, settings: StreamingSettings,
@@ -95,7 +95,7 @@ final class ScreenMap {
         touch = TouchState()
         tracks.stopPlayback()
         tracks.markJump()
-        currentPlaceIndex = PlaceLibrary.all.firstIndex(of: place)
+        currentPlaceID = place.id
         let camera = ScreenView.framePlace(place, fieldOfView: Self.fieldOfView)
         navigation = flight.activate(NavigationState(camera: camera))
         cameraGround.reset(to: 0)
@@ -168,9 +168,9 @@ final class ScreenMap {
         let places = PlaceLibrary.all
         switch action {
         case .nextPlace where !places.isEmpty:
-            go(to: places[((currentPlaceIndex ?? -1) + 1) % places.count])
+            go(to: PlaceLibrary.place(in: places, stepping: 1, from: currentPlaceID))
         case .previousPlace where !places.isEmpty:
-            go(to: places[((currentPlaceIndex ?? 0) - 1 + places.count) % places.count])
+            go(to: PlaceLibrary.place(in: places, stepping: -1, from: currentPlaceID))
         case .faceNorth where !tracks.isPlaying:
             navigation = NavigationOperations.faceNorth(navigation)
         default:

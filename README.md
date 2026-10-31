@@ -57,6 +57,41 @@ Detail doesn't improve as you zoom in, because nothing new loads while frozen. C
 
 The pin button next to the mode picker jumps to a saved place: its position, zoom and facing. The defaults are in `Sources/Places/Places.json` (San Francisco, Boston, New York, Chicago, Grand Canyon and Puente Nuevo in Ronda). Each entry has an `id`, `name`, `latitude`, `longitude`, `radius` (view half-width in metres) and an optional `heading` (degrees clockwise from north). `PlaceLibrary` is where user-added places, stored locally or in iCloud, would be merged in later. `ALSOMAPS_PLACE=<id>` starts at that place.
 
+The remote config can replace these defaults; see below.
+
+## Remote config
+
+Every platform reads `https://maps.also.dev/config/v1.json`, a static file published from also-maps-site, on launch, on returning to the foreground and every 15 minutes while active (every minute while blocked). `Sources/Config/` holds the file's model and rules (`AppConfig`), its fetching and saved copy (`AppConfigStore`) and how the app applies it (`AppGate`).
+
+```json
+{
+  "notices": [
+    {
+      "id": "update-required-1.2",
+      "severity": "blocking",
+      "title": "Update required",
+      "body": "This version of Also Maps no longer works.",
+      "link": { "title": "Update", "url": "https://apps.apple.com/app/id0000000000" },
+      "platforms": ["visionos", "ios", "macos", "tvos"],
+      "minVersion": "1.0",
+      "maxVersion": "1.1.9",
+      "expires": "2027-01-01T00:00:00Z"
+    }
+  ],
+  "places": []
+}
+```
+
+Both top-level keys are optional. A notice needs `id`, `severity`, `title` and `body`; everything else narrows who sees it. Versions compare against `CFBundleShortVersionString`, inclusive at both ends, so a fix that a notice shouldn't reach needs a new version number. `expires` takes ISO 8601 without fractional seconds.
+
+- **`info`** shows as an alert, once. Give a new message a new `id`.
+- **`blocking`** replaces the app, stopping streaming, until it no longer applies. With no version range it's the kill switch; with `maxVersion` it's a minimum version. Don't let one match a build in App Review, or the reviewer sees a blocked app.
+- **`places`** has the format of `Places.json`, and replaces the bundled list when it has at least one usable entry.
+
+The app fails open: launch never waits for the file, it starts from the last good copy (or the bundled places), and an outage or a bad file leaves that in place. Unusable notices and places are skipped, while older builds ignore unknown fields. Don't add a new way to narrow a notice's audience to a live notice: older builds would ignore it and show the notice more widely. Change the format incompatibly only at a new URL (`v2.json`). The file is public, so it must never hold secrets. The block is enforced by the app, so it doesn't reach older builds or protect the API keys; those need quotas on the services themselves.
+
+`ALSOMAPS_CONFIG_URL=<url>` reads another file instead, without touching the saved copy, and accepts `file://` URLs.
+
 ## Views
 
 The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's centre point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Tuning. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.

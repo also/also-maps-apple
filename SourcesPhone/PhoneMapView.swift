@@ -58,6 +58,7 @@ struct PhoneMapView: View {
             .onChange(of: scenePhase) { _, phase in
                 if phase != .active { map.tracks.flush() }
             }
+            .onDisappear { map.tracks.flush() }
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
                     trackControls

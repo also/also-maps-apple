@@ -171,8 +171,8 @@ final class MapModel {
     /// Both scenes deliver frame updates; only the presented host's are used.
     private var updateSubscriptions: [MapPresentation.Host: EventSubscription] = [:]
     private var heldActions: Set<MapInput.Action> = []
-    /// Index into PlaceLibrary.all of the last place jumped to, for cycling.
-    private var currentPlaceIndex: Int?
+    /// The last place jumped to, for cycling.
+    private var currentPlaceID: String?
 
     init() {
         let settings = StreamingSettings.load()
@@ -221,6 +221,13 @@ final class MapModel {
         }
         reparentRoot()
         start()
+    }
+
+    /// The volume went away (closed, or replaced by a blocking notice). It no
+    /// longer drives streaming; opening it attaches again.
+    func volumeDidClose() {
+        volumeIsOpen = false
+        updateSubscriptions[.volume] = nil
     }
 
     /// The immersive space went away (dismissed by us or the system).
@@ -307,7 +314,7 @@ final class MapModel {
         // Framed level for this host already.
         settlesPitch = false
         placeAwaitsGround = true
-        currentPlaceIndex = PlaceLibrary.all.firstIndex(of: place)
+        currentPlaceID = place.id
         rayHeight.reset(to: 0)
         envelopeHeight.reset(to: 0)
         cameraGround.reset(to: 0)
@@ -557,11 +564,9 @@ final class MapModel {
         let places = PlaceLibrary.all
         switch action {
         case .nextPlace where !places.isEmpty:
-            let index = ((currentPlaceIndex ?? -1) + 1) % places.count
-            go(to: places[index])
+            go(to: PlaceLibrary.place(in: places, stepping: 1, from: currentPlaceID))
         case .previousPlace where !places.isEmpty:
-            let index = ((currentPlaceIndex ?? 0) - 1 + places.count) % places.count
-            go(to: places[index])
+            go(to: PlaceLibrary.place(in: places, stepping: -1, from: currentPlaceID))
         case .faceNorth where !tracks.isPlaying:
             navigation = NavigationOperations.faceNorth(navigation)
         case .toggleFly:

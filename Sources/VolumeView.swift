@@ -20,7 +20,7 @@ struct VolumeView: View {
         // default; route it to the Game Controller framework for MapInput.
         .handlesGameControllerEvents(matching: .gamepad)
         .onAppear { model.volumeIsOpen = true }
-        .onDisappear { model.volumeIsOpen = false }
+        .onDisappear { model.volumeDidClose() }
         .ornament(attachmentAnchor: .scene(.bottomFront)) {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {

@@ -959,6 +959,22 @@ NSString* stripHTML(const std::string& html) {
          const TilesetOptions&)>)makeTileset NS_DESIGNATED_INITIALIZER;
 @end
 
+// Runs an abandoned streamer's main-thread tasks until `finished`, then lets
+// go of its AsyncSystem. The last task runs after the flag is seen, so nothing
+// is left queued.
+static void drainMainThreadTasks(AsyncSystem asyncSystem,
+                                 std::shared_ptr<std::atomic<bool>> finished) {
+  const bool done = finished->load();
+  asyncSystem.dispatchMainThreadTasks();
+  if (done) {
+    return;
+  }
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC),
+                 dispatch_get_main_queue(), ^{
+                   drainMainThreadTasks(asyncSystem, finished);
+                 });
+}
+
 @implementation CNTileStreamer {
   // AsyncSystem has no default constructor; constructed in init.
   std::optional<AsyncSystem> _asyncSystem;
@@ -968,6 +984,24 @@ NSString* stripHTML(const std::string& html) {
   std::unique_ptr<Tileset> _tileset;
   std::shared_ptr<FetchCounters> _fetchCounters;
   CNFrame* _lastFrame;
+}
+
+- (void)dealloc {
+  // ~Tileset fails pending height samples and leaves in-flight loads to finish,
+  // both through the main-thread queue, which frames no longer service.
+  // Destroying AsyncSystem with tasks queued cancels them into the dying
+  // scheduler, which crashes, so keep servicing it until the tileset is done.
+  if (!_tileset) {
+    return;
+  }
+  auto finished = std::make_shared<std::atomic<bool>>(false);
+  _tileset->getAsyncDestructionCompleteEvent().thenImmediately(
+      [finished]() { finished->store(true); });
+  _tileset.reset();
+  AsyncSystem asyncSystem = *_asyncSystem;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    drainMainThreadTasks(asyncSystem, finished);
+  });
 }
 
 - (instancetype)initWithTilesetURL:(NSString*)url {
