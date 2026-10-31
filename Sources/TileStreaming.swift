@@ -59,12 +59,19 @@ final class TileStreaming {
     private(set) var loadProgress: Float = 0
     private(set) var statusMessage: String?
     var isStreaming: Bool { streamer != nil }
+    /// The name of the traces draped over the map; nil if there are none.
+    private(set) var tracesName = UserDefaults.standard.string(forKey: TileStreaming.tracesNameKey)
+    private(set) var isLoadingTraces = false
+    /// Why the last traces couldn't be shown, until it's been read.
+    var tracesError: String?
 
     private var streamer: CNTileStreamer?
     private let tileUploader = TileUploader()
     private let drape = TraceDrape()
     /// sRGB, the teal the traces are drawn in on the web.
     private static let traceColor = SIMD4<Float>(0, 0.863, 0.761, 1)
+    private static let tracesNameKey = "tracesName"
+    private static let tracesFile = URL.applicationSupportDirectory.appending(path: "traces.geojson")
     private var startedLoading = Date()
     private var tileEntities: [UInt64: Entity] = [:]
     private var renderedTiles: [CNTileMesh] = []
@@ -95,6 +102,54 @@ final class TileStreaming {
         guard !started else { return }
         started = true
         startStreamer()
+        // Debug: ALSOMAPS_TRACES=<path to GeoJSON> opens it as if picked.
+        if let traces = ProcessInfo.processInfo.environment["ALSOMAPS_TRACES"], !traces.isEmpty {
+            Task { _ = await openTraces(URL(fileURLWithPath: traces)) }
+        }
+    }
+
+    // MARK: Traces
+
+    /// Prepares a GeoJSON file and drapes it over the map, keeping a copy so
+    /// it's there next launch. Returns a view of it, or nil with `tracesError`
+    /// set.
+    func openTraces(_ url: URL) async -> Place? {
+        isLoadingTraces = true
+        defer { isLoadingTraces = false }
+        let name = url.deletingPathExtension().lastPathComponent
+        do {
+            let place = try await Task.detached(priority: .userInitiated) {
+                let accessing = url.startAccessingSecurityScopedResource()
+                defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                let file = try TraceFile(geoJSON: Data(contentsOf: url, options: .mappedIfSafe), name: name)
+                try FileManager.default.createDirectory(at: Self.tracesFile.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
+                try file.data.write(to: Self.tracesFile, options: .atomic)
+                return file.place
+            }.value
+            tracesName = name
+            UserDefaults.standard.set(name, forKey: Self.tracesNameKey)
+            showTraces()
+            return place
+        } catch {
+            tracesError = error.localizedDescription
+            return nil
+        }
+    }
+
+    func removeTraces() {
+        streamer?.removeGeoJSONOverlay()
+        tracesName = nil
+        UserDefaults.standard.removeObject(forKey: Self.tracesNameKey)
+        try? FileManager.default.removeItem(at: Self.tracesFile)
+    }
+
+    private func showTraces() {
+        streamer?.showGeoJSONOverlay(path: Self.tracesFile.path, lineWidth: 2, color: Self.traceColor) { [weak self] error in
+            guard let self, let error else { return }
+            self.tracesError = error
+            self.removeTraces()
+        }
     }
 
     private func startStreamer() {
@@ -123,15 +178,12 @@ final class TileStreaming {
         tileUploader.untexturedColor = settings.tileSource.untexturedColor
         // Before the first update, so every tile goes through it.
         streamer.tileLoadHandler = tileUploader.handler
-        // Debug: ALSOMAPS_TRACES=<path to GeoJSON> drapes its lines over the tiles.
-        if let traces = env["ALSOMAPS_TRACES"], !traces.isEmpty {
-            streamer.rasterAttachHandler = { [drape] tile, raster, translation, scale in
-                drape.attach(tile, raster: raster, translation: translation, scale: scale)
-            }
-            streamer.rasterDetachHandler = { [drape] tile in drape.detach(tile) }
-            streamer.addGeoJSONOverlay(path: traces, lineWidth: 2, color: Self.traceColor)
+        streamer.rasterAttachHandler = { [drape] tile, raster, translation, scale in
+            drape.attach(tile, raster: raster, translation: translation, scale: scale)
         }
+        streamer.rasterDetachHandler = { [drape] tile in drape.detach(tile) }
         self.streamer = streamer
+        if tracesName != nil { showTraces() }
         startedLoading = Date()
         applySettings()
         applyInputs()

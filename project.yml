@@ -144,6 +144,8 @@ targets:
           - TileStreaming.swift
           - TileUploader.swift
           - TraceDrape.swift
+          - TraceFile.swift
+          - TracesMenu.swift
           - DebugLines.swift
           - Places
           - Cesium/CNTileStreamer.h
@@ -193,6 +195,7 @@ targets:
       - path: Sources/TileSource.swift
       - path: Sources/Static/StaticView.swift
       - path: Sources/Places/Place.swift
+      - path: Sources/TraceFile.swift
       - path: Tests/Static
       - path: Sources/Tracks
       - path: Tests/Navigation
@@ -223,6 +226,8 @@ targets:
           - TileStreaming.swift
           - TileUploader.swift
           - TraceDrape.swift
+          - TraceFile.swift
+          - TracesMenu.swift
           - DebugLines.swift
           - Places
           - Cesium/CNTileStreamer.h
@@ -275,6 +280,8 @@ targets:
           - TileStreaming.swift
           - TileUploader.swift
           - TraceDrape.swift
+          - TraceFile.swift
+          - TracesMenu.swift
           - DebugLines.swift
           - Places
           - Cesium/CNTileStreamer.h

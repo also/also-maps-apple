@@ -183,13 +183,16 @@ typedef struct {
 @property (nonatomic, copy, nullable) CNRasterDetachHandler rasterDetachHandler;
 
 /// Drapes a GeoJSON file's lines over the tiles, as texture: they follow the
-/// surface and need no heights. Read and parsed on a worker thread. `color`
-/// is sRGB; `lineWidth` is in overlay pixels. Add it before the first update:
-/// tiles loaded earlier have no overlay coordinates and load again.
-- (void)addGeoJSONOverlayFromPath:(NSString *)path
-                        lineWidth:(double)lineWidth
-                            color:(simd_float4)color
-    NS_SWIFT_NAME(addGeoJSONOverlay(path:lineWidth:color:));
+/// surface and need no heights. Replaces any overlay already showing. Read
+/// and parsed on a worker thread; `completion` runs on the main thread with
+/// nil, or why the file couldn't be used. `color` is sRGB; `lineWidth` is in
+/// overlay pixels. Tiles that loaded without an overlay load again.
+- (void)showGeoJSONOverlayFromPath:(NSString *)path
+                         lineWidth:(double)lineWidth
+                             color:(simd_float4)color
+                        completion:(void (^)(NSString *_Nullable error))completion
+    NS_SWIFT_NAME(showGeoJSONOverlay(path:lineWidth:color:completion:));
+- (void)removeGeoJSONOverlay;
 
 // Live cesium-native TilesetOptions; changes apply on the next update.
 /// SSE threshold for tiles the LOD camera sees; lower = more detail. Default 16.

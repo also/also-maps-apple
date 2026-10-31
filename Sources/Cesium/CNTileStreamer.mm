@@ -1047,6 +1047,8 @@ NSString* stripHTML(const std::string& html) {
   std::shared_ptr<RealityKitPrepareRendererResources> _resources;
   std::shared_ptr<AreaOfInterestExcluder> _excluder;
   std::unique_ptr<Tileset> _tileset;
+  CesiumUtility::IntrusivePointer<CesiumRasterOverlays::RasterOverlay>
+      _geoJSONOverlay;
   std::shared_ptr<FetchCounters> _fetchCounters;
   CNFrame* _lastFrame;
 }
@@ -1154,22 +1156,30 @@ NSString* stripHTML(const std::string& html) {
   _resources->_rasterDetachHandler = handler;
 }
 
-- (void)addGeoJSONOverlayFromPath:(NSString*)path
-                        lineWidth:(double)lineWidth
-                            color:(simd_float4)color {
+- (void)showGeoJSONOverlayFromPath:(NSString*)path
+                         lineWidth:(double)lineWidth
+                             color:(simd_float4)color
+                        completion:(void (^)(NSString* _Nullable))completion {
+  [self removeGeoJSONOverlay];
+
   using CesiumVectorData::GeoJsonDocument;
-  auto document = _asyncSystem->runInWorkerThread([path]() {
+  auto document = _asyncSystem->runInWorkerThread([path, completion]() {
     NSData* data = [NSData dataWithContentsOfFile:path];
     auto result = GeoJsonDocument::fromGeoJson(std::span<const std::byte>(
         static_cast<const std::byte*>(data.bytes),
         data.length));
     if (!result.value) {
-      NSLog(@"[cesium] couldn't read the overlay at %@", path);
-      for (const std::string& error : result.errors.errors) {
-        NSLog(@"[cesium] %s", error.c_str());
-      }
+      NSString* message = result.errors.errors.empty()
+          ? @"The file couldn't be read."
+          : @(result.errors.errors.front().c_str());
+      dispatch_async(dispatch_get_main_queue(), ^{
+        completion(message);
+      });
       return std::make_shared<GeoJsonDocument>();
     }
+    dispatch_async(dispatch_get_main_queue(), ^{
+      completion(nil);
+    });
     return std::make_shared<GeoJsonDocument>(std::move(*result.value));
   });
 
@@ -1186,11 +1196,18 @@ NSString* stripHTML(const std::string& html) {
       .defaultStyle = CesiumVectorData::VectorStyle(line, {}),
       .ellipsoid = _tileset->getOptions().ellipsoid};
 
-  _tileset->getOverlays().add(
-      new CesiumVectorOverlays::GeoJsonDocumentRasterOverlay(
-          "traces",
-          std::move(document),
-          options));
+  _geoJSONOverlay = new CesiumVectorOverlays::GeoJsonDocumentRasterOverlay(
+      "traces",
+      std::move(document),
+      options);
+  _tileset->getOverlays().add(_geoJSONOverlay);
+}
+
+- (void)removeGeoJSONOverlay {
+  if (_geoJSONOverlay) {
+    _tileset->getOverlays().remove(_geoJSONOverlay);
+    _geoJSONOverlay = nullptr;
+  }
 }
 
 - (double)maximumScreenSpaceError {

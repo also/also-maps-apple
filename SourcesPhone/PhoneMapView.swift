@@ -58,6 +58,12 @@ struct PhoneMapView: View {
                     trackControls
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    TracesMenu(streaming: map.streaming) { place in
+                        selection = nil
+                        map.go(to: place)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
                     }

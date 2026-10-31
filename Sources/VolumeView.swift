@@ -71,6 +71,8 @@ struct VolumeView: View {
                     }
                     .labelStyle(.iconOnly)
                     .help("Go to a place")
+                    TracesMenu(streaming: model.streaming) { model.go(to: $0) }
+                        .labelStyle(.iconOnly)
                     Button("Tuning", systemImage: "slider.horizontal.3") {
                         openWindow(id: TuningView.windowID)
                     }
