@@ -72,7 +72,8 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: Also Maps
-        # Only HTTPS to the tile servers: exempt, so TestFlight skips the export compliance question.
+        # Only encryption built into the OS (CesiumNative's OpenSSL isn't linked in): exempt, so
+        # TestFlight skips the export compliance question.
         ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
@@ -148,7 +149,8 @@ targets:
       path: SourcesMac/Info.plist
       properties:
         CFBundleDisplayName: Also Maps
-        # Only HTTPS to the tile servers: exempt, so TestFlight skips the export compliance question.
+        # Only encryption built into the OS (CesiumNative's OpenSSL isn't linked in): exempt, so
+        # TestFlight skips the export compliance question.
         ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
@@ -225,7 +227,8 @@ targets:
       path: SourcesTV/Info.plist
       properties:
         CFBundleDisplayName: Also Maps
-        # Only HTTPS to the tile servers: exempt, so TestFlight skips the export compliance question.
+        # Only encryption built into the OS (CesiumNative's OpenSSL isn't linked in): exempt, so
+        # TestFlight skips the export compliance question.
         ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
@@ -275,7 +278,8 @@ targets:
       path: SourcesPhone/Info.plist
       properties:
         CFBundleDisplayName: Also Maps
-        # Only HTTPS to the tile servers: exempt, so TestFlight skips the export compliance question.
+        # Only encryption built into the OS (CesiumNative's OpenSSL isn't linked in): exempt, so
+        # TestFlight skips the export compliance question.
         ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
