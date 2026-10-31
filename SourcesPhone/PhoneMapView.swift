@@ -32,6 +32,11 @@ struct PhoneMapView: View {
     var body: some View {
         NavigationStack {
             ScreenMapView(map: map, showsStatus: false, creditLineLimit: nil)
+                // Over the map, under the sticks, the same size as the scene.
+                .overlay {
+                    TouchSurface(map: map)
+                        .ignoresSafeArea()
+                }
                 .overlay(alignment: .bottom) {
                     // The track has the camera while it plays.
                     if !map.tracks.isPlaying {

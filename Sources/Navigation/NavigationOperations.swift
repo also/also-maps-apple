@@ -97,6 +97,23 @@ enum NavigationOperations {
         return orbited
     }
 
+    /// Swings the camera up or down an arc around `pivot` (ECEF), turning
+    /// the view with it, so what's at the pivot stays where it is on screen
+    /// and the map seems to tip. Positive `delta` (radians) levels the view,
+    /// bringing the camera down. Pitch stays within `range`, or where it
+    /// already is if that's outside it.
+    static func tilt(_ state: NavigationState, about pivot: SIMD3<Double>, by delta: Double,
+                     range: ClosedRange<Double>, context: NavigationContext) -> NavigationState {
+        let pitch = state.camera.pitch
+        let lowest = min(range.lowerBound, pitch), highest = max(range.upperBound, pitch)
+        let angle = min(max(pitch + delta, lowest), highest) - pitch
+        guard angle != 0 else { return state }
+        let basis = state.camera.basis
+        let rotation = simd_quatd(angle: angle, axis: basis.right)
+        let position = pivot + rotation.act(state.camera.position - pivot)
+        return place(state, at: position, forward: rotation.act(basis.forward), context: context)
+    }
+
     /// The state with the camera at `position` looking along `forward`
     /// (ECEF), height clamped. Movement heading is carried with the move.
     private static func place(_ state: NavigationState, at position: SIMD3<Double>, forward: SIMD3<Double>,
