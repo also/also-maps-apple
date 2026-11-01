@@ -1,10 +1,10 @@
 import RealityKit
 import SwiftUI
 
-/// The map on a flat screen (macOS, and iOS next): the window's camera is
-/// the navigation camera, flown with the keyboard or a game controller. The
-/// navigation core, ground estimate and streaming are the same as on
-/// visionOS; only the presentation (`ScreenView`) differs.
+/// The map on a flat screen (macOS and iOS): the window's camera is the
+/// navigation camera, flown with touch, a mouse or trackpad, the keyboard or
+/// a game controller. The navigation core, ground estimate and streaming are
+/// the same as on visionOS; only the presentation (`ScreenView`) differs.
 @MainActor
 @Observable
 final class ScreenMap {
@@ -229,6 +229,8 @@ final class ScreenMap {
     private static let zoomDuration = 0.25
     /// Tilt, radians for the fingers crossing the screen's height.
     private static let tiltPerScreen = 2.0
+    /// Turn, radians for the pointer crossing the screen's width.
+    private static let turnPerScreen = Double.pi
 
     private var viewport: ScreenViewport {
         ScreenViewport(size: viewportSize, fieldOfView: Self.fieldOfView)
@@ -310,8 +312,32 @@ final class ScreenMap {
     /// time: a double tap (2), a two-finger tap (0.5).
     func zoom(at point: SIMD2<Double>, by factor: Double) {
         guard !tracks.isPlaying, let pivot = groundPoint(under: point) else { return }
+        // A scroll asks again before the last step is done; keep what's left.
+        let unfinished = touch.zoom.map { $0.rate * $0.remaining } ?? 0
         touch = TouchState()
-        touch.zoom = (pivot, log(factor) / Self.zoomDuration, Self.zoomDuration)
+        touch.zoom = (pivot, (log(factor) + unfinished) / Self.zoomDuration, Self.zoomDuration)
+    }
+
+    /// Moves the map by `delta` screen points with nothing to hold on to: a
+    /// trackpad scroll, measured at the middle of the view.
+    func scroll(by delta: SIMD2<Double>) {
+        guard !tracks.isPlaying, let grab = groundPoint(under: viewport.centre) else { return }
+        touch = TouchState()
+        navigation = ScreenGestures.pan(navigation, grab: grab, to: viewport.centre + delta, viewport: viewport,
+                                        groundHeight: cameraGround.value)
+    }
+
+    /// Turns and tilts about the ground at the middle of the view: `drag`
+    /// is points moved, right turning the camera clockwise (the near ground
+    /// follows) and up levelling the view.
+    func orbit(by drag: SIMD2<Double>) {
+        guard !tracks.isPlaying, let pivot = groundPoint(under: viewport.centre) else { return }
+        touch = TouchState()
+        var state = NavigationOperations.orbit(navigation, about: pivot,
+                                               by: drag.x / viewportSize.x * Self.turnPerScreen, context: context)
+        state = NavigationOperations.tilt(state, about: pivot, by: -drag.y / viewportSize.y * Self.tiltPerScreen,
+                                          range: (-Double.pi / 2)...ScreenGestures.levelestTilt, context: context)
+        navigation = state
     }
 
     func beginZoomDrag(at point: SIMD2<Double>) {
@@ -406,6 +432,7 @@ struct ScreenMapView: View {
             if map.keyboardConnected {
                 Text(MapInput.screenKeyboardHint)
             }
+            Text(MapInput.pointerHint)
             if map.controllerName != nil {
                 Text(MapInput.controllerHint)
             }

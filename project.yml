@@ -111,8 +111,8 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
 
   # The macOS app: same bundle ID as the visionOS app, so both ship as one App
-  # Store listing (universal purchase). A map flown with the keyboard or a
-  # game controller (Screen), sharing the navigation core, the streaming
+  # Store listing (universal purchase). A map flown with a mouse or trackpad,
+  # the keyboard or a game controller (Screen), sharing the navigation core, the streaming
   # layer (TileStreaming and below) and the cesium-native bridge.
   Also Maps macOS:
     type: application

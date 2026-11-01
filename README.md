@@ -45,6 +45,12 @@ To test without a key, tick the `ALSOMAPS_*` variables in the scheme. They strea
 - **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F descend and climb (which is zoom), `=` and `-` zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.
 - **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, Y faces north, and X toggles Fly. The ornament shows these hints while a controller is connected. Keyboard and controller input combine, and the Tuning window's turn pivot applies to both.
 
+On a Mac, the map also takes the usual mouse and trackpad controls:
+
+- **Pan:** click and drag, and let go while moving to flick the map on. Two-finger scrolling on a trackpad or Magic Mouse pans too.
+- **Zoom:** pinch, turn a mouse wheel, or hold Option and scroll, all about the pointer. Double-click zooms in, Option-double-click zooms out, and a two-finger double tap on a trackpad zooms in.
+- **Turn and tilt:** right-drag, or hold Option or Control and drag: sideways turns, up and down tilts. A two-finger twist on a trackpad turns, and Shift-scroll tilts.
+
 `ALSOMAPS_HEADING`, in degrees clockwise from north, sets the starting direction.
 
 ## Fly

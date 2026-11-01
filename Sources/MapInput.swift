@@ -61,6 +61,9 @@ struct MapInput {
     /// For flat screens, where you look up and down with the keyboard.
     static let screenKeyboardHint = "WASD / arrows move · Q E turn · T G look up/down · R F descend/climb · = − zoom · Shift faster"
 
+    /// For the Mac's mouse and trackpad, which aren't read here (PointerSurface).
+    static let pointerHint = "Drag or scroll pan · Pinch or ⌥ scroll zoom · Right-drag turn, tilt · ⇧ scroll tilt · Double-click zoom in, ⌥ out"
+
     static var isKeyboardConnected: Bool { GCKeyboard.coalesced != nil }
 
     /// The keys held right now, or no input if there's no keyboard.
