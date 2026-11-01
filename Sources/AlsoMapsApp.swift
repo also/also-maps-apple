@@ -22,6 +22,7 @@ struct AlsoMapsApp: App {
                 .environment(soundtrack)
                 .credentialGate()
                 .appGate()
+                .keepsVolumeDepth()
         }
         .windowStyle(.volumetric)
         .defaultSize(width: MapModel.volumeSize.x,
