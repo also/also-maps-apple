@@ -147,15 +147,16 @@ struct CredentialStoreTests {
     private let defaults = UserDefaults(suiteName: UUID().uuidString)!
 
     private func store(environment: [String: String] = [:], builtIn: String? = nil, enabled: Bool = true,
+                       keySourceChanged: @escaping @MainActor () -> Void = {},
                        now: @escaping () -> Date = { .distantPast }) -> CredentialStore {
         let api = api
         let client = AppKeyClient(baseURL: URL(string: "https://example.test")!, attest: attest,
                                   storage: storage, fetch: { try await api.fetch($0) })
         return CredentialStore(storage: storage, client: client, defaults: defaults, environment: environment,
-                               builtInKey: { _ in builtIn }, appKeysEnabled: { enabled }, now: now)
+                               builtInKey: { _ in builtIn }, appKeysEnabled: { enabled },
+                               keySourceChanged: keySourceChanged, now: now)
     }
 
-    /// `choose` also tells the shared config store, so set it directly.
     private func stored(_ choice: CredentialStore.Choice) {
         defaults.set(choice.rawValue, forKey: "KeyChoice")
     }
@@ -244,6 +245,65 @@ struct CredentialStoreTests {
         time += 61
         await store.refreshAppKeys(force: true)
         #expect(!api.requests.isEmpty)
+    }
+
+    @Test func anOwnKeyLiftsABlockOnTheSharedKey() async throws {
+        stored(.app)
+        var config: AppConfigStore?
+        let credentials = store(keySourceChanged: { config?.reevaluate() })
+        let notice = #"{"id": "kill", "severity": "blocking", "title": "T", "body": "B", "keySource": "app"}"#
+        let url = URL(string: "https://example.test/config.json")!
+        config = AppConfigStore(url: url, cacheFile: nil, defaults: defaults, fetch: { _ in
+            (Data(#"{"notices": [\#(notice)]}"#.utf8),
+             HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }, keySource: { credentials.keySource })
+        await config?.refresh()
+        #expect(config?.blocking?.id == "kill")
+
+        try credentials.setOwnKey("mine", for: .googleMaps)
+        #expect(credentials.choice == .app)
+        #expect(credentials.keySource == "own")
+        #expect(config?.blocking == nil)
+
+        try credentials.setOwnKey(nil, for: .googleMaps)
+        #expect(config?.blocking?.id == "kill")
+    }
+
+    @Test func anOwnCesiumTokenLeavesGoogleOnTheSharedKey() throws {
+        stored(.app)
+        let store = self.store()
+        try store.setOwnKey("mine", for: .cesiumIon)
+        #expect(store.keySource == "app")
+    }
+
+    @Test func failedFirstFetchesBackOff() async {
+        stored(.app)
+        api.status["challenge"] = 503
+        var time = ISO8601DateFormatter().date(from: "2027-01-01T00:00:00Z")!
+        let store = self.store(now: { time })
+        #expect(store.appKeyRetryDelay == 0)
+        var delays: [TimeInterval] = []
+        for _ in 0..<8 {
+            await store.refreshAppKeys()
+            delays.append(store.appKeyRetryDelay)
+            time += delays.last!
+        }
+        #expect(delays == [65, 130, 260, 520, 1040, 2080, 3600, 3600])
+
+        api.status = [:]
+        await store.refreshAppKeys()
+        #expect(store.appKeyFailures == 0)
+        #expect(store.appKeyRetryDelay == 0)
+    }
+
+    @Test func aFailedRefreshWithAKeyDoesNotBackOff() async {
+        stored(.app)
+        let store = self.store()
+        await store.refreshAppKeys()
+        api.status["key"] = 503
+        await store.refreshAppKeys(force: true)
+        #expect(store.appKeyFailures == 0)
+        #expect(store.key(for: .googleMaps) == "google-1")
     }
 
     @Test func aFailedFirstFetchExplainsItself() async {

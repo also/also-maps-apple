@@ -9,6 +9,11 @@ extension View {
 }
 
 private struct CredentialGate: ViewModifier {
+    private struct RefreshState: Equatable {
+        var isActive: Bool
+        var failures: Int
+    }
+
     @Environment(\.scenePhase) private var scenePhase
 
     private var store: CredentialStore { .shared }
@@ -21,11 +26,19 @@ private struct CredentialGate: ViewModifier {
                 content
             }
         }
-        .task(id: scenePhase == .active) {
+        // Restarted by a failure, which may have come from choosing the app's
+        // key while this was sleeping.
+        .task(id: RefreshState(isActive: scenePhase == .active, failures: store.appKeyFailures)) {
             guard scenePhase == .active else { return }
+            if store.appKeyFailures > 0 {
+                try? await Task.sleep(for: .seconds(store.appKeyRetryDelay))
+                guard !Task.isCancelled else { return }
+            }
+            await store.refreshAppKeys()
             while !Task.isCancelled {
-                await store.refreshAppKeys()
                 try? await Task.sleep(for: .seconds(60 * 60))
+                guard !Task.isCancelled else { return }
+                await store.refreshAppKeys()
             }
         }
     }

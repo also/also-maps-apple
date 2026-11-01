@@ -130,6 +130,10 @@ final class CredentialStore {
     private static let choiceKey = "KeyChoice"
     /// Windows each refresh, and a rejected key can be reported every frame.
     private static let minimumRefreshInterval: TimeInterval = 60
+    /// Retries after a failed first fetch, doubling, so an outage clears
+    /// quickly but a lasting failure doesn't keep generating App Attest keys.
+    private static let firstRetryDelay = minimumRefreshInterval + 5
+    private static let longestRetryDelay: TimeInterval = 60 * 60
 
     static let shared: CredentialStore = {
         #if os(tvOS)
@@ -145,6 +149,8 @@ final class CredentialStore {
     private(set) var appSecrets: [String: String] = [:]
     /// Why the app's key couldn't be fetched, for the user.
     private(set) var appKeyProblem: String?
+    /// Failed fetches in a row with no key to fall back on.
+    private(set) var appKeyFailures = 0
 
     @ObservationIgnored private let storage: CredentialStorage
     @ObservationIgnored private let client: AppKeyClient?
@@ -153,6 +159,7 @@ final class CredentialStore {
     @ObservationIgnored private let environment: [String: String]
     @ObservationIgnored private let builtInKey: (CredentialService) -> String?
     @ObservationIgnored private let appKeysEnabled: @MainActor () -> Bool
+    @ObservationIgnored private let keySourceChanged: @MainActor () -> Void
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var lastRefresh: Date?
     @ObservationIgnored private var isRefreshing = false
@@ -162,6 +169,7 @@ final class CredentialStore {
          environment: [String: String] = ProcessInfo.processInfo.environment,
          builtInKey: @escaping (CredentialService) -> String? = CredentialStore.infoPlistKey,
          appKeysEnabled: @escaping @MainActor () -> Bool = { AppConfigStore.shared.config?.appKeysEnabled ?? true },
+         keySourceChanged: @escaping @MainActor () -> Void = { AppConfigStore.shared.reevaluate() },
          now: @escaping () -> Date = Date.init) {
         self.storage = storage
         self.client = client
@@ -170,6 +178,7 @@ final class CredentialStore {
         self.environment = environment
         self.builtInKey = builtInKey
         self.appKeysEnabled = appKeysEnabled
+        self.keySourceChanged = keySourceChanged
         self.now = now
         choice = defaults.string(forKey: Self.choiceKey).flatMap(Choice.init)
         for service in CredentialService.allCases {
@@ -221,13 +230,21 @@ final class CredentialStore {
     }
 
     /// For the remote config's notices: "own" apps aren't spending the shared
-    /// quota, so a notice about it doesn't apply to them.
-    var keySource: String { choice == .own ? "own" : "app" }
+    /// Google quota, so a notice about it doesn't apply to them.
+    var keySource: String { choice == .own || ownKeys[.googleMaps] != nil ? "own" : "app" }
+
+    /// How long to wait before retrying a failed first fetch.
+    var appKeyRetryDelay: TimeInterval {
+        guard appKeyFailures > 0 else { return 0 }
+        let doublings = Double(min(appKeyFailures - 1, 10))
+        return min(Self.firstRetryDelay * pow(2, doublings), Self.longestRetryDelay)
+    }
 
     func choose(_ choice: Choice) {
         self.choice = choice
         defaults.set(choice.rawValue, forKey: Self.choiceKey)
-        AppConfigStore.shared.reevaluate()
+        appKeyFailures = 0
+        keySourceChanged()
         if choice == .app { Task { await refreshAppKeys() } }
     }
 
@@ -241,6 +258,7 @@ final class CredentialStore {
             storage.delete(account: service.rawValue)
             ownKeys[service] = nil
         }
+        keySourceChanged()
     }
 
     /// Fetches the app's keys if they're due. `force` is for a rejected key:
@@ -256,10 +274,14 @@ final class CredentialStore {
             try await client.update()
             appSecrets = client.state?.secrets ?? [:]
             appKeyProblem = nil
+            appKeyFailures = 0
         } catch {
             print("[AlsoMaps] App key not refreshed: \(error.localizedDescription)")
             // A saved key keeps working, and the next attempt may succeed.
-            if appSecrets.isEmpty { appKeyProblem = "The app's key isn't available right now. Try again later, or add your own." }
+            if appSecrets.isEmpty {
+                appKeyProblem = "The app's key isn't available right now. Try again later, or add your own."
+                appKeyFailures += 1
+            }
         }
     }
 }
