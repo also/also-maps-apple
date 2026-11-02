@@ -9,6 +9,7 @@ struct AlsoMapsTVApp: App {
     var body: some Scene {
         WindowGroup {
             TVMapView()
+                .appGate()
         }
     }
 }

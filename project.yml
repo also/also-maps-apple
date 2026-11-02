@@ -68,6 +68,12 @@ targets:
       - package: CesiumNative
       - sdk: libsqlite3.tbd
       - sdk: libc++.tbd
+    # App Attest uses Apple's production service in every build, so local and
+    # distributed builds work against the same credentials API.
+    entitlements:
+      path: Sources/AlsoMaps.entitlements
+      properties:
+        com.apple.developer.devicecheck.appattest-environment: production
     info:
       path: Sources/Info.plist
       properties:
@@ -109,6 +115,11 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
+      configs:
+        # Release builds get keys at run time (CredentialStore), so none ship.
+        Release:
+          GOOGLE_MAPS_API_KEY: ""
+          CESIUM_ION_TOKEN: ""
 
   # The macOS app: same bundle ID as the visionOS app, so both ship as one App
   # Store listing (universal purchase). A map flown with a mouse or trackpad,
@@ -138,6 +149,8 @@ targets:
           - TileStreaming.swift
           - TileUploader.swift
           - DebugLines.swift
+          - Config
+          - Credentials
           - Places
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
@@ -172,6 +185,9 @@ targets:
           CODE_SIGN_ENTITLEMENTS: SourcesMac/AlsoMapsMac.Debug.entitlements
         Release:
           CODE_SIGN_ENTITLEMENTS: SourcesMac/AlsoMapsMac.entitlements
+          # Keys come from the user; see CredentialStore.
+          GOOGLE_MAPS_API_KEY: ""
+          CESIUM_ION_TOKEN: ""
 
   # The platform-neutral navigation core (Sources/Navigation), tested on
   # macOS without a scene, cesium-native or the network.
@@ -186,6 +202,11 @@ targets:
       - path: Sources/TileSource.swift
       - path: Sources/Static/StaticView.swift
       - path: Sources/Places/Place.swift
+      - path: Sources/Config/AppConfig.swift
+      - path: Sources/Config/AppConfigStore.swift
+      - path: Sources/Credentials/CredentialStore.swift
+      - path: Sources/Credentials/AppKeyClient.swift
+      - path: Tests/Config
       - path: Tests/Static
       - path: Sources/Tracks
       - path: Tests/Navigation
@@ -216,6 +237,9 @@ targets:
           - TileStreaming.swift
           - TileUploader.swift
           - DebugLines.swift
+          - Config
+          - Credentials/CredentialStore.swift
+          - Credentials/AppKeyClient.swift
           - Places
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
@@ -267,6 +291,8 @@ targets:
           - TileStreaming.swift
           - TileUploader.swift
           - DebugLines.swift
+          - Config
+          - Credentials
           - Places
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
@@ -274,6 +300,12 @@ targets:
       - package: CesiumNative
       - sdk: libsqlite3.tbd
       - sdk: libc++.tbd
+    # App Attest uses Apple's production service in every build, so local and
+    # distributed builds work against the same credentials API.
+    entitlements:
+      path: SourcesPhone/AlsoMaps.entitlements
+      properties:
+        com.apple.developer.devicecheck.appattest-environment: production
     info:
       path: SourcesPhone/Info.plist
       properties:
@@ -303,3 +335,8 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
+      configs:
+        # Release builds get keys at run time (CredentialStore), so none ship.
+        Release:
+          GOOGLE_MAPS_API_KEY: ""
+          CESIUM_ION_TOKEN: ""

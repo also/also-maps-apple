@@ -7,6 +7,7 @@ struct PhoneMapView: View {
     @State private var map = PhoneMapView.makeMap()
     @State private var selection = initialPlace
     @State private var showsPlaces = false
+    @State private var showsKeys = false
     @Environment(\.scenePhase) private var scenePhase
 
     private static var initialPlace: Place? {
@@ -58,14 +59,29 @@ struct PhoneMapView: View {
             .onChange(of: scenePhase) { _, phase in
                 if phase != .active { map.tracks.flush() }
             }
+            .onDisappear { map.tracks.flush() }
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
                     trackControls
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button("Keys", systemImage: "key") {
+                        showsKeys = true
+                    }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
                     }
+                }
+            }
+            .sheet(isPresented: $showsKeys) {
+                NavigationStack {
+                    KeysView()
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { showsKeys = false }
+                            }
+                        }
                 }
             }
             .sheet(isPresented: $showsPlaces) {
