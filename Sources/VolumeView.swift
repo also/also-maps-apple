@@ -20,7 +20,7 @@ struct VolumeView: View {
         // default; route it to the Game Controller framework for MapInput.
         .handlesGameControllerEvents(matching: .gamepad)
         .onAppear { model.volumeIsOpen = true }
-        .onDisappear { model.volumeIsOpen = false }
+        .onDisappear { model.volumeDidClose() }
         .ornament(attachmentAnchor: .scene(.bottomFront)) {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
@@ -183,7 +183,22 @@ struct VolumeView: View {
     }
 }
 
+/// Holds the volume at its depth. A window's depth follows its content, so a
+/// flat screen standing in for the map (the first-run choice, a blocking
+/// notice) would otherwise leave the map in a shallow volume when it returns.
+private struct VolumeDepth: ViewModifier {
+    @PhysicalMetric(from: .meters) private var depth = MapModel.volumeSize.z
+
+    func body(content: Content) -> some View {
+        content.frame(depth: depth, alignment: .front)
+    }
+}
+
 extension View {
+    func keepsVolumeDepth() -> some View {
+        modifier(VolumeDepth())
+    }
+
     /// Drag to pan, two-handed pinch to zoom and twist to turn, on the model's
     /// gesture target, in whichever scene is showing the map.
     func mapGestures(_ model: MapModel) -> some View {
