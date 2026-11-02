@@ -149,6 +149,14 @@ Where things land when unsandboxed:
 
 Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](docs/profiling.md). Tile caching, the request counters in the Tuning stats, and how to measure them are in [docs/tile-caching.md](docs/tile-caching.md).
 
+## Draped traces (prototype)
+
+The **Traces** menu on visionOS, macOS and iOS opens a GeoJSON file and drapes its lines over the tiles as texture, so they follow the surface and need no heights. The camera goes to them, and they come back next launch until you remove them. `ALSOMAPS_TRACES=<path>` opens a file as if picked, without moving the camera; on a simulator, the file has to be somewhere the app can read, such as its `Documents`.
+
+cesium-native rasterizes a texture for each tile (`GeoJsonDocumentRasterOverlay`), and `Sources/TraceDrape.swift` swaps tiles with something to show to a shader graph material that composites it over the photo. Only unlit, textured tiles are draped, so not terrain or OSM buildings. Lines paint whatever is on top, so they land on tree canopy and run down facades.
+
+`Sources/TraceFile.swift` drops lines with fewer than two points on the way in, which Strava exports have and cesium-native rejects a whole document over.
+
 ## Known gaps
 
 - The main thread still spends 2–3 ms per frame on tile selection and on re-placing every tile, even when the view isn't moving (#2).

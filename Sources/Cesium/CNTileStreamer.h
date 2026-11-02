@@ -19,6 +19,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) NSData *positions;
 /// float2 per vertex, v already flipped for RealityKit; nil if untextured.
 @property (nonatomic, readonly, nullable) NSData *texcoords;
+/// float2 per vertex: where the vertex falls in its tile's raster overlay,
+/// before CNRasterAttachHandler's translation and scale. Nil without an
+/// overlay or for untextured content.
+@property (nonatomic, readonly, nullable) NSData *overlayTexcoords;
 /// uint32 triangle list.
 @property (nonatomic, readonly) NSData *indices;
 /// RGBA8 base colour, textureWidth * textureHeight * 4 bytes; nil if none.
@@ -59,6 +63,25 @@ NS_ASSUME_NONNULL_BEGIN
 /// Drops the CPU-side buffers once they've been uploaded.
 - (void)discardCPUData;
 @end
+
+/// A rasterized overlay image for one tile.
+@interface CNRasterImage : NSObject
+/// RGBA8, premultiplied, width * height * 4 bytes, north row first.
+@property (nonatomic, readonly) NSData *rgba;
+@property (nonatomic, readonly) NSInteger width;
+@property (nonatomic, readonly) NSInteger height;
+@end
+
+/// Called on the main thread during an update when `raster` becomes a tile's
+/// overlay. An overlay coordinate from CNPrimitive.overlayTexcoords samples
+/// the raster at `coordinate * scale + translation`.
+typedef void (^CNRasterAttachHandler)(CNTileMesh *tile,
+                                      CNRasterImage *raster,
+                                      simd_float2 translation,
+                                      simd_float2 scale);
+/// Called on the main thread during an update when a tile loses its overlay,
+/// which it does just before getting a better one.
+typedef void (^CNRasterDetachHandler)(CNTileMesh *tile);
 
 /// Called on a background thread for each newly loaded tile, before
 /// cesium-native counts it as loaded: build its renderer resources, attach
@@ -154,6 +177,22 @@ typedef struct {
 /// Prepares each tile's renderer resources off the main thread. Set it before
 /// the first update; without one, tiles count as loaded immediately.
 @property (nonatomic, copy, nullable) CNTileLoadHandler tileLoadHandler;
+
+/// Set both before adding an overlay.
+@property (nonatomic, copy, nullable) CNRasterAttachHandler rasterAttachHandler;
+@property (nonatomic, copy, nullable) CNRasterDetachHandler rasterDetachHandler;
+
+/// Drapes a GeoJSON file's lines over the tiles, as texture: they follow the
+/// surface and need no heights. Replaces any overlay already showing. Read
+/// and parsed on a worker thread; `completion` runs on the main thread with
+/// nil, or why the file couldn't be used. `color` is sRGB; `lineWidth` is in
+/// overlay pixels. Tiles that loaded without an overlay load again.
+- (void)showGeoJSONOverlayFromPath:(NSString *)path
+                         lineWidth:(double)lineWidth
+                             color:(simd_float4)color
+                        completion:(void (^)(NSString *_Nullable error))completion
+    NS_SWIFT_NAME(showGeoJSONOverlay(path:lineWidth:color:completion:));
+- (void)removeGeoJSONOverlay;
 
 // Live cesium-native TilesetOptions; changes apply on the next update.
 /// SSE threshold for tiles the LOD camera sees; lower = more detail. Default 16.

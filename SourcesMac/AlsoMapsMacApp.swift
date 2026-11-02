@@ -46,9 +46,12 @@ struct MacMapView: View {
             .onKeyPress(phases: .all) { _ in .handled }
             .onAppear { focused = true }
             .overlay(alignment: .topTrailing) {
-                Menu("Places", systemImage: "mappin.and.ellipse") {
-                    ForEach(PlaceLibrary.all) { place in
-                        Button(place.name) { map.go(to: place) }
+                HStack {
+                    TracesMenu(streaming: map.streaming) { map.go(to: $0) }
+                    Menu("Places", systemImage: "mappin.and.ellipse") {
+                        ForEach(PlaceLibrary.all) { place in
+                            Button(place.name) { map.go(to: place) }
+                        }
                     }
                 }
                 .menuStyle(.button)

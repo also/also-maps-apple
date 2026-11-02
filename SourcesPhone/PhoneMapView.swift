@@ -68,6 +68,10 @@ struct PhoneMapView: View {
                     Button("Keys", systemImage: "key") {
                         showsKeys = true
                     }
+                    TracesMenu(streaming: map.streaming) { place in
+                        selection = nil
+                        map.go(to: place)
+                    }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
                     }
