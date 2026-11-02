@@ -35,9 +35,9 @@ struct Place: Codable, Identifiable, Hashable {
     }
 }
 
-/// The places offered in the app. Today that's the defaults bundled in
-/// Places.json; user-added places (stored locally or in iCloud) would be a
-/// second source merged in here.
+/// The places offered in the app: the remote config's, or the defaults bundled
+/// in Places.json without one. User-added places (stored locally or in iCloud)
+/// would be a further source merged in here.
 enum PlaceLibrary {
     static let defaults: [Place] = {
         guard let url = Bundle.main.url(forResource: "Places", withExtension: "json"),
@@ -53,5 +53,14 @@ enum PlaceLibrary {
         }
     }()
 
-    static var all: [Place] { defaults }
+    /// The list can change while the app runs, so hold on to a place's id
+    /// rather than its position.
+    @MainActor static var all: [Place] { AppConfigStore.shared.config?.places ?? defaults }
+
+    /// The place `step` entries along `places` from the one with `id`,
+    /// wrapping around. Without that place, starts from the list's nearer end.
+    static func place(in places: [Place], stepping step: Int, from id: String?) -> Place {
+        let index = places.firstIndex { $0.id == id } ?? (step > 0 ? -1 : 0)
+        return places[(index + step + places.count) % places.count]
+    }
 }

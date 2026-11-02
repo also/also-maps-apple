@@ -6,6 +6,8 @@ struct AlsoMapsApp: App {
     @State private var soundtrack = Soundtrack()
     @Environment(\.scenePhase) private var scenePhase
 
+    private var isBlocked: Bool { AppConfigStore.shared.blocking != nil }
+
     /// Read straight from the model, so a space opened right after the
     /// setting changes opens in the new style.
     private var immersionStyle: Binding<any ImmersionStyle> {
@@ -18,6 +20,9 @@ struct AlsoMapsApp: App {
             VolumeView()
                 .environment(model)
                 .environment(soundtrack)
+                .credentialGate()
+                .appGate()
+                .keepsVolumeDepth()
         }
         .windowStyle(.volumetric)
         .defaultSize(width: MapModel.volumeSize.x,
@@ -28,13 +33,18 @@ struct AlsoMapsApp: App {
         // if another window was the last one open.
         .defaultLaunchBehavior(.presented)
         .onChange(of: scenePhase, initial: true) { _, phase in
-            soundtrack.setActive(phase == .active)
+            soundtrack.setActive(phase == .active && !isBlocked)
             if phase != .active { model.flushTrack() }
+        }
+        .onChange(of: isBlocked) { _, blocked in
+            soundtrack.setActive(scenePhase == .active && !blocked)
+            if blocked { model.flushTrack() }
         }
 
         WindowGroup(id: TuningView.windowID) {
             TuningView()
                 .environment(model)
+                .appGate(presentsNotices: false)
         }
         .defaultSize(width: 520, height: 760)
         // A utility window: only opened on request, never restored at launch.
@@ -44,6 +54,7 @@ struct AlsoMapsApp: App {
         ImmersiveSpace(id: ImmersiveMapView.spaceID) {
             ImmersiveMapView()
                 .environment(model)
+                .appGate(presentsNotices: false)
         }
         .immersionStyle(selection: immersionStyle, in: .mixed, .full)
         // In mixed immersion, keep the user's system environment (Mount Hood,

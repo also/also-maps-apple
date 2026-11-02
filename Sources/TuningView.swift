@@ -28,9 +28,7 @@ struct TuningView: View {
                             Text(source.name).tag(source)
                         }
                     }
-                    Text("Cesium ion sources need CESIUM_ION_TOKEN in Config/Secrets.xcconfig.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    NavigationLink("Keys") { KeysView() }
                 } header: {
                     Text("Source")
                 }

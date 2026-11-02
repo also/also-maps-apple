@@ -87,6 +87,8 @@ final class TileStreaming {
     private let insideViewMaterial = DebugLines.material(red: 0.35, green: 0.78, blue: 0.98)
     private let outsideViewMaterial = DebugLines.material(red: 1, green: 0.62, blue: 0.04)
     private var started = false
+    /// The key the streamer was started with.
+    private var keyInUse: String?
     private var debugLogElapsed: Float = 0
     /// Longest main-thread update in the current debug-log second.
     private var debugSlowestUpdate: TimeInterval = 0
@@ -156,21 +158,16 @@ final class TileStreaming {
         let env = ProcessInfo.processInfo.environment
         let streamer: CNTileStreamer
         showsGoogleLogo = false
+        keyInUse = nil
         // Debug: ALSOMAPS_TILESET_URL streams any 3D Tiles tileset, no key.
         if let override = env["ALSOMAPS_TILESET_URL"], !override.isEmpty {
             streamer = CNTileStreamer(tilesetURL: override)
         } else if let assetID = settings.tileSource.ionAssetID {
-            guard let token = Self.secret(environment: "CESIUM_ION_TOKEN", infoKey: "CesiumIonToken") else {
-                statusMessage = "Set CESIUM_ION_TOKEN in Config/Secrets.xcconfig (or the scheme environment)."
-                return
-            }
+            guard let token = requireKey(for: .cesiumIon) else { return }
             streamer = CNTileStreamer(ionAssetID: assetID, accessToken: token,
                                       smoothNormals: settings.tileSource.smoothNormals)
         } else {
-            guard let key = Self.secret(environment: "GOOGLE_MAPS_API_KEY", infoKey: "GoogleMapsAPIKey") else {
-                statusMessage = "Set GOOGLE_MAPS_API_KEY in Config/Secrets.xcconfig (or the scheme environment)."
-                return
-            }
+            guard let key = requireKey(for: .googleMaps) else { return }
             streamer = CNTileStreamer(tilesetURL: "https://tile.googleapis.com/v1/3dtiles/root.json?key=\(key)")
             showsGoogleLogo = true
         }
@@ -193,6 +190,7 @@ final class TileStreaming {
     /// at the same view.
     private func restart() {
         guard started else { return }
+        streamer = nil
         for entity in tileEntities.values { entity.removeFromParent() }
         tileEntities = [:]
         tileBoxes = [:]
@@ -200,14 +198,72 @@ final class TileStreaming {
         credits = []
         loadProgress = 0
         stats = Stats()
-        streamer = nil
         startStreamer()
+    }
+
+    // MARK: Keys
+
+    /// The service this source needs a key for; a debug tileset needs none.
+    private var keyService: CredentialService? {
+        if let override = ProcessInfo.processInfo.environment["ALSOMAPS_TILESET_URL"], !override.isEmpty { return nil }
+        return settings.tileSource.ionAssetID == nil ? .googleMaps : .cesiumIon
+    }
+
+    /// The key to stream with, or nil with a message saying how to get one.
+    private func requireKey(for service: CredentialService) -> String? {
+        keyInUse = CredentialStore.shared.key(for: service)
+        statusMessage = keyInUse == nil ? Self.missingKeyMessage(service) : nil
+        return keyInUse
+    }
+
+    private static func missingKeyMessage(_ service: CredentialService) -> String {
+        #if os(tvOS)
+        "Set \(service.environmentVariable) in Config/Secrets.xcconfig (or the scheme environment)."
+        #else
+        if CredentialStore.shared.choice == .app, let problem = CredentialStore.shared.appKeyProblem { return problem }
+        return CredentialStore.shared.choice == .app && CredentialStore.shared.canUseAppKeys
+            ? "Getting the app's \(service.name) key…"
+            : "Add a \(service.name) key to load the map."
+        #endif
+    }
+
+    /// Keys can change at any time: rotated, or edited by the user. Restarts
+    /// on a new key, and reacts to the service refusing the current one.
+    /// `update` calls this, but it needs calling every frame without a
+    /// streamer too, so a key arriving starts one.
+    func updateKey() {
+        guard started, let service = keyService else { return }
+        let store = CredentialStore.shared
+        if store.key(for: service) != keyInUse {
+            restart()
+            return
+        }
+        guard streamer != nil else {
+            let message = Self.missingKeyMessage(service)
+            if statusMessage != message { statusMessage = message }
+            return
+        }
+        guard let status = streamer?.takeKeyFailureStatus(), status != 0 else { return }
+        if store.usesAppKey(for: service) {
+            if status == 429 {
+                statusMessage = "The app's shared key is busy. Add your own key to keep going."
+            } else {
+                // It may have been rotated. A new key arrives through the
+                // check above.
+                Task { await store.refreshAppKeys(force: true) }
+            }
+        } else if store.usesOwnKey(for: service), renderedTiles.isEmpty {
+            statusMessage = status == 429
+                ? "Your \(service.name) key has reached its quota."
+                : "\(service.name) rejected your key. Check it in Keys."
+        }
     }
 
     // MARK: Frame loop
 
     /// One selection and load pass; call once per rendered frame.
     func update(deltaTime: Float) {
+        updateKey()
         guard let streamer else { return }
         let signposter = Signposts.frame
         let update = signposter.beginInterval("Update", id: signposter.makeSignpostID())
@@ -250,6 +306,7 @@ final class TileStreaming {
         if credits != newCredits { credits = newCredits }
         if frame.loadProgress >= 100, loadProgress < 100 {
             Signposts.tiles.emitEvent("LoadComplete")
+            statusMessage = nil
             #if DEBUG
             print("[AlsoMaps] load complete \(String(format: "%.1f", Date().timeIntervalSince(startedLoading))) s after start, \(frame.tilesToRender.count) tiles")
             #endif
@@ -350,12 +407,4 @@ final class TileStreaming {
 
     /// A secret from the scheme environment or, via Info.plist, from
     /// Config/Secrets.xcconfig; nil if unset or still a placeholder.
-    private static func secret(environment: String, infoKey: String) -> String? {
-        let candidates = [
-            ProcessInfo.processInfo.environment[environment],
-            Bundle.main.object(forInfoDictionaryKey: infoKey) as? String,
-        ]
-        return candidates.compactMap { $0?.trimmingCharacters(in: .whitespaces) }
-            .first { !$0.isEmpty && !$0.hasPrefix("$(") && !$0.hasPrefix("YOUR_") }
-    }
 }

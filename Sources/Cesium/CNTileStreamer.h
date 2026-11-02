@@ -212,6 +212,10 @@ typedef struct {
 /// Request counters since this streamer started; safe from any thread.
 - (CNFetchStats *)fetchStats;
 
+/// The latest 400, 401, 403 or 429 from any tile request since the last
+/// call, or 0: the service may be rejecting or throttling the key.
+- (NSInteger)takeKeyFailureStatus;
+
 /// Runs one selection + load pass. Call once per frame on the main thread.
 - (CNFrame *)updateWithDeltaTime:(float)deltaTime;
 

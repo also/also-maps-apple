@@ -264,6 +264,7 @@ struct FetchCounters {
   std::atomic<uint64_t> networkLoads{0};   // full download
   std::atomic<uint64_t> other{0};
   std::atomic<uint64_t> networkBytes{0};   // response body bytes off the wire
+  std::atomic<int> keyFailureStatus{0};    // last 400, 401, 403 or 429
 };
 
 /// Google sends `Cache-Control: private, max-age=14400, must-revalidate`.
@@ -370,7 +371,8 @@ namespace {
 /// HTTP cache for free (within Google's caching terms).
 class URLSessionAssetAccessor final : public IAssetAccessor {
 public:
-  explicit URLSessionAssetAccessor(std::shared_ptr<FetchCounters> counters) {
+  explicit URLSessionAssetAccessor(std::shared_ptr<FetchCounters> counters)
+      : _counters(counters) {
     NSURLSessionConfiguration* config =
         [NSURLSessionConfiguration defaultSessionConfiguration];
     config.HTTPMaximumConnectionsPerHost = 12;
@@ -450,6 +452,7 @@ public:
     os_log_t log = CNSignpostLog("Tiles");
     const os_signpost_id_t signpostID = os_signpost_id_generate(log);
     os_signpost_interval_begin(log, signpostID, "Fetch");
+    std::shared_ptr<FetchCounters> failures = _counters;
     NSURLSessionDataTask* task = [_session
         dataTaskWithRequest:req
           completionHandler:^(
@@ -469,6 +472,10 @@ public:
               promise.reject(
                   std::runtime_error(error.localizedDescription.UTF8String));
               return;
+            }
+            if (status == 400 || status == 401 || status == 403 ||
+                status == 429) {
+              failures->keyFailureStatus = int(status);
             }
             auto pResponse = std::make_unique<SessionResponse>();
             if ([response isKindOfClass:NSHTTPURLResponse.class]) {
@@ -497,6 +504,7 @@ public:
 private:
   NSURLSession* _session;
   std::string _bundleID;
+  std::shared_ptr<FetchCounters> _counters;
 };
 
 // RealityKit axes from local east-north-up: x = east, y = up, z = south.
@@ -1040,6 +1048,22 @@ NSString* stripHTML(const std::string& html) {
          const TilesetOptions&)>)makeTileset NS_DESIGNATED_INITIALIZER;
 @end
 
+// Runs an abandoned streamer's main-thread tasks until `finished`, then lets
+// go of its AsyncSystem. The last task runs after the flag is seen, so nothing
+// is left queued.
+static void drainMainThreadTasks(AsyncSystem asyncSystem,
+                                 std::shared_ptr<std::atomic<bool>> finished) {
+  const bool done = finished->load();
+  asyncSystem.dispatchMainThreadTasks();
+  if (done) {
+    return;
+  }
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC),
+                 dispatch_get_main_queue(), ^{
+                   drainMainThreadTasks(asyncSystem, finished);
+                 });
+}
+
 @implementation CNTileStreamer {
   // AsyncSystem has no default constructor; constructed in init.
   std::optional<AsyncSystem> _asyncSystem;
@@ -1051,6 +1075,24 @@ NSString* stripHTML(const std::string& html) {
       _geoJSONOverlay;
   std::shared_ptr<FetchCounters> _fetchCounters;
   CNFrame* _lastFrame;
+}
+
+- (void)dealloc {
+  // ~Tileset fails pending height samples and leaves in-flight loads to finish,
+  // both through the main-thread queue, which frames no longer service.
+  // Destroying AsyncSystem with tasks queued cancels them into the dying
+  // scheduler, which crashes, so keep servicing it until the tileset is done.
+  if (!_tileset) {
+    return;
+  }
+  auto finished = std::make_shared<std::atomic<bool>>(false);
+  _tileset->getAsyncDestructionCompleteEvent().thenImmediately(
+      [finished]() { finished->store(true); });
+  _tileset.reset();
+  AsyncSystem asyncSystem = *_asyncSystem;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    drainMainThreadTasks(asyncSystem, finished);
+  });
 }
 
 - (instancetype)initWithTilesetURL:(NSString*)url {
@@ -1233,6 +1275,10 @@ NSString* stripHTML(const std::string& html) {
 - (void)setMaximumSimultaneousTileLoads:(NSInteger)value {
   _tileset->getOptions().maximumSimultaneousTileLoads =
       uint32_t(std::max<NSInteger>(1, value));
+}
+
+- (NSInteger)takeKeyFailureStatus {
+  return _fetchCounters->keyFailureStatus.exchange(0);
 }
 
 - (CNFetchStats*)fetchStats {
