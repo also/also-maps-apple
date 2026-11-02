@@ -155,7 +155,7 @@ The **Traces** menu on visionOS, macOS and iOS opens a GeoJSON file and drapes i
 
 cesium-native rasterizes a texture for each tile (`GeoJsonDocumentRasterOverlay`), and `Sources/TraceDrape.swift` swaps tiles with something to show to a shader graph material that composites it over the photo. Only unlit, textured tiles are draped, so not terrain or OSM buildings. Lines paint whatever is on top, so they land on tree canopy and run down facades.
 
-`Sources/TraceFile.swift` drops lines with fewer than two points on the way in, which Strava exports have and cesium-native rejects a whole document over. `Scripts/clean_traces.py` does the same outside the app, and can cut a file down to one area.
+`Sources/TraceFile.swift` drops lines with fewer than two points on the way in, which Strava exports have and cesium-native rejects a whole document over.
 
 ## Known gaps
 
