@@ -1,7 +1,7 @@
 import Foundation
 import simd
 
-/// A camera track as geometry for drawing: each segment's points relative to
+/// A track as geometry for drawing: each segment's points relative to
 /// a fixed ECEF origin, with each point's Douglas–Peucker drop tolerance, so
 /// simplifying to any tolerance is a filter.
 ///
@@ -11,14 +11,14 @@ import simd
 /// at 300 km).
 ///
 /// Segments are never joined: each is simplified and drawn on its own, so a
-/// camera jump leaves a gap. Within a segment, every `chunkSize`th point is
+/// camera jump or a gap in a file leaves a gap. Within a segment, every `chunkSize`th point is
 /// always kept, so a growing track only re-simplifies its last chunk.
 struct TrackPath {
     /// ECEF metres; every point is relative to it.
     let origin: SIMD3<Double>
 
     struct Segment {
-        /// The track's segment number (CameraTrack.Sample.segment).
+        /// The track's segment number (Track.Sample.segment).
         var number: Int
         /// Metres from `origin`, ECEF axes.
         var points: [SIMD3<Double>] = []
@@ -39,7 +39,7 @@ struct TrackPath {
     }
 
     /// The samples' track, its origin at the first sample; nil if empty.
-    init?<S: Sequence>(samples: S) where S.Element == CameraTrack.Sample {
+    init?<S: Sequence>(samples: S) where S.Element == Track.Sample {
         var iterator = samples.makeIterator()
         guard let first = iterator.next() else { return nil }
         self.init(origin: Self.ecef(first))
@@ -47,19 +47,14 @@ struct TrackPath {
         while let sample = iterator.next() { append(sample) }
     }
 
-    /// The track in a file written by TrackRecorder; nil if it has no samples.
-    init?(contentsOf url: URL) throws {
-        let text = try String(contentsOf: url, encoding: .utf8)
-        self.init(samples: text.split(whereSeparator: \.isNewline).lazy.compactMap(CameraTrack.sample(fromLine:)))
-    }
 
-    static func ecef(_ sample: CameraTrack.Sample) -> SIMD3<Double> {
+    static func ecef(_ sample: Track.Sample) -> SIMD3<Double> {
         Geodesy.ecef(latitude: sample.pose.latitude, longitude: sample.pose.longitude, height: sample.pose.height)
     }
 
     var pointCount: Int { segments.reduce(0) { $0 + $1.points.count } }
 
-    mutating func append(_ sample: CameraTrack.Sample) {
+    mutating func append(_ sample: Track.Sample) {
         if segments.last?.number != sample.segment {
             segments.append(Segment(number: sample.segment))
         }

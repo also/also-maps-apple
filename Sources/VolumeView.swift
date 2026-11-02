@@ -47,7 +47,7 @@ struct VolumeView: View {
                     }
                     .toggleStyle(.button)
                     .labelStyle(.iconOnly)
-                    .help("Draw the track being recorded, or the latest one")
+                    .help("Draw the track being recorded, else the opened one, else the latest recording")
                     Toggle(isOn: Binding(get: { model.isPlayingTrack },
                                          set: { $0 ? model.startPlayback() : model.stopPlayback() })) {
                         Label(model.isPlayingTrack ? "Stop Playback" : "Play Track",
@@ -55,8 +55,8 @@ struct VolumeView: View {
                     }
                     .toggleStyle(.button)
                     .labelStyle(.iconOnly)
-                    .help("Fly the latest track in real time")
-                    .disabled(model.isRecordingTrack || model.latestTrack == nil)
+                    .help("Fly the opened track, else the latest recording")
+                    .disabled(!model.canPlayTrack)
                     if let track = model.latestTrack {
                         ShareLink(item: track) {
                             Label("Share Track", systemImage: "square.and.arrow.up")
@@ -71,7 +71,7 @@ struct VolumeView: View {
                     }
                     .labelStyle(.iconOnly)
                     .help("Go to a place")
-                    TracesMenu(streaming: model.streaming) { model.go(to: $0) }
+                    TracesMenu(streaming: model.streaming, tracks: model.tracks) { model.go(to: $0) }
                         .labelStyle(.iconOnly)
                     Button("Tuning", systemImage: "slider.horizontal.3") {
                         openWindow(id: TuningView.windowID)
@@ -129,8 +129,14 @@ struct VolumeView: View {
                let presentation = MapPresentation.withID(id) {
                 await present(presentation)
             }
-            // ALSOMAPS_PLAY_TRACK=1 plays the latest track (after any of the above).
+            // ALSOMAPS_PLAY_TRACK=1 plays the latest track (after any of the
+            // above), or the track in ALSOMAPS_TRACES once it's open.
             if ProcessInfo.processInfo.environment["ALSOMAPS_PLAY_TRACK"] == "1" {
+                if ProcessInfo.processInfo.environment["ALSOMAPS_TRACES"] != nil {
+                    for _ in 0..<100 where model.tracks.openedTrack == nil {
+                        try? await Task.sleep(for: .milliseconds(100))
+                    }
+                }
                 model.startPlayback()
             }
         }

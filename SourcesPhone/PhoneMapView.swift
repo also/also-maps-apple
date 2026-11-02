@@ -68,7 +68,7 @@ struct PhoneMapView: View {
                     Button("Keys", systemImage: "key") {
                         showsKeys = true
                     }
-                    TracesMenu(streaming: map.streaming) { place in
+                    TracesMenu(streaming: map.streaming, tracks: map.tracks) { place in
                         selection = nil
                         map.go(to: place)
                     }
@@ -135,7 +135,7 @@ struct PhoneMapView: View {
                systemImage: tracks.isPlaying ? "stop.fill" : "play.fill") {
             tracks.isPlaying ? tracks.stopPlayback() : map.startPlayback()
         }
-        .disabled(tracks.isRecording || tracks.latestTrack == nil)
+        .disabled(!tracks.canPlay)
         Menu("Track", systemImage: "ellipsis.circle") {
             Toggle("Show Track", systemImage: "point.topleft.down.to.point.bottomright.curvepath",
                    isOn: Binding(get: { tracks.showsTrack }, set: { tracks.showsTrack = $0 }))

@@ -1,32 +1,34 @@
 import Foundation
 
-/// A recorded track as a camera over time, for playing it back: the pose at
-/// any time since the first sample.
+/// A track as a camera over time, for playing it back: the pose at any time
+/// since the first sample.
 ///
 /// Between two samples in a segment the pose is interpolated: latitude,
 /// height and pitch linearly, longitude and heading the shorter way round.
-/// Samples are about 30 Hz, so the straight line in degrees is as good as
-/// the straight line in space. Across a segment change (a camera jump) it
-/// isn't interpolated: the earlier sample holds until the next segment's
-/// first sample's time, then the camera jumps there, as it did recording.
+/// Recorded samples are about 30 Hz, and GPS fixes seconds apart, so the
+/// straight line in degrees is as good as the straight line in space.
+/// Across a segment change (a camera jump) it isn't interpolated: the
+/// earlier sample holds until the next segment's first sample's time, then
+/// the camera jumps there, as it did recording.
 struct TrackPlayback {
     /// In time order, at least one.
-    let samples: [CameraTrack.Sample]
+    let samples: [Track.Sample]
+    let viewpoint: Track.Viewpoint
 
     /// Nil if there are no samples. Samples out of time order are dropped.
-    init?<S: Sequence>(samples: S) where S.Element == CameraTrack.Sample {
-        var ordered: [CameraTrack.Sample] = []
+    init?<S: Sequence>(samples: S, viewpoint: Track.Viewpoint = .onTrack) where S.Element == Track.Sample {
+        var ordered: [Track.Sample] = []
         for sample in samples where ordered.last.map({ sample.time >= $0.time }) ?? true {
             ordered.append(sample)
         }
         guard !ordered.isEmpty else { return nil }
         self.samples = ordered
+        self.viewpoint = viewpoint
     }
 
-    /// The track in a file written by TrackRecorder; nil if it has no samples.
-    init?(contentsOf url: URL) throws {
-        let text = try String(contentsOf: url, encoding: .utf8)
-        self.init(samples: text.split(whereSeparator: \.isNewline).lazy.compactMap(CameraTrack.sample(fromLine:)))
+    /// Nil if the track has no samples.
+    init?(_ track: Track) {
+        self.init(samples: track.samples, viewpoint: track.viewpoint)
     }
 
     /// Seconds from the first sample to the last.
@@ -34,9 +36,20 @@ struct TrackPlayback {
         samples[samples.count - 1].time.timeIntervalSince(samples[0].time)
     }
 
-    /// The camera `time` seconds after the first sample: the first pose
-    /// before it, the last after the end.
+    /// The camera `time` seconds after the first sample, from the viewpoint:
+    /// the first pose before it, the last after the end.
     func pose(at time: TimeInterval) -> CameraPose {
+        let pose = trackPose(at: time)
+        switch viewpoint {
+        case .onTrack:
+            return pose
+        case .behind(let distance, let height):
+            return Self.behind(pose, distance: distance, height: height)
+        }
+    }
+
+    /// The track's own pose `time` seconds after the first sample.
+    func trackPose(at time: TimeInterval) -> CameraPose {
         let start = samples[0].time
         let t = start.addingTimeInterval(time)
         // The first sample after t; the one before it is at or before t.
@@ -52,6 +65,22 @@ struct TrackPlayback {
         let span = b.time.timeIntervalSince(a.time)
         let f = span > 0 ? t.timeIntervalSince(a.time) / span : 0
         return Self.interpolate(a.pose, b.pose, f)
+    }
+
+    /// `distance` metres back along the heading and `height` up, pitched
+    /// down to look at `pose`. Flat-earth offsets, which are fine at these
+    /// distances.
+    static func behind(_ pose: CameraPose, distance: Double, height: Double) -> CameraPose {
+        let metresPerDegree = 111_320.0
+        let north = -distance * cos(pose.heading)
+        let east = -distance * sin(pose.heading)
+        var longitude = pose.longitude + east / (metresPerDegree * max(cos(pose.latitude * .pi / 180), 0.01))
+        longitude = remainder(longitude, 360)
+        return CameraPose(latitude: pose.latitude + north / metresPerDegree,
+                          longitude: longitude,
+                          height: pose.height + height,
+                          heading: pose.heading,
+                          pitch: -atan2(height, distance))
     }
 
     /// `f` of the way from `a` to `b`.

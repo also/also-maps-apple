@@ -157,6 +157,10 @@ cesium-native rasterizes a texture for each tile (`GeoJsonDocumentRasterOverlay`
 
 `Sources/TraceFile.swift` drops lines with fewer than two points on the way in, which Strava exports have and cesium-native rejects a whole document over.
 
+The menu also opens KML (`Sources/Tracks/KMLFile.swift`): `LineString`s and `gx:Track`s, in Placemarks, MultiGeometry or `gx:MultiTrack`. Lines on the ground are draped like GeoJSON. Lines with `absolute` altitudes become a track, like a recorded camera track: drawn as a tube, and played with the track controls, the camera following 100 m behind and 30 m above. The camera goes to the track's start. Tracks keep the file's times when every line has them, with the gaps between lines cut to a second; lines without times are flown at 50 m/s. Anything longer than five minutes is sped up to fit. `ALSOMAPS_PLAY_TRACK=1` plays an `ALSOMAPS_TRACES` track once it's open (visionOS).
+
+KML gaps: altitudes are above sea level but used as heights above the ellipsoid, so tracks sit off by the geoid (about 30 m too high around San Francisco). `relativeToGround` lines are draped rather than raised, since that needs the ground's height along them. An opened track isn't kept for next launch, and KMZ isn't read.
+
 ## Known gaps
 
 - The main thread still spends 2–3 ms per frame on tile selection and on re-placing every tile, even when the view isn't moving (#2).

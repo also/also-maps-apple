@@ -801,6 +801,7 @@ final class MapModel {
 
     var isRecordingTrack: Bool { tracks.isRecording }
     var latestTrack: URL? { tracks.latestTrack }
+    var canPlayTrack: Bool { tracks.canPlay }
     func startTrack() { tracks.startRecording() }
     func stopTrack() { tracks.stopRecording() }
     func flushTrack() { tracks.flush() }
@@ -814,7 +815,7 @@ final class MapModel {
     var playbackElapsed: Int { tracks.playbackElapsed }
     var playbackDuration: Int { tracks.playbackDuration }
 
-    /// Plays the latest track from the start.
+    /// Plays the opened track, or else the latest recording, from the start.
     func startPlayback() {
         guard let first = tracks.startPlayback() else { return }
         if tilesHeld { setTilesHeld(false) }

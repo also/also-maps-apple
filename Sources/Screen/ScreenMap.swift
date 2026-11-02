@@ -123,7 +123,8 @@ final class ScreenMap {
         }
     }
 
-    /// Plays the latest track from its first pose.
+    /// Plays the opened track, or else the latest recording, from its first
+    /// pose.
     func startPlayback() {
         guard let first = tracks.startPlayback() else { return }
         touch = TouchState()

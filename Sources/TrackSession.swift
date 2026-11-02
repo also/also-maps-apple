@@ -1,10 +1,11 @@
 import Foundation
 import Observation
 
-/// Camera tracks for one map, on any platform: recording the camera to a
-/// file, drawing the track being recorded (or the latest one) as a tube,
-/// and playing the latest one back in real time. The map feeds it the
-/// camera each frame and, while it plays, takes the camera from it.
+/// Tracks for one map, on any platform: recording the camera to a file,
+/// drawing a track as a tube, and flying along it. The track drawn and
+/// played is the one being recorded, else one opened from a file, else the
+/// latest recording. The map feeds it the camera each frame and, while it
+/// plays, takes the camera from it.
 @MainActor
 @Observable
 final class TrackSession {
@@ -17,12 +18,16 @@ final class TrackSession {
     /// The most recent track file, finished or in progress.
     private(set) var latestTrack: URL? = TrackRecorder.latestTrack(in: directory)
     var isRecording: Bool { recorder != nil }
+    /// A track opened from a file, drawn and played instead of the latest
+    /// recording until it's closed or a recording starts.
+    private(set) var openedTrack: Track?
+    var canPlay: Bool { recorder == nil && (openedTrack != nil || latestTrack != nil) }
 
     /// The tube; its root goes in the map's scene.
     @ObservationIgnored let overlay = TrackOverlay()
 
     /// The track being played back, driving the camera from its first
-    /// sample to its last in real time, by the frame clock.
+    /// sample to its last, by the frame clock.
     private var playback: TrackPlayback?
     /// Seconds into the track played, advanced every frame.
     @ObservationIgnored private(set) var playbackTime: TimeInterval = 0
@@ -36,6 +41,7 @@ final class TrackSession {
 
     func startRecording() {
         guard recorder == nil, playback == nil else { return }
+        openedTrack = nil
         do {
             let recorder = try TrackRecorder(directory: Self.directory)
             self.recorder = recorder
@@ -68,43 +74,70 @@ final class TrackSession {
     /// Writes buffered samples out, for when the app may be suspended.
     func flush() { recorder?.flush() }
 
-    // MARK: Drawing
+    // MARK: Opening
 
-    /// Draws the track being recorded, or else the latest one, as a tube.
-    var showsTrack = false {
-        didSet {
-            overlay.isEnabled = showsTrack
-            if showsTrack, overlay.path == nil, recorder == nil, let latestTrack {
-                do {
-                    overlay.path = try TrackPath(contentsOf: latestTrack)
-                } catch {
-                    print("[AlsoMaps] couldn't read track \(latestTrack.lastPathComponent): \(error)")
-                }
-            }
-        }
+    /// Shows a track from a file, stopping any recording or playback.
+    func open(_ track: Track) {
+        stopPlayback()
+        stopRecording()
+        openedTrack = track
+        overlay.path = TrackPath(samples: track.samples)
+        showsTrack = true
     }
 
-    // MARK: Playback
+    /// Goes back to the latest recording.
+    func closeOpenedTrack() {
+        guard openedTrack != nil else { return }
+        stopPlayback()
+        openedTrack = nil
+        overlay.path = nil
+        if showsTrack { loadPath() }
+    }
 
-    /// Starts the latest track from the start and returns its first pose,
-    /// or nil if there's nothing to play.
-    func startPlayback() -> CameraPose? {
-        guard playback == nil, recorder == nil, let latestTrack else { return nil }
+    /// The track to play: the opened one, or the latest recording.
+    private func trackToShow() -> Track? {
+        if let openedTrack { return openedTrack }
+        guard let latestTrack else { return nil }
         do {
-            guard let track = try TrackPlayback(contentsOf: latestTrack) else {
-                print("[AlsoMaps] track \(latestTrack.lastPathComponent) has no samples")
-                return nil
-            }
-            playback = track
-            playbackTime = 0
-            playbackElapsed = 0
-            playbackDuration = Int(track.duration.rounded(.up))
-            print("[AlsoMaps] playing track \(latestTrack.lastPathComponent): \(track.samples.count) samples, \(String(format: "%.1f", track.duration)) s")
-            return track.pose(at: 0)
+            return try CameraTrack.read(latestTrack)
         } catch {
             print("[AlsoMaps] couldn't read track \(latestTrack.lastPathComponent): \(error)")
             return nil
         }
+    }
+
+    // MARK: Drawing
+
+    /// Draws the track being recorded, else the opened one, else the latest
+    /// recording, as a tube.
+    var showsTrack = false {
+        didSet {
+            overlay.isEnabled = showsTrack
+            if showsTrack { loadPath() }
+        }
+    }
+
+    private func loadPath() {
+        guard overlay.path == nil, recorder == nil, let track = trackToShow() else { return }
+        overlay.path = TrackPath(samples: track.samples)
+    }
+
+    // MARK: Playback
+
+    /// Starts the opened track, or else the latest recording, from the
+    /// start and returns its first pose, or nil if there's nothing to play.
+    func startPlayback() -> CameraPose? {
+        guard playback == nil, recorder == nil, let track = trackToShow() else { return nil }
+        guard let played = TrackPlayback(track) else {
+            print("[AlsoMaps] track \(track.name) has no samples")
+            return nil
+        }
+        playback = played
+        playbackTime = 0
+        playbackElapsed = 0
+        playbackDuration = Int(played.duration.rounded(.up))
+        print("[AlsoMaps] playing track \(track.name): \(played.samples.count) samples, \(String(format: "%.1f", played.duration)) s")
+        return played.pose(at: 0)
     }
 
     /// Advances playback by `deltaTime` and returns the camera then, or nil

@@ -104,26 +104,27 @@ final class TileStreaming {
         guard !started else { return }
         started = true
         startStreamer()
-        // Debug: ALSOMAPS_TRACES=<path to GeoJSON> opens it as if picked.
-        if let traces = ProcessInfo.processInfo.environment["ALSOMAPS_TRACES"], !traces.isEmpty {
-            Task { _ = await openTraces(URL(fileURLWithPath: traces)) }
-        }
     }
 
     // MARK: Traces
 
-    /// Prepares a GeoJSON file and drapes it over the map, keeping a copy so
-    /// it's there next launch. Returns a view of it, or nil with `tracesError`
-    /// set.
+    /// Drapes a GeoJSON file over the map, keeping a copy so it's there next
+    /// launch. Returns a view of it, or nil with `tracesError` set.
     func openTraces(_ url: URL) async -> Place? {
+        await openTraces(named: url.deletingPathExtension().lastPathComponent) { name in
+            try TraceFile(geoJSON: Self.read(url), name: name)
+        }
+    }
+
+    /// Drapes the lines `prepare` makes, off the main thread, as `openTraces`
+    /// does a GeoJSON file.
+    func openTraces(named name: String,
+                    _ prepare: @escaping @Sendable (String) throws -> TraceFile) async -> Place? {
         isLoadingTraces = true
         defer { isLoadingTraces = false }
-        let name = url.deletingPathExtension().lastPathComponent
         do {
             let place = try await Task.detached(priority: .userInitiated) {
-                let accessing = url.startAccessingSecurityScopedResource()
-                defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-                let file = try TraceFile(geoJSON: Data(contentsOf: url, options: .mappedIfSafe), name: name)
+                let file = try prepare(name)
                 try FileManager.default.createDirectory(at: Self.tracesFile.deletingLastPathComponent(),
                                                         withIntermediateDirectories: true)
                 try file.data.write(to: Self.tracesFile, options: .atomic)
@@ -137,6 +138,13 @@ final class TileStreaming {
             tracesError = error.localizedDescription
             return nil
         }
+    }
+
+    /// A file the user picked, which may need its security scope opened.
+    nonisolated static func read(_ url: URL) throws -> Data {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        return try Data(contentsOf: url)
     }
 
     func removeTraces() {

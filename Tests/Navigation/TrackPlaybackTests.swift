@@ -5,8 +5,8 @@ private let degrees = Double.pi / 180
 private let start = Date(timeIntervalSince1970: 1_793_000_000)
 
 private func sample(_ time: TimeInterval, segment: Int = 0, latitude: Double = 37.79, longitude: Double = -122.39,
-                    height: Double = 1000, heading: Double = 0, pitch: Double = -40) -> CameraTrack.Sample {
-    CameraTrack.Sample(time: start.addingTimeInterval(time), segment: segment,
+                    height: Double = 1000, heading: Double = 0, pitch: Double = -40) -> Track.Sample {
+    Track.Sample(time: start.addingTimeInterval(time), segment: segment,
                        pose: CameraPose(latitude: latitude, longitude: longitude, height: height,
                                         heading: heading * degrees, pitch: pitch * degrees))
 }
@@ -89,8 +89,33 @@ struct TrackPlaybackTests {
         recorder.record(sample(0, height: 1000).pose, at: start)
         recorder.record(sample(2, height: 3000).pose, at: start.addingTimeInterval(2))
         recorder.finish()
-        let playback = try #require(try TrackPlayback(contentsOf: recorder.url))
+        let playback = try #require(TrackPlayback(CameraTrack.read(recorder.url)))
         #expect(abs(playback.duration - 2) < 1e-3)
         #expect(abs(playback.pose(at: 1).height - 2000) < 0.01)
+    }
+}
+
+struct TrackViewpointTests {
+    @Test func behindIsBackAlongTheHeadingAndLooksDown() {
+        // Heading east at 42° N.
+        let pose = CameraPose(latitude: 42, longitude: -71, height: 1000, heading: .pi / 2, pitch: 0)
+        let camera = TrackPlayback.behind(pose, distance: 100, height: 30)
+        let metresWest = (pose.longitude - camera.longitude) * 111_320 * cos(42 * Double.pi / 180)
+        #expect(abs(metresWest - 100) < 0.01)
+        #expect(abs(camera.latitude - 42) < 1e-9)
+        #expect(camera.height == 1030)
+        #expect(camera.heading == pose.heading)
+        #expect(abs(camera.pitch - -atan2(30, 100)) < 1e-12)
+    }
+
+    @Test func playbackUsesTheTracksViewpoint() throws {
+        let samples = [Track.Sample(time: Date(timeIntervalSince1970: 0), segment: 0,
+                                    pose: CameraPose(latitude: 42, longitude: -71, height: 500, heading: 0, pitch: 0))]
+        let onTrack = try #require(TrackPlayback(Track(name: "On", samples: samples)))
+        #expect(onTrack.pose(at: 0) == samples[0].pose)
+        let behind = try #require(TrackPlayback(Track(name: "Behind", samples: samples,
+                                                      viewpoint: .behind(distance: 100, height: 30))))
+        #expect(behind.pose(at: 0).height == 530)
+        #expect(behind.trackPose(at: 0) == samples[0].pose)
     }
 }

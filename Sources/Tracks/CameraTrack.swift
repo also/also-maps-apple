@@ -1,7 +1,8 @@
 import Foundation
 
 /// Camera tracks: the camera's position and heading over time, recorded to a
-/// text file for converting to geo formats, replaying or drawing later.
+/// text file for converting to geo formats, replaying or drawing later (as
+/// a Track).
 ///
 /// File format (CSV, UTF-8, one sample per line, append-only):
 ///
@@ -19,12 +20,6 @@ enum CameraTrack {
     static let header = "time,segment,latitude,longitude,height,heading,pitch"
     static let fileExtension = "csv"
 
-    struct Sample: Equatable {
-        var time: Date
-        var segment: Int
-        var pose: CameraPose
-    }
-
     private static let timeFormat: Date.ISO8601FormatStyle =
         .iso8601.year().month().day().time(includingFractionalSeconds: true).timeZone(separator: .omitted)
 
@@ -38,7 +33,7 @@ enum CameraTrack {
     }
 
     /// One CSV line, without the newline.
-    static func line(_ sample: Sample) -> String {
+    static func line(_ sample: Track.Sample) -> String {
         let pose = sample.pose
         // Wrapped after rounding, so just west of north isn't "360.00".
         var heading = ((pose.heading * 180 / .pi) * 100).rounded() / 100
@@ -55,7 +50,7 @@ enum CameraTrack {
 
     /// Parses a line written by `line(_:)`; nil for the header or anything
     /// else. Angles come back in radians, as CameraPose holds them.
-    static func sample(fromLine line: Substring) -> Sample? {
+    static func sample(fromLine line: Substring) -> Track.Sample? {
         let fields = line.split(separator: ",", omittingEmptySubsequences: false)
         guard fields.count == 7,
               let time = try? timeFormat.parse(String(fields[0])),
@@ -64,9 +59,16 @@ enum CameraTrack {
               let height = Double(fields[4]),
               let heading = Double(fields[5]), let pitch = Double(fields[6])
         else { return nil }
-        return Sample(time: time, segment: segment,
+        return Track.Sample(time: time, segment: segment,
                       pose: CameraPose(latitude: latitude, longitude: longitude, height: height,
                                        heading: heading * .pi / 180, pitch: pitch * .pi / 180))
+    }
+
+    /// The track in a file written by TrackRecorder, named after the file.
+    static func read(_ url: URL) throws -> Track {
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let samples = text.split(whereSeparator: \.isNewline).compactMap(sample(fromLine:))
+        return Track(name: url.deletingPathExtension().lastPathComponent, samples: samples)
     }
 
     /// The file name for a recording started at `date`, in local time, e.g.
@@ -102,7 +104,7 @@ struct TrackSampler {
     /// The sample for this frame, or nil when one isn't due. Frames come at
     /// the display rate (90 Hz on device), so a little slack keeps every
     /// third frame rather than every fourth.
-    mutating func sample(_ pose: CameraPose, at time: Date) -> CameraTrack.Sample? {
+    mutating func sample(_ pose: CameraPose, at time: Date) -> Track.Sample? {
         if let lastTime, time.timeIntervalSince(lastTime) < 0.9 / rate { return nil }
         if jumped {
             jumped = false
@@ -113,7 +115,7 @@ struct TrackSampler {
         }
         lastTime = time
         segmentHasSamples = true
-        return CameraTrack.Sample(time: time, segment: segment, pose: pose)
+        return Track.Sample(time: time, segment: segment, pose: pose)
     }
 }
 
@@ -149,7 +151,7 @@ final class TrackRecorder {
 
     /// Returns the sample recorded, if one was due.
     @discardableResult
-    func record(_ pose: CameraPose, at time: Date = Date()) -> CameraTrack.Sample? {
+    func record(_ pose: CameraPose, at time: Date = Date()) -> Track.Sample? {
         guard let sample = sampler.sample(pose, at: time) else { return nil }
         buffer += CameraTrack.line(sample) + "\n"
         sampleCount += 1

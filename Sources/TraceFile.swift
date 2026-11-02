@@ -25,6 +25,15 @@ struct TraceFile {
     init(geoJSON: Data, name: String) throws {
         guard let root = try? JSONSerialization.jsonObject(with: geoJSON) as? [String: Any],
               root["type"] is String else { throw Failure.notGeoJSON }
+        try self.init(root: root, name: name)
+    }
+
+    /// Lines of longitude–latitude pairs, from another format.
+    init(lines: [[[Double]]], name: String) throws {
+        try self.init(root: ["type": "MultiLineString", "coordinates": lines], name: name)
+    }
+
+    private init(root: [String: Any], name: String) throws {
         var lines = LineSummary()
         guard let cleaned = Self.clean(root, &lines), lines.count > 0 else { throw Failure.noLines }
         data = try JSONSerialization.data(withJSONObject: cleaned, options: .withoutEscapingSlashes)

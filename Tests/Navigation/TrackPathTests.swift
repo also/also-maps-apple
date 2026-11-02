@@ -4,8 +4,8 @@ import simd
 
 private let start = Date(timeIntervalSince1970: 1_793_000_000)
 
-private func sample(_ i: Int, segment: Int = 0, latitude: Double, longitude: Double, height: Double = 1000) -> CameraTrack.Sample {
-    CameraTrack.Sample(time: start.addingTimeInterval(Double(i) / 30), segment: segment,
+private func sample(_ i: Int, segment: Int = 0, latitude: Double, longitude: Double, height: Double = 1000) -> Track.Sample {
+    Track.Sample(time: start.addingTimeInterval(Double(i) / 30), segment: segment,
                        pose: CameraPose(latitude: latitude, longitude: longitude, height: height, heading: 0, pitch: 0))
 }
 
@@ -119,7 +119,7 @@ struct TrackLocalCoordinateTests {
         let samples = (0..<5).map { sample($0, segment: $0 < 3 ? 0 : 1, latitude: 37 + 1e-3 * Double($0), longitude: -122) }
         let text = ([CameraTrack.header] + samples.map(CameraTrack.line)).joined(separator: "\n") + "\n"
         try text.write(to: url, atomically: true, encoding: .utf8)
-        let path = try #require(try TrackPath(contentsOf: url))
+        let path = try #require(TrackPath(samples: CameraTrack.read(url).samples))
         #expect(path.segments.map(\.points.count) == [3, 2])
     }
 }
