@@ -162,7 +162,7 @@ struct VolumeView: View {
                         dismiss: DismissImmersiveSpaceAction) async {
         switch (model.presentation.host, presentation.host) {
         case (.volume, .immersive):
-            guard case .opened = await open(id: ImmersiveMapView.spaceID) else { return }
+            guard case .opened = await open(id: ImmersiveMapView.spaceID(for: model)) else { return }
         case (.immersive, .volume):
             await dismiss()
         default:

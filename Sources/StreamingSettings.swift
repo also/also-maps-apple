@@ -81,4 +81,13 @@ struct StreamingSettings: Codable, Equatable {
 enum ViewPreferences {
     /// UserDefaults key: show tile and request stats over the map.
     static let showsStatsKey = "ShowsStats"
+    /// UserDefaults key: draw tiles with the app's Metal renderer instead of
+    /// RealityKit (the map window on a screen, the immersive mode on visionOS).
+    static let drawsWithMetalKey = "DrawsWithMetal"
+
+    /// The setting, or ALSOMAPS_METAL=1, which turns it on for a run.
+    static var drawsWithMetal: Bool {
+        ProcessInfo.processInfo.environment["ALSOMAPS_METAL"] == "1"
+            || UserDefaults.standard.bool(forKey: drawsWithMetalKey)
+    }
 }

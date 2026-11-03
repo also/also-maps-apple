@@ -92,6 +92,14 @@ final class ScreenMap {
         }
     }
 
+    /// The window camera's pose in the scene; it looks down its −z.
+    var cameraMatrix: simd_float4x4 { cameraEntity.transform.matrix }
+
+    /// Near and far clip distances for the current camera, metres.
+    var clipping: (near: Double, far: Double) {
+        ScreenView.clipping(altitude: navigation.camera.height - cameraGround.value)
+    }
+
     /// Matches the LOD camera to the window and sets detail as pixels of
     /// error on this screen.
     func resize(to size: CGSize) {
@@ -421,6 +429,9 @@ final class ScreenMap {
 struct ScreenMapView: View {
     let map: ScreenMap
     var creditLineLimit: Int? = 1
+    /// Drawn over the RealityKit scene, under the controls: another renderer
+    /// for the same map (MetalMapView).
+    var sceneOverride: AnyView?
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
     @State private var viewportSize: CGSize = .zero
 
@@ -438,6 +449,9 @@ struct ScreenMapView: View {
             }
             .background(Color(red: 0.55, green: 0.7, blue: 0.85))
             .ignoresSafeArea()
+            if let sceneOverride {
+                sceneOverride.ignoresSafeArea()
+            }
         }
         .overlay(alignment: .topLeading) {
             if showsStats || map.keyboardConnected || map.controllerName != nil {

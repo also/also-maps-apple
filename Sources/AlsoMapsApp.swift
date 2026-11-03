@@ -52,7 +52,7 @@ struct AlsoMapsApp: App {
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
 
-        ImmersiveSpace(id: ImmersiveMapView.spaceID) {
+        ImmersiveSpace(id: ImmersiveMapView.realityKitSpaceID) {
             ImmersiveMapView()
                 .environment(model)
                 .appGate(presentsNotices: false)
@@ -61,5 +61,12 @@ struct AlsoMapsApp: App {
         // In mixed immersion, keep the user's system environment (Mount Hood,
         // the Moon, …) around the immersive map instead of hiding it.
         .immersiveEnvironmentBehavior(.coexist)
+
+        // The same immersive presentation drawn with Metal, when Settings
+        // says so (MapModel.drawsImmersiveWithMetal).
+        ImmersiveSpace(id: MetalImmersiveContent.spaceID) {
+            MetalImmersiveContent(model: model)
+        }
+        .immersionStyle(selection: .constant(.full), in: .full)
     }
 }

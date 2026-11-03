@@ -136,6 +136,7 @@ targets:
           - Assets.xcassets
           - Navigation
           - NavigationRealityKit.swift
+          - Metal
           - Static
           - Screen
           - Settings
@@ -279,6 +280,7 @@ targets:
           - Assets.xcassets
           - Navigation
           - NavigationRealityKit.swift
+          - Metal
           - Static
           - Screen
           - Settings

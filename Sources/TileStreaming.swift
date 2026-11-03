@@ -68,6 +68,18 @@ final class TileStreaming {
 
     private var streamer: CNTileStreamer?
     private let tileUploader = TileUploader()
+    /// Builds each tile's renderer resources instead of RealityKit entities
+    /// (the Metal spike); the tiles to draw are then in `drawnTiles` each
+    /// frame and nothing is added under `tilesRoot`. Setting or clearing it
+    /// while streaming restarts, so every tile is built the new way.
+    var customTileHandler: CNTileLoadHandler? {
+        didSet {
+            if (customTileHandler == nil) != (oldValue == nil) { restart() }
+        }
+    }
+    /// With a custom handler: last frame's tiles, each with its placement in
+    /// the anchor's level frame (the same as an entity's under `tilesRoot`).
+    private(set) var drawnTiles: [(tile: CNTileMesh, placement: simd_float4x4)] = []
     private var tileEntities: [UInt64: Entity] = [:]
     private var renderedTiles: [CNTileMesh] = []
     /// Draw each drawn tile's bounding box as a wireframe child of the tile:
@@ -121,7 +133,7 @@ final class TileStreaming {
         statusMessage = nil
         tileUploader.untexturedColor = settings.tileSource.untexturedColor
         // Before the first update, so every tile goes through it.
-        streamer.tileLoadHandler = tileUploader.handler
+        streamer.tileLoadHandler = customTileHandler ?? tileUploader.handler
         self.streamer = streamer
         applySettings()
         applyInputs()
@@ -136,6 +148,7 @@ final class TileStreaming {
         tileEntities = [:]
         tileBoxes = [:]
         renderedTiles = []
+        drawnTiles = []
         credits = []
         loadProgress = 0
         stats = Stats()
@@ -220,24 +233,31 @@ final class TileStreaming {
             tileBoxes.removeValue(forKey: id.uint64Value)
         }
 
-        var visible = Set<UInt64>()
-        frame.tileTransforms.withUnsafeBytes { buffer in
-            let placements = buffer.bindMemory(to: simd_float4x4.self)
-            for (index, tile) in frame.tilesToRender.enumerated() {
-                visible.insert(tile.identifier)
-                // Built off the main thread before cesium-native counted the
-                // tile as loaded; here it only needs adding.
-                if tileEntities[tile.identifier] == nil, let entity = tile.renderObject as? Entity {
-                    tileEntities[tile.identifier] = entity
-                    tilesRoot.addChild(entity)
-                }
-                // Placed relative to the current anchor every frame, so there's
-                // no fixed origin for precision to drift away from.
-                tileEntities[tile.identifier]?.transform = Transform(matrix: placements[index])
+        if customTileHandler != nil {
+            frame.tileTransforms.withUnsafeBytes { buffer in
+                let placements = buffer.bindMemory(to: simd_float4x4.self)
+                drawnTiles = frame.tilesToRender.enumerated().map { ($1, placements[$0]) }
             }
-        }
-        for (id, entity) in tileEntities {
-            entity.isEnabled = visible.contains(id)
+        } else {
+            var visible = Set<UInt64>()
+            frame.tileTransforms.withUnsafeBytes { buffer in
+                let placements = buffer.bindMemory(to: simd_float4x4.self)
+                for (index, tile) in frame.tilesToRender.enumerated() {
+                    visible.insert(tile.identifier)
+                    // Built off the main thread before cesium-native counted the
+                    // tile as loaded; here it only needs adding.
+                    if tileEntities[tile.identifier] == nil, let entity = tile.renderObject as? Entity {
+                        tileEntities[tile.identifier] = entity
+                        tilesRoot.addChild(entity)
+                    }
+                    // Placed relative to the current anchor every frame, so there's
+                    // no fixed origin for precision to drift away from.
+                    tileEntities[tile.identifier]?.transform = Transform(matrix: placements[index])
+                }
+            }
+            for (id, entity) in tileEntities {
+                entity.isEnabled = visible.contains(id)
+            }
         }
         renderedTiles = frame.tilesToRender
         if showsTileBounds { updateTileBoxes(frame) }
