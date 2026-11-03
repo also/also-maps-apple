@@ -12,7 +12,7 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
   - a level-of-detail camera given as position, direction and up in the anchor's frame
 - `Sources/TileUploader.swift`: builds each loaded tile's RealityKit meshes and textures asynchronously, a few at a time, before cesium-native counts the tile as loaded. Meshes are built off the main thread.
 - `Sources/TileStreaming.swift`: runs one cesium-native update per RealityKit frame from its streaming inputs (anchor, area of interest, LOD camera), adds ready tile entities, hides tiles that aren't selected and removes freed ones.
-- `Sources/Navigation/`: the platform-neutral navigation core, being introduced in stages (see [docs/camera-core.md](docs/camera-core.md)): WGS84 geodesy and surface queries, camera pose and navigation state, the georeference (world → map frame), streaming inputs, and prototype control styles. `Also Maps Core Tests` tests it on macOS without a scene or network: `xcodebuild -scheme AlsoMapsCoreTests -destination 'platform=macOS' test`.
+- `Sources/Navigation/`: the platform-neutral navigation core, being introduced in stages (see [docs/camera-core.md](docs/camera-core.md)): WGS84 geodesy and surface queries, camera pose and navigation state, the georeference (world → map frame), streaming inputs, and prototype control styles. `Also Maps Core Tests` tests it on macOS without a scene or network (see [Tests](#tests)).
 - `Sources/MapModel.swift`: navigation and presentation. It stores the camera (`NavigationState`), steers it with the core's model-flight style and anchored gestures, and shows it in each host. The volume uses the adaptive model: the world is scaled so the camera sits at the design eye point and what it looks at sits low in the volume. The immersive space uses the eye-level model (`Sources/Navigation/EyeLevelModel.swift`): the camera is at your eye and the map is level on the origin plane, whatever the camera's pitch, with the scale making the camera's height above the ground your eye's height above the floor. Far up, the map tilts with altitude about your eye, so the ground below comes up in front of you as a globe; the camera stays at your eye at every altitude. Tiles are placed relative to whichever anchor is streaming, so held tiles stay put while you fly.
 - The Shared Space provides no head pose, so a synthetic camera in front of the volume, 45° up, drives level of detail.
 
@@ -36,6 +36,14 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 **Optional soundtrack:** put an MP3 at `Local/soundtrack.mp3`. `Local/` is gitignored, for assets that can't be published. If the file is there, the build bundles it and the app loops it quietly while active, with a mute button in the ornament. Without it, the app simply has no soundtrack.
 
 To test without a key, tick the `ALSOMAPS_*` variables in the scheme. They stream a public Cesium sample tileset instead. `ALSOMAPS_LAT`, `ALSOMAPS_LON`, `ALSOMAPS_RADIUS` and `ALSOMAPS_HEADING` also work on their own, to start somewhere other than the Ferry Building.
+
+## Tests
+
+`Also Maps Core Tests` tests the navigation core on macOS, without a scene or network:
+
+```
+xcodebuild -scheme 'Also Maps Core Tests' -destination 'platform=macOS' test
+```
 
 ## Controls
 
