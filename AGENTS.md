@@ -8,7 +8,7 @@ This project has its own ways of doing several routine things, and some differ f
 - **Running, logging from, or inspecting the Mac app:** the README's "Running and inspecting the Mac app" section.
 - **Comparing runs, or anything touching tile requests:** [docs/tile-caching.md](docs/tile-caching.md). Decide whether each run starts with a cold or warm cache.
 - **Navigation or the camera:** [docs/camera-core.md](docs/camera-core.md) and [docs/navigation-handoff.md](docs/navigation-handoff.md), which records what the owner decided.
-- **Setup, keys and building:** the README's "Setup" and "Keys" sections. The Xcode project is generated, so a fresh checkout or worktree needs `xcodegen generate` first. The core tests command is in the README's `Sources/Navigation/` entry.
+- **Setup, keys, building and testing:** the README's "Setup", "Keys" and "Tests" sections. The Xcode project is generated, so a fresh checkout or worktree needs `xcodegen generate` first.
 - **App icons and artwork:** [docs/branding/README.md](docs/branding/README.md).
 
 For any other task, check `docs/` and the README's headings for a matching section first.
