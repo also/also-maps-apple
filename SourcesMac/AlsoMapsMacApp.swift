@@ -85,6 +85,10 @@ struct MacMapView: View {
     /// Shows this window's map on a Vision Pro, or brings it back.
     @ViewBuilder private var headsetButton: some View {
         if headset.isOpen, headset.map === map {
+            // 1:1 instead of scaled to the room: the camera's real height.
+            Toggle("Human Scale", systemImage: "figure.stand",
+                   isOn: Binding(get: { map.headsetHumanScale }, set: { map.headsetHumanScale = $0 }))
+                .toggleStyle(.button)
             Button("Back to Mac", systemImage: "macwindow") {
                 Task { await dismissImmersiveSpace() }
             }

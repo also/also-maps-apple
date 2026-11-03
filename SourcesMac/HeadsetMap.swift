@@ -9,9 +9,10 @@ import SwiftUI
 ///
 /// RemoteImmersiveSpace only takes Metal (a CompositorLayer), so the map's
 /// RealityKit scene is drawn through a RealityRenderer, once per eye, into
-/// the compositor's textures. The navigation camera is the eye: the scene is
-/// level and turned by the camera's heading, and the head adds where you
-/// look. The window keeps its controls but shows nothing while the headset
+/// the compositor's textures. The world is placed as in the visionOS
+/// immersive space (EyeLevelModel): the camera on your eye, level with the
+/// floor, scaled so the ground beneath it is on the floor; or 1:1 at human
+/// scale. The window keeps its controls but shows nothing while the headset
 /// has the map.
 @MainActor
 @Observable
@@ -94,9 +95,18 @@ final class HeadsetRenderer {
     /// Signalled when the last eye is drawn; the present waits on it.
     private let rendered: MTLSharedEvent
     private var frameIndex: UInt64 = 0
-    /// Where the head was on the first tracked frame: the scene's origin,
-    /// the navigation camera, sits there.
-    private var startHead: SIMD3<Float>?
+    /// Whether the eye has been measured, on the first tracked frame.
+    private var measuredEye = false
+
+    /// The visionOS immersive host's geometry (MapPresentation.immersive):
+    /// the ground on the floor, raised slightly, the map's centre 5.6 m
+    /// ahead, a shown square 10 m across. The eye is assumed until measured.
+    static func room(eye: SIMD3<Double> = [0, 1.6, 0]) -> RoomGeometry {
+        RoomGeometry(designEye: eye,
+                     placementLevel: [eye.x, 0.02, eye.z - 5.6],
+                     placementDown: [eye.x, eye.y - 0.3, eye.z - 5.6],
+                     contentHalfWidth: 5)
+    }
     /// ALSOMAPS_HEADSET_TEST=1 fills each eye with a colour instead of the
     /// map, to tell "frames don't reach the headset" from "RealityRenderer
     /// draws nothing".
@@ -119,6 +129,7 @@ final class HeadsetRenderer {
         // The window's sky (ScreenMapView).
         renderer.cameraSettings.colorBackground = .color(CGColor(red: 0.55, green: 0.7, blue: 0.85, alpha: 1))
         renderer.entities.append(contentsOf: [map.enterHeadset(), eye])
+        map.headsetRoom = Self.room()
         renderer.activeCamera = eye
     }
 
@@ -183,17 +194,14 @@ final class HeadsetRenderer {
         }
         if anchor != nil { log.anchored += 1 }
         let originFromDevice = anchor?.originFromAnchorTransform ?? matrix_identity_float4x4
-        if startHead == nil, anchor != nil {
-            startHead = SIMD3(originFromDevice.columns.3.x, originFromDevice.columns.3.y, originFromDevice.columns.3.z)
+        // Measured once, as on visionOS: the eye the map is placed around.
+        // Implausible heights (tracking glitches) keep the assumed eye.
+        if !measuredEye, anchor != nil {
+            measuredEye = true
+            let head = SIMD3<Double>(SIMD3(originFromDevice.columns.3.x, originFromDevice.columns.3.y,
+                                           originFromDevice.columns.3.z))
+            if (0.5...2.5).contains(head.y) { map.headsetRoom = Self.room(eye: head) }
         }
-
-        // Scene (x east, y up, z south, the camera at the origin) from the
-        // room: the start head to the origin, turned by the heading.
-        let head = startHead ?? [0, 1.5, 0]
-        var toStart = matrix_identity_float4x4
-        toStart.columns.3 = SIMD4(-head, 1)
-        let turn = simd_float4x4(simd_quatf(angle: -Float(map.heading), axis: [0, 1, 0]))
-        let sceneFromOrigin = turn * toStart
 
         let (near, far) = map.clipping
         drawable.depthRange = SIMD2(Float(far), Float(near))
@@ -203,7 +211,8 @@ final class HeadsetRenderer {
             return
         }
         for (index, view) in drawable.views.enumerated() {
-            eye.transform = Transform(matrix: sceneFromOrigin * originFromDevice * view.transform)
+            // The scene is the room: the map is placed in it directly.
+            eye.transform = Transform(matrix: originFromDevice * view.transform)
             eye.components.set(ProjectiveTransformCameraComponent(
                 projectionMatrix: Self.projection(tangents: Self.tangents(drawable.computeProjection(viewIndex: index)),
                                                   near: Float(near), far: Float(far))))

@@ -114,6 +114,7 @@ final class ScreenMap {
     func leaveHeadset() {
         guard isInHeadset else { return }
         isInHeadset = false
+        headsetRoom = nil
         root.removeFromParent()
         windowHost.addChild(root)
     }
@@ -124,13 +125,25 @@ final class ScreenMap {
         tick(deltaTime: deltaTime)
     }
 
-    /// The navigation camera's heading, radians clockwise from north: the
-    /// headset turns the level scene by it, leaving pitch to the head.
-    var heading: Double { navigation.camera.heading }
+    /// While a headset shows the map, the room it's placed in: the
+    /// eye-level model, as in the visionOS immersive space. The camera is on
+    /// the eye, level with the floor, and the world is scaled so the ground
+    /// beneath it is on the base plane, unless `headsetHumanScale` keeps it
+    /// 1:1. Nil places the scene for the window (ScreenView).
+    @ObservationIgnored var headsetRoom: RoomGeometry? {
+        didSet { if headsetRoom != oldValue { applyView() } }
+    }
+    var headsetHumanScale = false {
+        didSet { if headsetHumanScale != oldValue { applyView() } }
+    }
+    /// Room metres per world metre for the last placement.
+    @ObservationIgnored private(set) var placementScale = 1.0
 
-    /// Near and far clip distances for the current camera, metres.
+    /// Near and far clip distances in the scene, metres: the camera's, scaled
+    /// with the world.
     var clipping: (near: Double, far: Double) {
-        ScreenView.clipping(altitude: navigation.camera.height - cameraGround.value)
+        let (near, far) = ScreenView.clipping(altitude: navigation.camera.height - cameraGround.value)
+        return (max(near * placementScale, 0.01), far * placementScale)
     }
 
     /// Matches the LOD camera to the window and sets detail as pixels of
@@ -260,7 +273,16 @@ final class ScreenMap {
         let camera = navigation.camera
         streaming.inputs = ScreenView.streamingInputs(camera: camera, groundHeight: cameraGround.value,
                                                       fieldOfView: Self.fieldOfView, aspect: viewport.aspect)
-        let georeference = ScreenView.georeference(camera: camera)
+        let georeference: Georeference
+        if let room = headsetRoom {
+            let ground = cameraGround.value
+            georeference = EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground,
+                                                 tiltWeight: EyeLevelModel.tiltWeight(altitude: camera.height - ground),
+                                                 fixedScale: headsetHumanScale ? 1 : nil).georeference
+        } else {
+            georeference = ScreenView.georeference(camera: camera)
+        }
+        placementScale = georeference.scale
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
         let altitude = max(camera.height - cameraGround.value, Self.minimumAltitude)
         tracks.overlay.update(georeference: georeference,
