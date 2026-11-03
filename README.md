@@ -39,7 +39,7 @@ To test without a key, tick the `ALSOMAPS_*` variables in the scheme. They strea
 
 ## Tests
 
-`Also Maps Core Tests` tests the navigation core on macOS, without a scene or network. After `xcodegen generate`:
+`Also Maps Core Tests` tests the navigation core on macOS, without a scene or network:
 
 ```
 xcodebuild -scheme 'Also Maps Core Tests' -destination 'platform=macOS' test
