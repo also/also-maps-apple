@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import OSLog
+import Metal
 import RealityKit
 
 /// Turns tiles cesium-native has loaded into RealityKit entities without
@@ -46,7 +47,7 @@ final class TileUploader: @unchecked Sendable {
         for primitive in tile.primitives ?? [] {
             do {
                 let mesh = try await MeshResource(from: [descriptor(for: primitive)])
-                parts.append(Part(mesh: mesh, image: image(for: primitive),
+                parts.append(Part(mesh: mesh, image: image(for: primitive), sampler: sampler(for: primitive),
                                   lit: primitive.normals != nil, baseColor: primitive.baseColor))
             } catch {
                 print("[AlsoMaps] tile \(tile.identifier) mesh failed: \(error)")
@@ -59,6 +60,7 @@ final class TileUploader: @unchecked Sendable {
     private struct Part {
         var mesh: MeshResource
         var image: CGImage?
+        var sampler: MaterialParameters.Texture.Sampler
         /// Untextured content with normals: drawn lit, in its base colour.
         var lit: Bool
         var baseColor: SIMD4<Float>
@@ -87,7 +89,7 @@ final class TileUploader: @unchecked Sendable {
                 unlit.faceCulling = .none
                 if let image = part.image,
                    let texture = await Self.makeTexture(image) {
-                    unlit.color = .init(tint: .white, texture: .init(texture))
+                    unlit.color = .init(tint: .white, texture: .init(texture, sampler: part.sampler))
                 } else {
                     unlit.color = .init(tint: color(part.baseColor))
                 }
@@ -132,6 +134,33 @@ final class TileUploader: @unchecked Sendable {
             Array($0.bindMemory(to: UInt32.self))
         })
         return descriptor
+    }
+
+    /// The glTF's sampler. Wrap modes matter: Google's tiles ask for
+    /// clamp-to-edge, and RealityKit's default repeats, which blends each
+    /// tile's edge texels with the opposite edge into dark seams. Unspecified
+    /// filters are trilinear.
+    private static func sampler(for primitive: CNPrimitive) -> MaterialParameters.Texture.Sampler {
+        func address(_ wrap: Int) -> MTLSamplerAddressMode {
+            return switch wrap {
+            case 33071: .clampToEdge
+            case 33648: .mirrorRepeat
+            default: .repeat
+            }
+        }
+        let descriptor = MTLSamplerDescriptor()
+        descriptor.sAddressMode = address(primitive.textureWrapS)
+        descriptor.tAddressMode = address(primitive.textureWrapT)
+        descriptor.magFilter = primitive.textureMagFilter == 9728 ? .nearest : .linear
+        switch primitive.textureMinFilter {
+        case 9728: (descriptor.minFilter, descriptor.mipFilter) = (.nearest, .notMipmapped)
+        case 9729: (descriptor.minFilter, descriptor.mipFilter) = (.linear, .notMipmapped)
+        case 9984: (descriptor.minFilter, descriptor.mipFilter) = (.nearest, .nearest)
+        case 9985: (descriptor.minFilter, descriptor.mipFilter) = (.linear, .nearest)
+        case 9986: (descriptor.minFilter, descriptor.mipFilter) = (.nearest, .linear)
+        default: (descriptor.minFilter, descriptor.mipFilter) = (.linear, .linear)
+        }
+        return .init(descriptor)
     }
 
     private static func image(for primitive: CNPrimitive) -> CGImage? {

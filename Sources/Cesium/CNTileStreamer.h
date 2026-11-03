@@ -25,6 +25,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly, nullable) NSData *rgba;
 @property (nonatomic, readonly) NSInteger textureWidth;
 @property (nonatomic, readonly) NSInteger textureHeight;
+/// The texture's glTF sampler: wrap modes (REPEAT when the glTF gives
+/// none), and filters (0 when unspecified, leaving the choice to the app).
+@property (nonatomic, readonly) NSInteger textureWrapS;
+@property (nonatomic, readonly) NSInteger textureWrapT;
+@property (nonatomic, readonly) NSInteger textureMagFilter;
+@property (nonatomic, readonly) NSInteger textureMinFilter;
 /// float4 per vertex: unit normals in ECEF axes. Present for untextured
 /// content (drawn lit); nil for textured photogrammetry (drawn unlit). Flat
 /// normals are computed when the glTF has none.
