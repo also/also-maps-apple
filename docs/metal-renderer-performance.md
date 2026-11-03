@@ -61,6 +61,8 @@ On Vision Pro, compare foveation separately with culling held fixed. Check
 peripheral image quality, both eyes, and compositor depth. Simulator builds
 do not establish foveated rendering quality; validate it on the device.
 
-No Google tiles or NYC performance measurements were used to implement this
-change. Synthetic geometry tests establish the culling behavior; city-scale
-visual and performance validation still needs the API key and target hardware.
+Synthetic geometry tests establish the culling behavior. After implementation,
+the macOS app was launched with a Google Maps key and Metal enabled; New York
+tiles rendered, the window was inspected through Computer Use, and submission
+counters were confirmed active. A controlled culling-on/off performance
+comparison and on-device visionOS foveation validation are still pending.
