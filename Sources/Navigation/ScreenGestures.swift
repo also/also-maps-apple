@@ -82,6 +82,54 @@ enum ScreenGestures {
     }
 }
 
+/// What a scroll means on a Mac: a trackpad or Magic Mouse pans, a notched
+/// wheel zooms. Holding Option zooms with either, and Shift tilts.
+struct ScrollGesture: Equatable {
+    /// Points from a trackpad, lines from a wheel, with the map following
+    /// the direction the system scrolls content.
+    var delta: SIMD2<Double>
+    /// Whether `delta` is in points.
+    var isPrecise: Bool
+    /// Whether the system has flipped the device's direction (natural
+    /// scrolling).
+    var isInverted: Bool
+    var zooms: Bool
+    var tilts: Bool
+
+    enum Action: Equatable {
+        case none
+        /// Screen points for the map to follow.
+        case pan(SIMD2<Double>)
+        case zoom(doublings: Double)
+        /// Screen points down, as if dragging: up levels the view.
+        case tilt(Double)
+    }
+
+    /// Points of trackpad scroll for a doubling, as on a touch screen's
+    /// double tap held and dragged.
+    static let pointsPerDoubling = 120.0
+    /// One line of a wheel, about one notch when turned slowly.
+    static let doublingsPerLine = 0.25
+    /// Points of tilt for one line of a wheel.
+    static let pointsPerLine = 10.0
+
+    var action: Action {
+        guard delta != .zero else { return .none }
+        // The system moves Shift-wheel scrolling to the horizontal axis.
+        let vertical = delta.y != 0 || isPrecise ? delta.y : delta.x
+        if tilts {
+            return vertical == 0 ? .none : .tilt(vertical * (isPrecise ? 1 : Self.pointsPerLine))
+        }
+        if zooms || !isPrecise {
+            guard vertical != 0 else { return .none }
+            // Pushing away zooms in, whichever way content scrolls.
+            let away = isInverted ? -vertical : vertical
+            return .zoom(doublings: away * (isPrecise ? 1 / Self.pointsPerDoubling : Self.doublingsPerLine))
+        }
+        return .pan(delta)
+    }
+}
+
 /// Tells the two-finger gestures apart: both fingers moving up or down
 /// together tilts, anything else (pinching, twisting, sliding sideways) is
 /// the map following the fingers. Decided once per gesture, on the first

@@ -29,9 +29,10 @@ struct AlsoMapsMacApp: App {
     }
 }
 
-/// The flying map with a Places menu. Keys are read from the keyboard
-/// device each frame (MapInput); the view takes them only so the system
-/// doesn't beep at unhandled keys.
+/// The flying map with a Places menu. The mouse and trackpad go through
+/// PointerSurface. Keys are read from the keyboard device each frame
+/// (MapInput); the view takes them only so the system doesn't beep at
+/// unhandled keys.
 struct MacMapView: View {
     let settings: StreamingSettings
     @State private var map: ScreenMap
@@ -44,6 +45,11 @@ struct MacMapView: View {
 
     var body: some View {
         ScreenMapView(map: map)
+            // Over the map, under the controls, the same size as the scene.
+            .overlay {
+                PointerSurface(map: map)
+                    .ignoresSafeArea()
+            }
             .focusable()
             .focusEffectDisabled()
             .focused($focused)

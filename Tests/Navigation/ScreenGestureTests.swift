@@ -125,3 +125,40 @@ struct TwoFingerClassifierTests {
         #expect(classifier.update(translation: SIMD2(0, 30), scale: 1.5, rotation: 0.5) == .tilt)
     }
 }
+
+struct ScrollGestureTests {
+    private func action(_ delta: SIMD2<Double>, precise: Bool = true, inverted: Bool = false,
+                        zooms: Bool = false, tilts: Bool = false) -> ScrollGesture.Action {
+        ScrollGesture(delta: delta, isPrecise: precise, isInverted: inverted, zooms: zooms, tilts: tilts).action
+    }
+
+    @Test
+    func aTrackpadPansAlongWithTheFingers() {
+        #expect(action(SIMD2(12, -5)) == .pan(SIMD2(12, -5)))
+    }
+
+    @Test
+    func aWheelZoomsWhateverTheScrollDirectionSetting() {
+        // The same push away, reported with and without natural scrolling.
+        #expect(action(SIMD2(0, 2), precise: false) == .zoom(doublings: 0.5))
+        #expect(action(SIMD2(0, -2), precise: false, inverted: true) == .zoom(doublings: 0.5))
+    }
+
+    @Test
+    func optionZoomsATrackpad() {
+        #expect(action(SIMD2(0, 60), zooms: true) == .zoom(doublings: 0.5))
+    }
+
+    @Test
+    func shiftTiltsWithEither() {
+        #expect(action(SIMD2(0, 30), tilts: true) == .tilt(30))
+        // The system reports Shift-wheel scrolling as horizontal.
+        #expect(action(SIMD2(3, 0), precise: false, tilts: true) == .tilt(30))
+    }
+
+    @Test
+    func aSidewaysWheelAndAnEmptyScrollDoNothing() {
+        #expect(action(.zero) == .none)
+        #expect(action(SIMD2(5, 0), zooms: true) == .none)
+    }
+}
