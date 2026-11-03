@@ -85,6 +85,9 @@ final class TileStreaming {
     /// The key the streamer was started with.
     private var keyInUse: String?
     private var debugLogElapsed: Float = 0
+    /// ALSOMAPS_LOG_STATS=1 prints the streaming stats once a second (Debug
+    /// builds); off by default, since Xcode's console quarantines that volume.
+    private static let logsStats = ProcessInfo.processInfo.environment["ALSOMAPS_LOG_STATS"] == "1"
     /// Longest main-thread update in the current debug-log second.
     private var debugSlowestUpdate: TimeInterval = 0
 
@@ -258,7 +261,7 @@ final class TileStreaming {
 
         #if DEBUG
         debugLogElapsed += deltaTime
-        if debugLogElapsed > 1 {
+        if Self.logsStats, debugLogElapsed > 1 {
             debugLogElapsed = 0
             print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB)")
             debugSlowestUpdate = 0
