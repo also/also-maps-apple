@@ -95,6 +95,9 @@ final class HeadsetRenderer {
     /// Signalled when the last eye is drawn; the present waits on it.
     private let rendered: MTLSharedEvent
     private var frameIndex: UInt64 = 0
+    /// ALSOMAPS_METAL=1: draws the tiles itself instead of RealityRenderer,
+    /// if it shares the compositor's GPU.
+    private let metal: MetalTileRenderer?
     /// Whether the eye has been measured, on the first tracked frame.
     private var measuredEye = false
 
@@ -121,6 +124,16 @@ final class HeadsetRenderer {
         session = ARKitSession(device: remote)
         renderer = try RealityRenderer()
         device = layerRenderer.device
+        if let shared = MetalTileRenderer.shared {
+            if shared.device === layerRenderer.device {
+                metal = shared
+            } else {
+                print("Headset: the Metal renderer is on another GPU than the compositor; using RealityRenderer")
+                metal = nil
+            }
+        } else {
+            metal = nil
+        }
         guard let queue = device.makeCommandQueue(), let event = device.makeSharedEvent() else {
             throw HeadsetError.metal
         }
@@ -210,6 +223,10 @@ final class HeadsetRenderer {
             present(drawable, clearingColour: true)
             return
         }
+        if let metal {
+            renderMetal(drawable, with: metal, originFromDevice: originFromDevice)
+            return
+        }
         for (index, view) in drawable.views.enumerated() {
             // The scene is the room: the map is placed in it directly.
             eye.transform = Transform(matrix: originFromDevice * view.transform)
@@ -229,6 +246,38 @@ final class HeadsetRenderer {
         }
 
         present(drawable, clearingColour: false)
+    }
+
+    /// ALSOMAPS_METAL=1: both eyes in one command buffer, with the map's
+    /// real depth in the compositor's depth textures, through the
+    /// compositor's own projection (reverse Z, from the depth range set).
+    private func renderMetal(_ drawable: LayerRenderer.Drawable, with metal: MetalTileRenderer,
+                             originFromDevice: simd_float4x4) {
+        guard let commands = queue.makeCommandBuffer() else { return }
+        let root = map.streaming.tilesRoot.transform.matrix
+        let tiles = map.streaming.drawnTiles
+        for (index, view) in drawable.views.enumerated() {
+            let pass = MTLRenderPassDescriptor()
+            pass.colorAttachments[0].texture = drawable.colorTextures[index]
+            pass.colorAttachments[0].loadAction = .clear
+            pass.colorAttachments[0].clearColor = MetalTileRenderer.skyColour
+            pass.colorAttachments[0].storeAction = .store
+            pass.depthAttachment.texture = drawable.depthTextures[index]
+            pass.depthAttachment.loadAction = .clear
+            pass.depthAttachment.clearDepth = 0
+            pass.depthAttachment.storeAction = .store
+            guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { continue }
+            // The scene is the room: the map is placed in it directly.
+            let viewMatrix = (originFromDevice * view.transform).inverse
+            metal.encode(encoder, colour: drawable.colorTextures[index].pixelFormat,
+                         depth: drawable.depthTextures[index].pixelFormat,
+                         viewProjection: drawable.computeProjection(viewIndex: index) * viewMatrix,
+                         root: root, tiles: tiles)
+            encoder.endEncoding()
+        }
+        commands.encodeSignalEvent(rendered, value: frameIndex)
+        drawable.encodePresent(commandBuffer: commands)
+        commands.commit()
     }
 
     private func present(_ drawable: LayerRenderer.Drawable, clearingColour: Bool) {

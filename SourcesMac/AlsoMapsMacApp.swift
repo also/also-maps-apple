@@ -51,11 +51,17 @@ struct MacMapView: View {
 
     init(start: StaticView, settings: StreamingSettings) {
         self.settings = settings
-        _map = State(initialValue: ScreenMap(camera: start.cameraPose, settings: start.settings))
+        let map = ScreenMap(camera: start.cameraPose, settings: start.settings)
+        // ALSOMAPS_METAL=1: tiles are built for, and drawn by, the Metal spike.
+        if let metal = MetalTileRenderer.shared {
+            map.streaming.customTileHandler = metal.handler
+        }
+        _map = State(initialValue: map)
     }
 
     var body: some View {
-        ScreenMapView(map: map)
+        ScreenMapView(map: map,
+                      sceneOverride: MetalTileRenderer.shared.map { AnyView(MetalMapView(map: map, renderer: $0)) })
             // Over the map, under the controls, the same size as the scene.
             .overlay {
                 PointerSurface(map: map)
