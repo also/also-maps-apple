@@ -71,11 +71,11 @@ struct VolumeView: View {
                     }
                     .labelStyle(.iconOnly)
                     .help("Go to a place")
-                    Button("Tuning", systemImage: "slider.horizontal.3") {
-                        openWindow(id: TuningView.windowID)
+                    Button("Settings", systemImage: "gearshape") {
+                        openWindow(id: SettingsView.windowID)
                     }
                     .labelStyle(.iconOnly)
-                    .help("Streaming settings")
+                    .help("Settings")
                     if soundtrack.isAvailable {
                         Button(soundtrack.isMuted ? "Unmute Soundtrack" : "Mute Soundtrack",
                                systemImage: soundtrack.isMuted ? "speaker.slash" : "speaker.wave.2") {
@@ -90,10 +90,10 @@ struct VolumeView: View {
             }
         }
         .task {
-            // Debug: ALSOMAPS_OPEN_TUNING=1 opens the Tuning window, and
+            // Debug: ALSOMAPS_OPEN_SETTINGS=1 opens the Settings window, and
             // ALSOMAPS_PRESENTATION=immersive (or volume) starts in that mode.
-            if ProcessInfo.processInfo.environment["ALSOMAPS_OPEN_TUNING"] == "1" {
-                openWindow(id: TuningView.windowID)
+            if ProcessInfo.processInfo.environment["ALSOMAPS_OPEN_SETTINGS"] == "1" {
+                openWindow(id: SettingsView.windowID)
             }
             // ALSOMAPS_MARKERS=1 shows the debug markers, ALSOMAPS_TILE_BOUNDS=1
             // the tile bounds, and ALSOMAPS_STATE=<JSON from Copy View State>
@@ -155,7 +155,7 @@ struct VolumeView: View {
     }
 
     /// Switches presentation, opening or closing the immersive space as
-    /// needed. Shared with the Tuning window's state restore.
+    /// needed. Shared with the Settings window's state restore.
     static func present(_ presentation: MapPresentation,
                         model: MapModel,
                         open: OpenImmersiveSpaceAction,
@@ -245,6 +245,7 @@ extension View {
 /// native size.
 struct AttributionView: View {
     @Environment(MapModel.self) private var model
+    @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
 
     var body: some View {
         VStack(spacing: 4) {
@@ -266,6 +267,14 @@ struct AttributionView: View {
                 Text("Playing track · \(Self.minutes(model.playbackElapsed)) / \(Self.minutes(model.playbackDuration))")
                     .font(.caption)
                     .monospacedDigit()
+            }
+            if showsStats {
+                let stats = model.streaming.stats
+                VStack(spacing: 2) {
+                    Text("\(stats.renderedTiles) tiles · \(stats.entities) entities · \(Int(model.streaming.loadProgress))%")
+                    Text(stats.requestsSummary)
+                }
+                .font(.caption.monospacedDigit())
             }
             if model.keyboardConnected {
                 Text(MapInput.keyboardHint)

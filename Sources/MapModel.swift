@@ -87,6 +87,9 @@ final class MapModel {
     var pitchFollowsAltitude = true
     /// Lowest camera height above the estimated ground in room hosts.
     private static let minimumAltitude = 55.0
+    /// Highest camera height above the estimated ground, metres: a view
+    /// 10,000 km in half-width, roughly a hemisphere.
+    private static let maximumAltitude = 11_000_000.0
 
     // Ground estimates (docs/camera-core.md §8): the terrain height the view
     // ray meets (h_ray), the low envelope placed on the base plane
@@ -587,7 +590,7 @@ final class MapModel {
     private var context: NavigationContext {
         NavigationContext(cameraGround: cameraGround.value,
                           minimumAltitude: humanScale && usesEyeLevel ? 1.6 : Self.minimumAltitude,
-                          maximumAltitude: settings.zoomOutLimitKilometres * 1_100)
+                          maximumAltitude: Self.maximumAltitude)
     }
 
     private enum HeldLimit { case travel, size }

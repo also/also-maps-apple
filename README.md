@@ -40,10 +40,10 @@ To test without a key, tick the `ALSOMAPS_*` variables in the scheme. They strea
 ## Controls
 
 - **Pan:** look at the map, pinch and drag. Gestures are indirect only (look and pinch), so open hands over the map do nothing.
-- **Zoom:** pinch with both hands and move them apart or together. The view's half-width ranges from 50 m to the Tuning window's zoom-out limit (20 km by default, up to 10,000 km).
+- **Zoom:** pinch with both hands and move them apart or together. The view's half-width ranges from 50 m to 10,000 km, about a hemisphere. Below 50 km the ground is placed by sampling terrain. Above 50 km it's placed by the Earth's curve, so sea level at the view's edges meets the base plane, with no sampling. At hemisphere scale, tiles on the far side of the Earth are skipped.
 - **Turn:** pinch with both hands and twist about the vertical. The map turns around the focus point and can turn while zooming.
 - **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F descend and climb (which is zoom), `=` and `-` zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.
-- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, Y faces north, and X toggles Fly. The ornament shows these hints while a controller is connected. Keyboard and controller input combine, and the Tuning window's turn pivot applies to both.
+- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, Y faces north, and X toggles Fly. The ornament shows these hints while a controller is connected. Keyboard and controller input combine, and the turn pivot in Settings applies to both.
 
 `ALSOMAPS_HEADING`, in degrees clockwise from north, sets the starting direction.
 
@@ -97,7 +97,7 @@ The app fails open: launch never waits for the file, it starts from the last goo
 
 ## Keys
 
-Release builds contain no keys, except on tvOS. Where there's no key yet, the first launch asks how to load the map: with the app's shared key, which may be throttled, or with your own. Change it later in Keys (a button on iPhone and iPad, Settings on the Mac, Tuning on visionOS). `Sources/Credentials/` holds this.
+Release builds contain no keys, except on tvOS. Where there's no key yet, the first launch asks how to load the map: with the app's shared key, which may be throttled, or with your own. Change it later in Keys (in Settings on every platform but tvOS). `Sources/Credentials/` holds this.
 
 - **The app's key** comes from the credentials API in also-maps-site, which needs App Attest, so `AppKeyClient` proves the app is genuine, saves what it gets in the Keychain and refreshes it daily. Where `isSupported` is false, the app offers only your own key: macOS 26, and simulators. The Mac needs macOS 27 or later, where the API also requires Apple's key policy (full security mode and System Integrity Protection). Refreshes run only while a window is active. Device builds need the App Attest capability on the App ID.
 - **Your own key** is saved in the Keychain, and follows you between devices through iCloud Keychain. Saving one makes one request to check it, which for Google counts as a map session.
@@ -106,25 +106,35 @@ Release builds contain no keys, except on tvOS. Where there's no key yet, the fi
 
 ## Views
 
-The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's centre point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Tuning. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
+The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's centre point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
 
 `ALSOMAPS_PRESENTATION=immersive` (or `volume`) starts in that mode. Saved view states from the earlier 3×, 5× and 10× modes restore into Immersive.
 
 Immersive doesn't clip the map's edges the way the volume does, so whole tiles stick out past the region (#5).
 
-## Tuning
+## Settings
 
-The slider button next to the mode picker opens a Tuning window with live stats and streaming settings. **Tiles** picks the source: Google Photorealistic, or Cesium OSM Buildings or Cesium World Terrain via Cesium ion. The ion sources are untextured, so they're drawn lit. Buildings use their own normals, or flat normals computed per triangle. Terrain uses smooth normals generated by cesium-native, in a flat earth tone until imagery overlays arrive (#8). Switching restarts streaming at the same view. Credits that carry a logo, such as Cesium ion's, show it in the attribution panel. Changes apply immediately and are remembered between launches. **Reset to Defaults** returns to the hand-tuned baseline in `StreamingSettings.default`.
+Settings is a window on visionOS and a sheet on iPhone and iPad, each opened with the gear button (on visionOS, next to the mode picker). On the Mac it's the standard Settings window (⌘,). Categories are in a sidebar. Changes apply immediately and are remembered between launches. visionOS has every category; the others have General, Keys and Advanced.
 
+**General**
+- **Tiles** picks the source: Google Photorealistic, or Cesium OSM Buildings or Cesium World Terrain via Cesium ion. The ion sources are untextured, so they're drawn lit. Buildings use their own normals, or flat normals computed per triangle. Terrain uses smooth normals generated by cesium-native, in a flat earth tone until imagery overlays arrive (#8). Switching restarts streaming at the same view. Credits that carry a logo, such as Cesium ion's, show it in the attribution panel.
+- **Show stats** adds tiles drawn, entities, load progress and request counts to the panel over the map: the ornament on visionOS, the top-left overlay on iPhone and the Mac (which adds fps and the camera's position). Keyboard and controller hints show there whether or not stats are on.
+- **Turn and zoom around** (visionOS): the map's centre, or **where you are**: the ground beneath the viewer stays fixed, so zooming is moving straight up or down and turning is turning on the spot. The viewer is where you stood when the immersive mode opened, or, for the volume, just in front of it. This applies to every input: sticks, triggers, keys, pinch and twist. The pivot is full strength up to a 50 km half-width and fades to the map's centre by 500 km, where there's no meaningful "beneath you" on the curved map. Over the same range the map tilts to face you, like a globe in Google Earth VR. Its centre rises toward eye level and turns so your line of sight meets it head-on, and level-of-detail selection looks down to match. Fully tilted, the bigger immersive modes extend below the floor, so Immersive 3× works best for this.
+
+**Immersion** (visionOS): **Full immersion**, **Human scale (test)**, and
 - **Limit reach** (Immersive only): by default Immersive streams everything you could see, all around you out to the horizon (plus ~200 km for mountains beyond it), measured from where your eye is in the world, so a tilted globe shows its whole visible face. Turn this on to stream only **Reach** around you instead: 5× to 100× your height above the ground (the same multiple of your eye height above the floor).
-- **Detail / Outer detail**: cesium-native's screen-space error thresholds, for tiles inside and outside the LOD camera's view. Most of an expanded region is outside that view, so Outer detail controls how sharp the far map is and how many tiles it costs.
+
+**Detail** (visionOS): cesium-native's screen-space error thresholds, for tiles inside and outside the LOD camera's view. Most of an expanded region is outside that view, so Outer detail controls how sharp the far map is and how many tiles it costs. On iPhone and the Mac, detail is set from the window's pixels instead.
+
+**Keys**: see [Keys](#keys).
+
+**Advanced**
 - **Parallel uploads, Simultaneous loads, Cache, Forbid holes**: trade-offs between fill speed, memory and gaps while refining. Forbid holes is on by default: a tile counts as loaded only once it's drawable, so parents stay until all their children can replace them.
-- **Turn and zoom around**: the map's centre, or **where you are**: the ground beneath the viewer stays fixed, so zooming is moving straight up or down and turning is turning on the spot. The viewer is where you stood when the immersive mode opened, or, for the volume, just in front of it. This applies to every input: sticks, triggers, keys, pinch and twist. The pivot is full strength up to a 50 km half-width and fades to the map's centre by 500 km, where there's no meaningful "beneath you" on the curved map. Over the same range the map tilts to face you, like a globe in Google Earth VR. Its centre rises toward eye level and turns so your line of sight meets it head-on, and level-of-detail selection looks down to match. Fully tilted, the bigger immersive modes extend below the floor, so Immersive 3× works best for this.
-- **Zoom-out limit**: 20 km to 10,000 km, on a logarithmic slider. Below 50 km the ground is placed by sampling terrain. Above 50 km it's placed by the Earth's curve, so sea level at the view's edges meets the base plane, with no sampling. At hemisphere scale, tiles on the far side of the Earth are skipped.
+- **Reset to Defaults** returns everything but Show stats and keys to the hand-tuned baseline in `StreamingSettings.default`.
 
-`ALSOMAPS_OPEN_TUNING=1` opens the window at launch.
+`ALSOMAPS_OPEN_SETTINGS=1` opens the window at launch on visionOS.
 
-**Debugging** (in Tuning):
+**Debugging** (Advanced, visionOS):
 - **Show pivot and centre markers** draws a red post where turns and zooms pivot, and a blue post at the map's centre.
 - **Copy View State** copies the whole view as JSON (position, zoom, heading, presentation, Fly pose and settings) and prints it to the console.
 - **Restore from Clipboard** brings a copied state back.

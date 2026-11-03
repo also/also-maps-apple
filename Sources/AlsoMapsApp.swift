@@ -41,12 +41,13 @@ struct AlsoMapsApp: App {
             if blocked { model.flushTrack() }
         }
 
-        WindowGroup(id: TuningView.windowID) {
-            TuningView()
+        WindowGroup(id: SettingsView.windowID) {
+            @Bindable var model = model
+            SettingsView(settings: $model.settings)
                 .environment(model)
                 .appGate(presentsNotices: false)
         }
-        .defaultSize(width: 520, height: 760)
+        .defaultSize(width: 760, height: 760)
         // A utility window: only opened on request, never restored at launch.
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)

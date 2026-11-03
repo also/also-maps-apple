@@ -22,7 +22,7 @@ Requests go through `URLSessionAssetAccessor` in `Sources/Cesium/CNTileStreamer.
 
 - **A dedicated `NSURLCache`** (`CNTileCache`): 64 MB memory, 1 GB disk, at `~/Library/Caches/<bundle id>/tiles/` (inside the container when sandboxed). The shared cache is about 10 MB on disk, and one scene is about 56 MB, so entries were evicted before the next load. `NSURLCache` doesn't store a response larger than 5% of its disk capacity, which is far above any tile.
 - **`must-revalidate` stripped on store**: By the HTTP spec the directive only applies once a response is stale. CFNetwork applies it to fresh entries too, so every request made a network round trip that came back 304. `CNTileCache` removes it in `storeCachedResponse:forRequest:`, so `max-age` is honoured as sent: tiles are served from disk for four hours, then revalidated by `ETag`.
-- **Counters** from `URLSessionTaskMetrics` (`CNFetchStats`, via `CNTileStreamer.fetchStats`): served from cache, revalidated (304), or downloaded, plus bytes over the network. They show in the Mac window overlay, the Tuning stats and the DEBUG log line.
+- **Counters** from `URLSessionTaskMetrics` (`CNFetchStats`, via `CNTileStreamer.fetchStats`): served from cache, revalidated (304), or downloaded, plus bytes over the network. They show in the stats overlay (Settings → Show stats) and the DEBUG log line.
 
 `willCacheResponse` can't do the rewrite: it isn't called for completion-handler tasks, which this accessor uses.
 
