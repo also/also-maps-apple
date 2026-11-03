@@ -41,6 +41,14 @@ final class ScreenMap {
     /// Bumped per ground sample so a slow, older result can't win.
     @ObservationIgnored private var groundSampleGeneration = 0
     @ObservationIgnored private let cameraEntity = Entity()
+    /// The tiles, overlay and camera, moved as one between the window's
+    /// scene and a headset renderer (macOS, `HeadsetMap`).
+    @ObservationIgnored let root = Entity()
+    /// In the window's scene; holds `root` while the window shows the map.
+    @ObservationIgnored private let windowHost = Entity()
+    /// While a headset renders the map, it drives the frame loop and the
+    /// window's scene updates no longer do.
+    @ObservationIgnored private(set) var isInHeadset = false
     @ObservationIgnored private var subscription: EventSubscription?
     @ObservationIgnored private var viewportSize = SIMD2<Double>(1, 1)
     @ObservationIgnored private var touch = TouchState()
@@ -79,17 +87,50 @@ final class ScreenMap {
 
     func attach(_ content: inout RealityViewCameraContent) {
         content.camera = .virtual
-        content.add(streaming.tilesRoot)
-        content.add(tracks.overlay.root)
-        content.add(cameraEntity)
+        root.addChild(streaming.tilesRoot)
+        root.addChild(tracks.overlay.root)
+        root.addChild(cameraEntity)
+        if !isInHeadset { windowHost.addChild(root) }
+        content.add(windowHost)
         applyView()
         streaming.start()
         sampleGround(around: startGround.centre, radius: startGround.radius, liftsCamera: startGround.lifts)
         subscription = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             MainActor.assumeIsolated {
-                self?.tick(deltaTime: Float(event.deltaTime))
+                guard let self, !self.isInHeadset else { return }
+                self.tick(deltaTime: Float(event.deltaTime))
             }
         }
+    }
+
+    /// Hands `root` to a headset renderer, which then calls `headsetTick`
+    /// each frame; `leaveHeadset` gives it back to the window.
+    func enterHeadset() -> Entity {
+        isInHeadset = true
+        root.removeFromParent()
+        return root
+    }
+
+    func leaveHeadset() {
+        guard isInHeadset else { return }
+        isInHeadset = false
+        root.removeFromParent()
+        windowHost.addChild(root)
+    }
+
+    /// One frame while a headset renders the map.
+    func headsetTick(deltaTime: Float) {
+        guard isInHeadset else { return }
+        tick(deltaTime: deltaTime)
+    }
+
+    /// The navigation camera's heading, radians clockwise from north: the
+    /// headset turns the level scene by it, leaving pitch to the head.
+    var heading: Double { navigation.camera.heading }
+
+    /// Near and far clip distances for the current camera, metres.
+    var clipping: (near: Double, far: Double) {
+        ScreenView.clipping(altitude: navigation.camera.height - cameraGround.value)
     }
 
     /// Matches the LOD camera to the window and sets detail as pixels of
