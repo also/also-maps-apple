@@ -45,6 +45,14 @@ To test without a key, tick the `ALSOMAPS_*` variables in the scheme. They strea
 xcodebuild -scheme 'Also Maps Core Tests' -destination 'platform=macOS' test
 ```
 
+## Offscreen Metal CLI
+
+`Also Maps Render CLI` renders and compares culling on/off without a window,
+RealityKit, or Computer Use. It can run a network-free synthetic regression or
+load Google tiles with the configured key. It writes PNGs and a JSON timing
+report. See [the CLI guide](docs/metal-render-cli.md) for build/run commands,
+locked-screen validation, and measurement limits.
+
 ## Controls
 
 - **Pan:** look at the map, pinch and drag. Gestures are indirect only (look and pinch), so open hands over the map do nothing.
