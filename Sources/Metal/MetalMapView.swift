@@ -53,6 +53,7 @@ struct MetalMapView {
         private let map: ScreenMap
         private let renderer: MetalTileRenderer
         private let queue: MTLCommandQueue?
+        private var drawLog = MetalDrawLog()
 
         init(map: ScreenMap, renderer: MetalTileRenderer) {
             self.map = map
@@ -72,16 +73,17 @@ struct MetalMapView {
                 let aspect = Float(view.drawableSize.width / view.drawableSize.height)
                 let halfHeight = Float(tan(ScreenMap.fieldOfView / 2))
                 let (near, far) = map.clipping
-                let projection = MetalTileRenderer.projection(
+                let projection = MetalProjection.perspective(
                     tangents: [halfHeight * aspect, halfHeight * aspect, halfHeight, halfHeight],
                     near: Float(near), far: Float(far))
-                renderer.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
+                let statistics = renderer.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
                                 viewProjection: projection * map.cameraMatrix.inverse,
                                 root: map.streaming.tilesRoot.transform.matrix,
                                 tiles: map.streaming.drawnTiles)
                 encoder.endEncoding()
                 commands.present(drawable)
                 commands.commit()
+                drawLog.record(statistics)
             }
         }
     }

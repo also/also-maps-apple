@@ -47,6 +47,7 @@ final class MetalImmersiveRenderer {
     private let worldTracking = WorldTrackingProvider()
     private let queue: MTLCommandQueue?
     private var measuredEye = false
+    private var drawLog = MetalDrawLog()
     private var log = (frames: 0, anchored: 0, lastPrint: Date())
 
     init(model: MapModel, layerRenderer: LayerRenderer, metal: MetalTileRenderer) {
@@ -120,6 +121,7 @@ final class MetalImmersiveRenderer {
         guard let commands = queue?.makeCommandBuffer() else { return }
         let root = model.tilesInImmersiveSpace
         let tiles = model.streaming.drawnTiles
+        var statistics = MetalDrawStatistics()
         // Views sharing a texture (the shared layout) are drawn in one pass,
         // cleared once, each in its own viewport.
         let byTexture = Dictionary(grouping: drawable.views.indices) { drawable.views[$0].textureMap.textureIndex }
@@ -140,15 +142,16 @@ final class MetalImmersiveRenderer {
                 encoder.setViewport(view.textureMap.viewport)
                 // The compositor's projection: reverse Z over its default
                 // depth range, which the cleared 0 is the far end of.
-                metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
+                statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
                              viewProjection: drawable.computeProjection(viewIndex: index)
                                  * (originFromDevice * view.transform).inverse,
-                             root: root, tiles: tiles)
+                             root: root, tiles: tiles))
             }
             encoder.endEncoding()
         }
         drawable.encodePresent(commandBuffer: commands)
         commands.commit()
+        drawLog.record(statistics)
     }
 
     private func printLog() {

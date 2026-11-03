@@ -175,6 +175,9 @@ Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](
 
 ## Known gaps
 
+The experimental Metal renderer's render-only culling, submission counters,
+and A/B profiling switches are described in [Metal rendering performance](docs/metal-renderer-performance.md).
+
 - The main thread still spends 2–3 ms per frame on tile selection and on re-placing every tile, even when the view isn't moving (#2).
 - Below 50 km, ground height is the lowest hit on a 3×3 grid of samples. In a region that's mostly hills with a little low ground, the hills can reach close to the top of the volume.
 
