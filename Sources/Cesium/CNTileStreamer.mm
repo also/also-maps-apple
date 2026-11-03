@@ -55,6 +55,7 @@ using CesiumGeospatial::Ellipsoid;
                              rgba:(nullable NSData *)rgba
                             width:(NSInteger)width
                            height:(NSInteger)height
+                          sampler:(const CesiumGltf::Sampler&)sampler
                         baseColor:(simd_float4)baseColor;
 @end
 
@@ -66,6 +67,7 @@ using CesiumGeospatial::Ellipsoid;
                              rgba:(NSData *)rgba
                             width:(NSInteger)width
                            height:(NSInteger)height
+                          sampler:(const CesiumGltf::Sampler&)sampler
                         baseColor:(simd_float4)baseColor {
   if ((self = [super init])) {
     _positions = positions;
@@ -75,6 +77,10 @@ using CesiumGeospatial::Ellipsoid;
     _rgba = rgba;
     _textureWidth = width;
     _textureHeight = height;
+    _textureWrapS = sampler.wrapS;
+    _textureWrapT = sampler.wrapT;
+    _textureMagFilter = sampler.magFilter.value_or(0);
+    _textureMinFilter = sampler.minFilter.value_or(0);
     _baseColor = baseColor;
   }
   return self;
@@ -601,6 +607,7 @@ CNTileMesh* _Nullable buildTileMesh(
         // Base colour texture (photogrammetry is unlit; that's all there is).
         int64_t texCoordSet = 0;
         const CesiumImage::ImageAsset* pImage = nullptr;
+        Sampler sampler;
         if (const Material* pMaterial =
                 Model::getSafe(&gltf.materials, primitive.material)) {
           if (pMaterial->pbrMetallicRoughness &&
@@ -613,6 +620,10 @@ CNTileMesh* _Nullable buildTileMesh(
               if (const Image* pGltfImage =
                       Model::getSafe(&gltf.images, pTexture->source)) {
                 pImage = pGltfImage->pAsset.get();
+              }
+              if (const Sampler* pSampler =
+                      Model::getSafe(&gltf.samplers, pTexture->sampler)) {
+                sampler = *pSampler;
               }
             }
           }
@@ -759,6 +770,7 @@ CNTileMesh* _Nullable buildTileMesh(
                                                                 rgba:rgba
                                                                width:width
                                                               height:height
+                                                             sampler:sampler
                                                            baseColor:baseColor]];
       });
 
