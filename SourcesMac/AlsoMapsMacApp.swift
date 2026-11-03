@@ -2,7 +2,9 @@ import SwiftUI
 
 @main
 struct AlsoMapsMacApp: App {
-    private let view = StaticView.fromEnvironment()
+    private let view = StaticView.fromEnvironment(settings: .load())
+    /// Edited in Settings and applied to every map window, which saves them.
+    @State private var settings = StreamingSettings.load()
 
     init() {
         // print() goes to a pipe or file when launched from a tool; make it
@@ -13,7 +15,7 @@ struct AlsoMapsMacApp: App {
     var body: some Scene {
         WindowGroup {
             // Starts at the selected preset's camera, then flies.
-            MacMapView(start: view)
+            MacMapView(start: view, settings: settings)
                 .frame(minWidth: 400, minHeight: 300)
                 .credentialGate()
                 .appGate()
@@ -21,8 +23,8 @@ struct AlsoMapsMacApp: App {
         .defaultSize(width: view.viewportSize.width, height: view.viewportSize.height)
 
         Settings {
-            KeysView()
-                .frame(width: 480, height: 520)
+            SettingsView(settings: $settings)
+                .frame(width: 680, height: 520)
         }
     }
 }
@@ -31,10 +33,12 @@ struct AlsoMapsMacApp: App {
 /// device each frame (MapInput); the view takes them only so the system
 /// doesn't beep at unhandled keys.
 struct MacMapView: View {
+    let settings: StreamingSettings
     @State private var map: ScreenMap
     @FocusState private var focused: Bool
 
-    init(start: StaticView) {
+    init(start: StaticView, settings: StreamingSettings) {
+        self.settings = settings
         _map = State(initialValue: ScreenMap(camera: start.cameraPose, settings: start.settings))
     }
 
@@ -45,6 +49,7 @@ struct MacMapView: View {
             .focused($focused)
             .onKeyPress(phases: .all) { _ in .handled }
             .onAppear { focused = true }
+            .onChange(of: settings) { _, settings in map.settings = settings }
             .overlay(alignment: .topTrailing) {
                 Menu("Places", systemImage: "mappin.and.ellipse") {
                     ForEach(PlaceLibrary.all) { place in
@@ -53,12 +58,6 @@ struct MacMapView: View {
                 }
                 .menuStyle(.button)
                 .fixedSize()
-                .padding(8)
-            }
-            .overlay(alignment: .topLeading) {
-                SettingsLink {
-                    Label("Keys", systemImage: "key")
-                }
                 .padding(8)
             }
     }

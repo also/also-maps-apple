@@ -9,6 +9,15 @@ import SwiftUI
 @Observable
 final class ScreenMap {
     let streaming: TileStreaming
+    /// What Settings edits, saved between launches. Streaming gets these
+    /// with detail set for this screen's pixels instead.
+    var settings: StreamingSettings {
+        didSet {
+            guard settings != oldValue else { return }
+            settings.save()
+            applySettings()
+        }
+    }
     /// The camera, movement heading and heading link: the only stored
     /// navigation state.
     private(set) var navigation: NavigationState
@@ -43,6 +52,9 @@ final class ScreenMap {
     static let fieldOfView = Double.pi / 4
     /// Lowest camera height above the estimated ground, metres.
     private static let minimumAltitude = 2.0
+    /// Highest camera height above the estimated ground, metres: a view
+    /// 10,000 km in half-width, roughly a hemisphere.
+    private static let maximumAltitude = 11_000_000.0
 
     /// Where to sample the ground first, and whether the start camera was
     /// framed on the ellipsoid, to be lifted by the ground found there.
@@ -57,6 +69,7 @@ final class ScreenMap {
     init(camera: CameraPose, settings: StreamingSettings,
          startGround: (centre: GeoCoordinate, radius: Double, lifts: Bool)? = nil) {
         self.startGround = startGround ?? (camera.coordinate, 500, false)
+        self.settings = settings
         navigation = NavigationState(camera: camera)
         streaming = TileStreaming(inputs: ScreenView.streamingInputs(camera: camera, groundHeight: 0,
                                                                      fieldOfView: Self.fieldOfView, aspect: 1),
@@ -84,11 +97,15 @@ final class ScreenMap {
     func resize(to size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
         viewportSize = SIMD2(size.width, size.height)
-        var settings = streaming.settings
-        settings.detail = StaticView.detail(pixels: 16, windowHeight: size.height)
-        settings.outerDetail = StaticView.detail(pixels: 64, windowHeight: size.height)
-        streaming.settings = settings
+        applySettings()
         applyView()
+    }
+
+    private func applySettings() {
+        var settings = settings
+        settings.detail = StaticView.detail(pixels: 16, windowHeight: viewportSize.y)
+        settings.outerDetail = StaticView.detail(pixels: 64, windowHeight: viewportSize.y)
+        streaming.settings = settings
     }
 
     // MARK: Places
@@ -192,7 +209,7 @@ final class ScreenMap {
     private var context: NavigationContext {
         NavigationContext(cameraGround: cameraGround.value,
                           minimumAltitude: Self.minimumAltitude,
-                          maximumAltitude: streaming.settings.zoomOutLimitKilometres * 1_100)
+                          maximumAltitude: Self.maximumAltitude)
     }
 
     // MARK: Placement
@@ -373,12 +390,12 @@ final class ScreenMap {
     }
 }
 
-/// The map in a window: the scene, its attribution and, optionally, a
-/// status line. Hosts add their own controls around it.
+/// The map in a window: the scene, its attribution, and input hints and
+/// (if turned on in Settings) stats. Hosts add their own controls around it.
 struct ScreenMapView: View {
     let map: ScreenMap
-    var showsStatus = true
     var creditLineLimit: Int? = 1
+    @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
     @State private var viewportSize: CGSize = .zero
 
     var body: some View {
@@ -397,7 +414,7 @@ struct ScreenMapView: View {
             .ignoresSafeArea()
         }
         .overlay(alignment: .topLeading) {
-            if showsStatus {
+            if showsStats || map.keyboardConnected || map.controllerName != nil {
                 status
             }
         }
@@ -409,11 +426,15 @@ struct ScreenMapView: View {
 
     private var status: some View {
         let camera = map.navigation.camera
+        let stats = map.streaming.stats
         return VStack(alignment: .leading, spacing: 2) {
-            Text("\(map.streaming.stats.renderedTiles) tiles · \(Int(map.streaming.loadProgress))% · \(map.framesPerSecond) fps")
-            Text(String(format: "%.5f, %.5f · %.0f m · heading %.0f° · pitch %.0f°",
-                        camera.latitude, camera.longitude, camera.height,
-                        camera.heading * 180 / .pi, camera.pitch * 180 / .pi))
+            if showsStats {
+                Text("\(stats.renderedTiles) tiles · \(stats.entities) entities · \(Int(map.streaming.loadProgress))% · \(map.framesPerSecond) fps")
+                Text(stats.requestsSummary)
+                Text(String(format: "%.5f, %.5f · %.0f m · heading %.0f° · pitch %.0f°",
+                            camera.latitude, camera.longitude, camera.height,
+                            camera.heading * 180 / .pi, camera.pitch * 180 / .pi))
+            }
             if map.keyboardConnected {
                 Text(MapInput.screenKeyboardHint)
             }

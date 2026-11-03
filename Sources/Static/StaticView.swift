@@ -82,15 +82,22 @@ struct StaticView {
                           near: 10, far: 400_000)
     }()
 
-    /// The view named by ALSOMAPS_VIEW, with any streaming overrides.
+    /// The view named by ALSOMAPS_VIEW, with any streaming overrides. With
+    /// `settings` (the saved ones), streams with those but the view's detail.
     static func fromEnvironment(defaultView: StaticView = .bay,
-                                viewportSize: CGSize? = nil) -> StaticView {
+                                viewportSize: CGSize? = nil,
+                                settings: StreamingSettings? = nil) -> StaticView {
         let env = ProcessInfo.processInfo.environment
         var view: StaticView
         switch env["ALSOMAPS_VIEW"] {
         case "ferry": view = ferry
         case "bay": view = bay
         default: view = defaultView
+        }
+        if var settings {
+            settings.detail = view.settings.detail
+            settings.outerDetail = view.settings.outerDetail
+            view.settings = settings
         }
         if let viewportSize {
             view.viewportSize = viewportSize

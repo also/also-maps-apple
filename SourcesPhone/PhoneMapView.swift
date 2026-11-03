@@ -7,7 +7,7 @@ struct PhoneMapView: View {
     @State private var map = PhoneMapView.makeMap()
     @State private var selection = initialPlace
     @State private var showsPlaces = false
-    @State private var showsKeys = false
+    @State private var showsSettings = false
     @Environment(\.scenePhase) private var scenePhase
 
     private static var initialPlace: Place? {
@@ -23,7 +23,7 @@ struct PhoneMapView: View {
     /// Starts at ALSOMAPS_PLACE, the first place, or (with ALSOMAPS_VIEW)
     /// that preset's camera.
     private static func makeMap() -> ScreenMap {
-        let preset = StaticView.fromEnvironment(defaultView: .ferry)
+        let preset = StaticView.fromEnvironment(defaultView: .ferry, settings: .load())
         if let place = initialPlace {
             return ScreenMap(place: place, settings: preset.settings)
         }
@@ -32,7 +32,7 @@ struct PhoneMapView: View {
 
     var body: some View {
         NavigationStack {
-            ScreenMapView(map: map, showsStatus: false, creditLineLimit: nil)
+            ScreenMapView(map: map, creditLineLimit: nil)
                 // Over the map, under the sticks, the same size as the scene.
                 .overlay {
                     TouchSurface(map: map)
@@ -65,24 +65,17 @@ struct PhoneMapView: View {
                     trackControls
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button("Keys", systemImage: "key") {
-                        showsKeys = true
+                    Button("Settings", systemImage: "gearshape") {
+                        showsSettings = true
                     }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
                     }
                 }
             }
-            .sheet(isPresented: $showsKeys) {
-                NavigationStack {
-                    KeysView()
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") { showsKeys = false }
-                            }
-                        }
-                }
+            .sheet(isPresented: $showsSettings) {
+                @Bindable var map = map
+                SettingsView(settings: $map.settings) { showsSettings = false }
             }
             .sheet(isPresented: $showsPlaces) {
                 NavigationStack {

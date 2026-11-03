@@ -138,6 +138,7 @@ targets:
           - NavigationRealityKit.swift
           - Static
           - Screen
+          - Settings
           - MapInput.swift
           - Tracks
           - TrackSession.swift
@@ -280,6 +281,7 @@ targets:
           - NavigationRealityKit.swift
           - Static
           - Screen
+          - Settings
           - MapInput.swift
           - Tracks
           - TrackSession.swift

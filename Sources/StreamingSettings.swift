@@ -1,6 +1,6 @@
 import Foundation
 
-/// Runtime streaming and control knobs, adjustable from the Tuning window and
+/// Runtime streaming and control knobs, adjustable in Settings and
 /// saved between launches. `default` is the hand-tuned baseline the app shipped
 /// with; Reset goes back to it.
 struct StreamingSettings: Codable, Equatable {
@@ -36,8 +36,6 @@ struct StreamingSettings: Codable, Equatable {
     }
     /// What turns and zooms pivot around, from any input.
     var keyboardTurnPivot = TurnPivot.center
-    /// Largest view half-width zoom-out allows, kilometres.
-    var zoomOutLimitKilometres = 20.0
     /// Where the tiles come from.
     var tileSource = TileSource.googlePhotorealistic
 
@@ -59,7 +57,6 @@ struct StreamingSettings: Codable, Equatable {
         cacheMegabytes = try c.decodeIfPresent(Double.self, forKey: .cacheMegabytes) ?? d.cacheMegabytes
         forbidHoles = try c.decodeIfPresent(Bool.self, forKey: .forbidHoles) ?? d.forbidHoles
         keyboardTurnPivot = try c.decodeIfPresent(TurnPivot.self, forKey: .keyboardTurnPivot) ?? d.keyboardTurnPivot
-        zoomOutLimitKilometres = try c.decodeIfPresent(Double.self, forKey: .zoomOutLimitKilometres) ?? d.zoomOutLimitKilometres
         tileSource = (try? c.decodeIfPresent(TileSource.self, forKey: .tileSource)) ?? d.tileSource
     }
 
@@ -77,4 +74,11 @@ struct StreamingSettings: Codable, Equatable {
             UserDefaults.standard.set(data, forKey: Self.defaultsKey)
         }
     }
+}
+
+/// Preferences about what's shown, kept apart from `StreamingSettings` so
+/// Reset to Defaults leaves them alone.
+enum ViewPreferences {
+    /// UserDefaults key: show tile and request stats over the map.
+    static let showsStatsKey = "ShowsStats"
 }

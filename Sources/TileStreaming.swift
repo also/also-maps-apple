@@ -24,6 +24,12 @@ final class TileStreaming {
             let total = cacheHits + revalidated + networkLoads
             return total == 0 ? nil : Double(cacheHits + revalidated) / Double(total)
         }
+
+        /// Requests by how they were answered, for the stats overlay.
+        var requestsSummary: String {
+            String(format: "%d cached · %d revalidated · %d downloaded (%.1f MB)",
+                   cacheHits, revalidated, networkLoads, networkMegabytes)
+        }
     }
 
     struct Credit: Hashable {
