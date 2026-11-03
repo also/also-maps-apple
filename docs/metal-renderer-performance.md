@@ -19,6 +19,13 @@ it drawable; missing bounds keep content drawable. Reverse Z, asymmetric
 eye projections, and tile/root transforms use the same clip matrix as the
 vertex shader. The core test target exercises these cases without a key or GPU.
 
+On visionOS, the renderer also enables foveation when the compositor supports
+it with dedicated eye textures, and binds each texture's rasterization-rate
+map to its render pass. This reduces peripheral pixel work while keeping the
+same projections and per-eye culling. Unsupported configurations retain the
+unfoveated dedicated/shared layout. Stereo still uses a separate draw loop
+per eye; vertex amplification is a later change.
+
 ## Counters and A/B comparison
 
 Environment variables:
@@ -28,6 +35,8 @@ Environment variables:
   iOS, and immersive visionOS.
 - `ALSOMAPS_METAL_CULLING=0`: disable render culling for a baseline run.
   Culling is enabled by default.
+- `ALSOMAPS_METAL_FOVEATION=0`: disable visionOS foveation for a baseline
+  run. It is enabled by default where the dedicated layout supports it.
 
 The log reports submitted/considered tiles, draws, and triangles, summed over
 the interval. Stereo counts each eye separately. These are CPU submission
@@ -48,6 +57,9 @@ Use a deliberately **warm cache** for both runs and check request counters
 streaming measurements. Inspect a full turn, narrow view edges, both eyes,
 and near-plane crossings for missing geometry. Record submitted/considered
 draws and triangles, CPU encode p50/p95, GPU time, and missed deadlines.
+On Vision Pro, compare foveation separately with culling held fixed. Check
+peripheral image quality, both eyes, and compositor depth. Simulator builds
+do not establish foveated rendering quality; validate it on the device.
 
 No Google tiles or NYC performance measurements were used to implement this
 change. Synthetic geometry tests establish the culling behavior; city-scale

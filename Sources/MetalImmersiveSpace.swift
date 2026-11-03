@@ -26,14 +26,24 @@ struct MetalImmersiveContent: CompositorContent {
     }
 }
 
-/// One texture per eye if the device offers it, else both in one, and no
-/// foveation: MetalTileRenderer draws each view with one projection.
+/// Use foveated, dedicated eye textures when supported. Keep the unfoveated
+/// dedicated/shared fallback for devices (including simulators) without it.
 struct MetalImmersiveConfiguration: CompositorLayerConfiguration {
     func makeConfiguration(capabilities: LayerRenderer.Capabilities,
                            configuration: inout LayerRenderer.Configuration) {
-        let layouts = capabilities.supportedLayouts(options: [])
-        configuration.layout = layouts.contains(.dedicated) ? .dedicated : .shared
-        configuration.isFoveationEnabled = false
+        let wantsFoveation = capabilities.supportsFoveation
+            && ProcessInfo.processInfo.environment["ALSOMAPS_METAL_FOVEATION"] != "0"
+        let foveatedLayouts = wantsFoveation ? capabilities.supportedLayouts(options: [.foveationEnabled]) : []
+        if foveatedLayouts.contains(.dedicated) {
+            configuration.layout = .dedicated
+            configuration.isFoveationEnabled = true
+        } else {
+            // This renderer doesn't use texture-array slices yet. Only
+            // enable foveation when our dedicated layout is supported.
+            let layouts = capabilities.supportedLayouts(options: [])
+            configuration.layout = layouts.contains(.dedicated) ? .dedicated : .shared
+            configuration.isFoveationEnabled = false
+        }
     }
 }
 
@@ -136,6 +146,12 @@ final class MetalImmersiveRenderer {
             pass.depthAttachment.loadAction = .clear
             pass.depthAttachment.clearDepth = 0
             pass.depthAttachment.storeAction = .store
+            if layerRenderer.configuration.isFoveationEnabled {
+                // Rate maps correspond to the drawable's texture indices.
+                // The compositor viewport/projection remain in logical
+                // coordinates; Metal maps them to the foveated texture.
+                pass.rasterizationRateMap = drawable.rasterizationRateMaps[textureIndex]
+            }
             guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { continue }
             for index in viewIndices {
                 let view = drawable.views[index]
