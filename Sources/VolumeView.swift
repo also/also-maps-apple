@@ -20,6 +20,9 @@ struct VolumeView: View {
         // visionOS turns controller input into look-and-pinch events by
         // default; route it to the Game Controller framework for MapInput.
         .handlesGameControllerEvents(matching: .gamepad)
+        // With the map in an immersive space the volume is only the control
+        // panel; its baseplate would outline an empty box.
+        .volumeBaseplateVisibility(model.presentation.host == .volume ? .automatic : .hidden)
         .onAppear { model.volumeIsOpen = true }
         .onDisappear { model.volumeDidClose() }
         // Closing the window doesn't make it disappear, it sends its scene
