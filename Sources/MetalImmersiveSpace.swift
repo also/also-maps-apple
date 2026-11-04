@@ -117,11 +117,13 @@ final class MetalImmersiveRenderer {
             guard layerRenderer.state == .running else { continue }
 
             frame.startSubmission()
-            // No drawable (the layer is going away): drop the frame. Ending a
+            // One drawable per target (the display, plus one while capturing,
+            // say). None (the layer is going away): drop the frame. Ending a
             // submission without one is invalid and aborts.
-            guard let drawable = frame.queryDrawable() else { continue }
+            let drawables = frame.queryDrawables()
+            guard !drawables.isEmpty else { continue }
             let render = signposter.beginInterval("ImmersiveRender", id: signposter.makeSignpostID())
-            self.render(drawable, at: presentation)
+            for drawable in drawables { self.render(drawable, at: presentation) }
             signposter.endInterval("ImmersiveRender", render)
             frame.endSubmission()
             let overrun = Self.seconds(timing.renderingDeadline.duration(to: clock.now))
