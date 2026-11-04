@@ -234,12 +234,19 @@ final class MapModel {
     /// closes. Streaming restarts each way; tiles come back from the cache.
     func metalImmersiveDidOpen(_ metal: MetalTileRenderer) {
         streaming.customTileHandler = metal.handler
+        metalImmersiveIsOpen = true
     }
 
     func metalImmersiveDidClose() {
+        metalImmersiveIsOpen = false
         streaming.customTileHandler = nil
         immersiveSpaceDidClose()
     }
+
+    /// The open immersive space is the Metal one, which can't show SwiftUI
+    /// in the scene: the volume keeps the attribution, and there's no Show
+    /// Controls panel to fall back on if it's closed.
+    private(set) var metalImmersiveIsOpen = false
 
     /// The Metal immersive space drives the frame loop itself instead of a
     /// RealityView: one tick per frame it draws.

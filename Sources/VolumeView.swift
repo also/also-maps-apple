@@ -90,7 +90,9 @@ struct VolumeView: View {
                         .labelStyle(.iconOnly)
                     }
                 }
-                if model.presentation.host == .volume {
+                // The RealityKit immersive space shows its own attribution;
+                // the Metal one can't, so the volume keeps it.
+                if model.presentation.host == .volume || model.metalImmersiveIsOpen {
                     AttributionView()
                 }
             }
