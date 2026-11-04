@@ -6,6 +6,7 @@ struct VolumeView: View {
     static let windowID = "volume"
 
     @Environment(MapModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(Soundtrack.self) private var soundtrack
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
@@ -21,6 +22,11 @@ struct VolumeView: View {
         .handlesGameControllerEvents(matching: .gamepad)
         .onAppear { model.volumeIsOpen = true }
         .onDisappear { model.volumeDidClose() }
+        // Closing the window doesn't make it disappear, it sends its scene
+        // to the background; coming back (Show Controls) makes it active.
+        .onChange(of: scenePhase) { _, phase in
+            model.volumeIsOpen = phase != .background
+        }
         .ornament(attachmentAnchor: .scene(.bottomFront)) {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
