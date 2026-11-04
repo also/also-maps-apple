@@ -74,6 +74,27 @@ quality.
 
 ## Log
 
+### 2026-11-04: eye height is measured twice
+
+- **Observed (code):** both immersive spaces place the map around an eye
+  height measured once on entry, but in two copies.
+  - `ImmersiveMapView` uses `HeadTracker.headPosition()`, which waits up to 3 s
+    for a pose marked `isTracked`.
+  - `MetalImmersiveRenderer` takes the first device anchor its frame loop
+    gets, without that check, and repeats the 0.5–2.5 m bounds check.
+  - The Metal copy was a convenience (the frame loop already had a pose); the
+    missing `isTracked` check was an oversight.
+- **Inferred:** a pose from before tracking settles could put the map's
+  ground a little higher or lower than RealityKit would, which can read as a
+  change in scale. On one Vision Pro session the owner thought the Metal
+  scale felt different; not confirmed or measured. The `eye measured at …`
+  Debug line would show it.
+- **Follow-up:** share one measurement between the spaces (a `MapModel`
+  method that runs `HeadTracker`, checks the bounds and sets `measuredEye`).
+  Further out, the head pose is something both renderers could have
+  continuously rather than once, which would also change what "placed
+  around the eye" means; not decided.
+
 ### 2026-11-04: two compositor rules, from device bugs
 
 - **Observed:** exiting Immersive aborted with "BUG IN CLIENT:
