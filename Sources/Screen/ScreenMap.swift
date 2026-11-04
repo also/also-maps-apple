@@ -41,6 +41,14 @@ final class ScreenMap {
     /// Bumped per ground sample so a slow, older result can't win.
     @ObservationIgnored private var groundSampleGeneration = 0
     @ObservationIgnored private let cameraEntity = Entity()
+    /// The tiles, overlay and camera, moved as one between the window's
+    /// scene and a headset renderer (macOS, `HeadsetMap`).
+    @ObservationIgnored let root = Entity()
+    /// In the window's scene; holds `root` while the window shows the map.
+    @ObservationIgnored private let windowHost = Entity()
+    /// While a headset renders the map, it drives the frame loop and the
+    /// window's scene updates no longer do.
+    @ObservationIgnored private(set) var isInHeadset = false
     @ObservationIgnored private var subscription: EventSubscription?
     @ObservationIgnored private var viewportSize = SIMD2<Double>(1, 1)
     @ObservationIgnored private var touch = TouchState()
@@ -79,17 +87,63 @@ final class ScreenMap {
 
     func attach(_ content: inout RealityViewCameraContent) {
         content.camera = .virtual
-        content.add(streaming.tilesRoot)
-        content.add(tracks.overlay.root)
-        content.add(cameraEntity)
+        root.addChild(streaming.tilesRoot)
+        root.addChild(tracks.overlay.root)
+        root.addChild(cameraEntity)
+        if !isInHeadset { windowHost.addChild(root) }
+        content.add(windowHost)
         applyView()
         streaming.start()
         sampleGround(around: startGround.centre, radius: startGround.radius, liftsCamera: startGround.lifts)
         subscription = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             MainActor.assumeIsolated {
-                self?.tick(deltaTime: Float(event.deltaTime))
+                guard let self, !self.isInHeadset else { return }
+                self.tick(deltaTime: Float(event.deltaTime))
             }
         }
+    }
+
+    /// Hands `root` to a headset renderer, which then calls `headsetTick`
+    /// each frame; `leaveHeadset` gives it back to the window.
+    func enterHeadset() -> Entity {
+        isInHeadset = true
+        root.removeFromParent()
+        return root
+    }
+
+    func leaveHeadset() {
+        guard isInHeadset else { return }
+        isInHeadset = false
+        headsetRoom = nil
+        root.removeFromParent()
+        windowHost.addChild(root)
+    }
+
+    /// One frame while a headset renders the map.
+    func headsetTick(deltaTime: Float) {
+        guard isInHeadset else { return }
+        tick(deltaTime: deltaTime)
+    }
+
+    /// While a headset shows the map, the room it's placed in: the
+    /// eye-level model, as in the visionOS immersive space. The camera is on
+    /// the eye, level with the floor, and the world is scaled so the ground
+    /// beneath it is on the base plane, unless `headsetHumanScale` keeps it
+    /// 1:1. Nil places the scene for the window (ScreenView).
+    @ObservationIgnored var headsetRoom: RoomGeometry? {
+        didSet { if headsetRoom != oldValue { applyView() } }
+    }
+    var headsetHumanScale = false {
+        didSet { if headsetHumanScale != oldValue { applyView() } }
+    }
+    /// Room metres per world metre for the last placement.
+    @ObservationIgnored private(set) var placementScale = 1.0
+
+    /// Near and far clip distances in the scene, metres: the camera's, scaled
+    /// with the world.
+    var clipping: (near: Double, far: Double) {
+        let (near, far) = ScreenView.clipping(altitude: navigation.camera.height - cameraGround.value)
+        return (max(near * placementScale, 0.01), far * placementScale)
     }
 
     /// Matches the LOD camera to the window and sets detail as pixels of
@@ -219,7 +273,16 @@ final class ScreenMap {
         let camera = navigation.camera
         streaming.inputs = ScreenView.streamingInputs(camera: camera, groundHeight: cameraGround.value,
                                                       fieldOfView: Self.fieldOfView, aspect: viewport.aspect)
-        let georeference = ScreenView.georeference(camera: camera)
+        let georeference: Georeference
+        if let room = headsetRoom {
+            let ground = cameraGround.value
+            georeference = EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground,
+                                                 tiltWeight: EyeLevelModel.tiltWeight(altitude: camera.height - ground),
+                                                 fixedScale: headsetHumanScale ? 1 : nil).georeference
+        } else {
+            georeference = ScreenView.georeference(camera: camera)
+        }
+        placementScale = georeference.scale
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
         let altitude = max(camera.height - cameraGround.value, Self.minimumAltitude)
         tracks.overlay.update(georeference: georeference,
