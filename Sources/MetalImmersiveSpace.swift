@@ -4,11 +4,11 @@ import Metal
 import OSLog
 import SwiftUI
 
-/// The immersive presentation drawn with Metal (a spike; Settings › Immersion):
-/// the same MapModel, placement and streaming as ImmersiveMapView, but the
-/// tiles are drawn by MetalTileRenderer into a CompositorLayer, with their
-/// real depth. The volume stays the control panel; look-and-pinch on the map
-/// isn't available, but controllers are.
+/// The immersive presentation drawn with Metal (Settings › General › Draw
+/// with Metal): the same MapModel, placement and streaming as
+/// ImmersiveMapView, but the tiles are drawn by MetalTileRenderer into a
+/// CompositorLayer, with their real depth. The volume stays the control
+/// panel; look-and-pinch on the map isn't available, but controllers are.
 struct MetalImmersiveContent: CompositorContent {
     static let spaceID = "metal-map"
 

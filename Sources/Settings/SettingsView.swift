@@ -123,6 +123,18 @@ struct SettingsView: View {
                 Text("Tiles drawn, load progress and requests, shown over the map.")
             }
 
+            #if !os(tvOS)
+            Section {
+                Toggle("Draw with Metal", isOn: $drawsWithMetal)
+            } footer: {
+                #if os(visionOS)
+                Text("Draws the immersive map with the app's own Metal renderer instead of RealityKit, always in full immersion, with real depth. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
+                #else
+                Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
+                #endif
+            }
+            #endif
+
             #if os(visionOS)
             Section {
                 Picker("Turn and zoom around", selection: $settings.keyboardTurnPivot) {
@@ -201,20 +213,6 @@ struct SettingsView: View {
             } header: {
                 Text("Streaming")
             }
-
-            #if !os(tvOS)
-            Section {
-                Toggle("Draw with Metal", isOn: $drawsWithMetal)
-            } header: {
-                Text("Renderer")
-            } footer: {
-                #if os(visionOS)
-                Text("Draws the immersive map with the app's own Metal renderer instead of RealityKit, always in full immersion, with real depth. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
-                #else
-                Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
-                #endif
-            }
-            #endif
 
             #if os(visionOS)
             debugging

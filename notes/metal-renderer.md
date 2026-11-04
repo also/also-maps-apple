@@ -1,6 +1,6 @@
 # Metal renderer: working notes
 
-Notes on the experimental Metal renderer (Settings › Advanced › Draw with
+Notes on the experimental Metal renderer (Settings › General › Draw with
 Metal): how its performance work fits together, how to measure it, and a
 running log of what was found, newest first. **Observed** means seen on a
 device or in logs. **Inferred** means a hypothesis that fits the evidence but
