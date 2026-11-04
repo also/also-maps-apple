@@ -4,7 +4,7 @@ import Foundation
 /// In stereo a tile/draw/triangle is counted once for each encoded eye.
 struct MetalDrawStatistics {
     var tiles = 0
-    var drawnTiles = 0
+    var submittedTiles = 0
     var totalDrawCalls = 0
     var drawCalls = 0
     var totalTriangles = 0
@@ -12,7 +12,7 @@ struct MetalDrawStatistics {
 
     mutating func add(_ other: MetalDrawStatistics) {
         tiles += other.tiles
-        drawnTiles += other.drawnTiles
+        submittedTiles += other.submittedTiles
         totalDrawCalls += other.totalDrawCalls
         drawCalls += other.drawCalls
         totalTriangles += other.totalTriangles
@@ -20,7 +20,7 @@ struct MetalDrawStatistics {
     }
 
     var summary: String {
-        "tiles \(drawnTiles)/\(tiles), draws \(drawCalls)/\(totalDrawCalls), triangles \(triangles)/\(totalTriangles) submitted"
+        "tiles \(submittedTiles)/\(tiles), draws \(drawCalls)/\(totalDrawCalls), triangles \(triangles)/\(totalTriangles) submitted"
     }
 }
 

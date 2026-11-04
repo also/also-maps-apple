@@ -218,7 +218,7 @@ final class MetalTileRenderer: @unchecked Sendable {
                 // are wholly outside. Single-part tiles were tested above.
                 if gpu.parts.count > 1, frustum?.intersects(part.bounds) == false { continue }
                 if !drewTile {
-                    statistics.drawnTiles += 1
+                    statistics.submittedTiles += 1
                     drewTile = true
                 }
                 statistics.drawCalls += 1
