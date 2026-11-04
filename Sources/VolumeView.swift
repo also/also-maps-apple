@@ -26,6 +26,11 @@ struct VolumeView: View {
         // to the background; coming back (Show Controls) makes it active.
         .onChange(of: scenePhase) { _, phase in
             model.volumeIsOpen = phase != .background
+            // The Metal space has no Show Controls panel, so closing the
+            // volume leaves Immersive too.
+            if phase == .background, model.metalImmersiveIsOpen {
+                Task { await dismissImmersiveSpace() }
+            }
         }
         .ornament(attachmentAnchor: .scene(.bottomFront)) {
             VStack(spacing: 8) {
