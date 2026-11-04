@@ -111,12 +111,17 @@ final class MetalImmersiveRenderer {
             let wait = signposter.beginInterval("ImmersiveWait", id: signposter.makeSignpostID())
             try? await clock.sleep(until: timing.optimalInputTime, tolerance: nil)
             signposter.endInterval("ImmersiveWait", wait)
+            // The wait suspends the main actor, so the space can close in
+            // the meantime (exiting Immersive). Submitting to an invalidated
+            // layer's frame aborts; the top of the loop handles it instead.
+            guard layerRenderer.state == .running else { continue }
 
             frame.startSubmission()
+            // No drawable (the layer is going away): drop the frame. Ending a
+            // submission without one is invalid and aborts.
+            guard let drawable = frame.queryDrawable() else { continue }
             let render = signposter.beginInterval("ImmersiveRender", id: signposter.makeSignpostID())
-            if let drawable = frame.queryDrawable() {
-                self.render(drawable, at: presentation)
-            }
+            self.render(drawable, at: presentation)
             signposter.endInterval("ImmersiveRender", render)
             frame.endSubmission()
             let overrun = Self.seconds(timing.renderingDeadline.duration(to: clock.now))
@@ -180,6 +185,8 @@ final class MetalImmersiveRenderer {
                              viewProjection: drawable.computeProjection(viewIndex: index)
                                  * (originFromDevice * view.transform).inverse,
                              root: root, tiles: tiles))
+                // Sky left at the far plane would be dropped as clipped.
+                metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat)
             }
             encoder.endEncoding()
         }
