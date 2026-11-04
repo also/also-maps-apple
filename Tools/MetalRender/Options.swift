@@ -71,6 +71,7 @@ struct RenderOptions: Codable {
 
     static let help = """
     Usage: also-maps-render [--google] [options]
+    Or: also-maps-render video --help (stereo movie capture along a route)
     Renders offscreen with the app's Metal shader; no window or UI automation.
     Default: a deterministic synthetic culling regression, with no network/key.
     --google                 Stream Google tiles, then freeze one snapshot for A/B

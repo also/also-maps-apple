@@ -200,6 +200,8 @@ targets:
     sources:
       - path: Tools/MetalRender
         excludes: [Info.plist]
+      - path: Sources/Tracks/CameraTrack.swift
+      - path: Sources/Tracks/TrackPlayback.swift
       - path: Sources/Metal
         excludes: [MetalMapView.swift]
       - path: Sources/TileSampler.swift
@@ -247,6 +249,7 @@ targets:
       - path: Sources/Metal/MetalVisibility.swift
       - path: Tests/Metal
       - path: Tools/MetalRender/Options.swift
+      - path: Tools/MetalRender/VideoOptions.swift
       - path: Sources/Places/Place.swift
       - path: Sources/Config/AppConfig.swift
       - path: Sources/Config/AppConfigStore.swift

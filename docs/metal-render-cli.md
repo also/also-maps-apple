@@ -1,5 +1,8 @@
 # Offscreen Metal CLI
 
+For stereo movies along a camera journey, see [Stereo video capture](stereo-video-cli.md).
+The benchmark below continues to use a frozen scene for its A/B comparison.
+
 `also-maps-render` is a macOS command-line tool that uses the app's actual
 Metal renderer, shader, sampler mapping, culling, and Cesium tile bridge.
 It draws into colour/depth textures, waits for GPU completion, and reads back

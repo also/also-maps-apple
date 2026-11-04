@@ -6,15 +6,15 @@ import ImageIO
 import UniformTypeIdentifiers
 import simd
 
-private struct Scene {
+struct Scene {
     let draws: [MetalTileRenderer.Draw]
-    let viewProjection: simd_float4x4
-    let root: simd_float4x4
+    var viewProjection: simd_float4x4
+    var root: simd_float4x4
     var credits: [String] = []
     var fetch: [String: UInt64] = [:]
 }
 
-private struct Timing: Codable {
+struct Timing: Codable {
     let cpuEncodeMS: Double
     let gpuMS: Double?
 }
@@ -55,7 +55,7 @@ private struct Report: Codable {
 
 /// Serial offscreen passes intentionally isolate submission and GPU execution
 /// from a window, display pacing, tile loading, and compositor work.
-private final class OffscreenRenderer {
+final class OffscreenRenderer {
     let renderer: MetalTileRenderer
     let colour: MTLTexture
     private let depth: MTLTexture
@@ -80,7 +80,7 @@ private final class OffscreenRenderer {
         self.depth = depth
     }
 
-    func frame(_ scene: Scene, culling: Bool, readback: Bool = false) throws
+    func frame(_ scene: Scene, culling: Bool, readback: Bool = false, requireDraws: Bool = true) throws
         -> (statistics: MetalDrawStatistics, timing: Timing, pixels: Data) {
         guard let commands = queue.makeCommandBuffer() else { throw RenderCLIError("No command buffer") }
         let pass = MTLRenderPassDescriptor()
@@ -106,7 +106,7 @@ private final class OffscreenRenderer {
         guard commands.status == .completed else {
             throw RenderCLIError("Metal command failed: \(commands.error?.localizedDescription ?? "unknown error")")
         }
-        guard statistics.drawCalls > 0 else { throw RenderCLIError("No draws were encoded") }
+        guard !requireDraws || statistics.drawCalls > 0 else { throw RenderCLIError("No draws were encoded") }
         let gpuMS = commands.gpuEndTime > commands.gpuStartTime && commands.gpuStartTime > 0
             ? (commands.gpuEndTime - commands.gpuStartTime) * 1000 : nil
         var pixels = Data()
@@ -122,10 +122,20 @@ private final class OffscreenRenderer {
 }
 
 @main
-private enum MetalRenderCLI {
+enum MetalRenderCLI {
     static func main() {
         setvbuf(stdout, nil, _IOLBF, 0)
         let arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments.first == "video" {
+            let videoArguments = Array(arguments.dropFirst())
+            if videoArguments.contains("--help") { print(VideoOptions.help); return }
+            do { try StereoVideoCapture.run(VideoOptions.parse(videoArguments)) }
+            catch {
+                FileHandle.standardError.write(Data("also-maps-render video: \(error)\n".utf8))
+                exit(1)
+            }
+            return
+        }
         if arguments.contains("--help") { print(RenderOptions.help); return }
         do { try run(RenderOptions.parse(arguments)) }
         catch {
@@ -191,7 +201,7 @@ private enum MetalRenderCLI {
         guard differingPixels == 0 else { throw RenderCLIError("Culling changed the rendered image") }
     }
 
-    private static func syntheticScene(renderer: MetalTileRenderer, aspect: Float) throws -> Scene {
+    static func syntheticScene(renderer: MetalTileRenderer, aspect: Float) throws -> Scene {
         func part(x: Float, z: Float, colour: SIMD4<Float>) throws -> MetalTileRenderer.Tile.Part {
             let positions: [SIMD4<Float>] = [[x - 1, -1, z, 0], [x + 1, -1, z, 0], [x, 1, z, 0]]
             let indices: [UInt32] = [0, 1, 2]

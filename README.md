@@ -53,6 +53,11 @@ load Google tiles with the configured key. It writes PNGs and a JSON timing
 report. See [the CLI guide](docs/metal-render-cli.md) for build/run commands,
 locked-screen validation, and measurement limits.
 
+`also-maps-render video` also records stereo video along an A-to-B move or an
+app camera CSV track. It exports Apple spatial MV-HEVC or side-by-side HEVC,
+with adjustable stereo depth and fixed frame timing. See the
+[stereo video guide](docs/stereo-video-cli.md).
+
 ## Controls
 
 - **Pan:** look at the map, pinch and drag. Gestures are indirect only (look and pinch), so open hands over the map do nothing.
