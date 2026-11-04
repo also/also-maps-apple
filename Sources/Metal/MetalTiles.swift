@@ -87,11 +87,23 @@ final class MetalTileRenderer: @unchecked Sendable {
         }
     }
 
+    /// Tile builds running now, for the MetalBuild signpost.
+    private let buildsInFlight = OSAllocatedUnfairLock(initialState: 0)
+
     var handler: CNTileLoadHandler {
         { [self] tile, completion in
             DispatchQueue.global(qos: .userInitiated).async {
+                let signposter = Signposts.tiles
+                let inFlight = self.buildsInFlight.withLock { count in
+                    count += 1
+                    return count
+                }
+                let interval = signposter.beginInterval("MetalBuild", id: signposter.makeSignpostID(),
+                                                        "\(inFlight) in flight")
                 tile.renderObject = self.build(tile)
                 tile.discardCPUData()
+                self.buildsInFlight.withLock { $0 -= 1 }
+                signposter.endInterval("MetalBuild", interval)
                 completion()
             }
         }

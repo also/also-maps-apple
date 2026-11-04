@@ -74,6 +74,62 @@ quality.
 
 ## Log
 
+### 2026-11-03: the same, with an optimised build
+
+The Debug configuration rebuilt with `GCC_OPTIMIZATION_LEVEL=s
+SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule
+ENABLE_DEBUG_DYLIB=NO` (keeping Debug's key), installed with `devicectl`,
+launched from the Home screen. Recorded the same way for 120 s; the Metal
+space ran for the last 44 s, streaming the whole time (7,439 fetches, 5,900
+tile builds).
+
+- **Observed:** 3,966 frames at 90.0 a second, no `MissedDeadline` and no
+  `FrameGap` events. `ImmersiveTick` mean 3.2 ms, max 5.6 ms (`Select` 3.0,
+  max 5.4); `ImmersiveRender` mean 0.5 ms for both eyes, max 1.0 ms;
+  `MetalEncode` 0.2 ms a view; `MetalBuild` 1.3 ms a tile.
+- **Observed:** by eye in the headset, smooth while streaming near dense
+  terrain, where the Debug build stuttered.
+- **Inferred:** the stutters in the Debug recording below were Debug-build
+  overhead: unoptimised cesium-native destructors, Swift at `-Onone` and Metal's
+  debug layers. The main-thread design leaves about 7 ms a frame spare here.
+  Judging the renderer's smoothness, or profiling it, needs an optimised build.
+
+### 2026-11-03: stutters while streaming on a Vision Pro (Debug build)
+
+Recorded with `xctrace record --device … --template 'Time Profiler'
+--instrument os_signpost --all-processes` (`--attach` can't find the app on
+visionOS), the app launched from the Home screen, flying near dense terrain
+while it streamed. The Metal space ran for the last 23.5 s of 90.
+
+- **Observed:** 1,202 frames, about 51 a second. 497 `MissedDeadline` events
+  (41% of frames; median 6 ms late, p95 53 ms) and 498 `FrameGap` events
+  (median 22 ms, p95 67 ms between presentations).
+- **Observed:** missed deadlines follow the main-thread tick. Ticks under 4 ms
+  missed 2.6% of the time, 4–8 ms 30%, 8–11 ms 72%, over 11 ms 93–100%.
+  `ImmersiveTick` is almost all streaming's `Update`, which is almost all the
+  bridge's `Select` (mean 10 ms, p95 39 ms, max 203 ms). `ImmersiveRender`
+  is steady at about 7 ms for both eyes (max 11 ms). In 785 of 1,201 frames,
+  tick plus render alone exceeded 11.1 ms, since both run in turn on the main
+  thread. `MetalBuild` is about 2 ms a tile, off the main thread.
+- **Observed:** main-thread samples during the Metal space: 59% in the
+  model's tick (55% in `CNTileStreamer update`), 39% in rendering.
+  - 31% is cesium-native unloading cached tile content inside `loadTiles`
+    (`unloadCachedBytes` → `~ModelSpec` → each glTF image's
+    `std::vector<std::byte>` destroyed byte by byte). These destructors are
+    inline, so they're compiled into `Also Maps.debug.dylib` at `-O0`; an
+    optimised build would free each buffer in one call.
+  - 15% is the selection pass itself (`updateViewGroup`, with
+    `estimateGlobeRectangle` prominent).
+  - Metal's debug and capture layers (`MTLDebugCommandBuffer`,
+    `CaptureMTLRenderCommandEncoder`) take a noticeable share of encoding,
+    and `MetalFrustum` about 9% (Swift at `-Onone`).
+- **Inferred:** much of this is Debug-build overhead, so the next step is the
+  same recording with an optimised build and Metal validation off. What
+  would remain regardless: selection and unloading run on the main thread
+  inside the frame, in series with rendering, and cesium-native keeps each
+  tile's decoded images after we've uploaded them, so unloading them is main-
+  thread work that the upload could have done earlier off it.
+
 ### 2026-11-03: culling and foveation on a Vision Pro
 
 - **Observed:** with #33 (culling and foveation) against #32 (neither), the

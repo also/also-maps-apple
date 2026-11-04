@@ -1,6 +1,7 @@
 import ARKit
 import CompositorServices
 import Metal
+import OSLog
 import SwiftUI
 
 /// The immersive presentation drawn with Metal (a spike; Settings › Immersion):
@@ -94,17 +95,34 @@ final class MetalImmersiveRenderer {
             let deltaTime = lastPresentation.map { Float(Self.seconds($0.duration(to: presentation))) } ?? 1 / 90
             lastPresentation = presentation
 
+            // Signposts (docs/profiling.md): where each frame's time goes, and
+            // the frames that were late or skipped.
+            let signposter = Signposts.frame
+            if deltaTime > 1.5 / 90 {
+                signposter.emitEvent("FrameGap", "\(deltaTime * 1000, format: .fixed(precision: 1)) ms between presentations")
+            }
+
             frame.startUpdate()
+            let tick = signposter.beginInterval("ImmersiveTick", id: signposter.makeSignpostID())
             model.metalImmersiveTick(deltaTime: min(max(deltaTime, 0), 0.1))
+            signposter.endInterval("ImmersiveTick", tick)
             frame.endUpdate()
 
+            let wait = signposter.beginInterval("ImmersiveWait", id: signposter.makeSignpostID())
             try? await clock.sleep(until: timing.optimalInputTime, tolerance: nil)
+            signposter.endInterval("ImmersiveWait", wait)
 
             frame.startSubmission()
+            let render = signposter.beginInterval("ImmersiveRender", id: signposter.makeSignpostID())
             if let drawable = frame.queryDrawable() {
-                render(drawable, at: presentation)
+                self.render(drawable, at: presentation)
             }
+            signposter.endInterval("ImmersiveRender", render)
             frame.endSubmission()
+            let overrun = Self.seconds(timing.renderingDeadline.duration(to: clock.now))
+            if overrun > 0 {
+                signposter.emitEvent("MissedDeadline", "\(overrun * 1000, format: .fixed(precision: 1)) ms after the rendering deadline")
+            }
             printLog()
         }
     }
