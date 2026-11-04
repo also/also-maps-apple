@@ -74,6 +74,26 @@ quality.
 
 ## Log
 
+### 2026-11-04: two compositor rules, from device bugs
+
+- **Observed:** exiting Immersive aborted with "BUG IN CLIENT:
+  cp_frame_end_submission() failed because the frame is not valid". The
+  frame loop's wait for the optimal input time is an `await`, so the space
+  could close mid-frame, and a frame with no drawable still had its
+  submission ended. Fixed by re-checking the layer is running after the wait,
+  and dropping a frame without a drawable instead of ending its submission
+  (as Apple's samples do). No crash since on the device.
+- **Observed:** in full immersion the sky was black except a stepped band
+  along the horizon. The pass clears depth to 0, the far plane in reverse Z,
+  and the compositor drops pixels at the far plane as clipped; only the
+  terrain, with real depth, showed. Fixed by a depth-only full-screen pass
+  after the tiles that raises any pixel still at 0 to `skyDepth` (about
+  100 km), leaving colour alone. Clearing to that depth instead would have
+  hidden tiles beyond it. Sky shows on the device since.
+- **Inferred:** the stepped band was foveation's coarse blocks near the
+  horizon mixing terrain depth into a few sky pixels. The Mac remote spike
+  hit the same far-plane rule as a fully blank frame.
+
 ### 2026-11-03: the same, with an optimised build
 
 The Debug configuration rebuilt with `GCC_OPTIMIZATION_LEVEL=s

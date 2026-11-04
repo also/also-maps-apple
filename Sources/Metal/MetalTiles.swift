@@ -31,8 +31,9 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// Sampler states by glTF sampler, shared between tiles.
     private var samplers: [SIMD4<Int>: MTLSamplerState] = [:]
     private let samplersLock = NSLock()
-    /// Pipelines by colour and depth format, made on first use.
-    private var pipelines: [SIMD2<UInt>: MTLRenderPipelineState] = [:]
+    /// Pipelines by colour and depth format and kind (tiles, or the
+    /// depth-only sky pass), made on first use.
+    private var pipelines: [SIMD3<UInt>: MTLRenderPipelineState] = [:]
     private let pipelinesLock = NSLock()
     /// A/B switch for device profiling; only draw submission changes.
     private let cullsOffscreen = ProcessInfo.processInfo.environment["ALSOMAPS_METAL_CULLING"] != "0"
@@ -180,14 +181,21 @@ final class MetalTileRenderer: @unchecked Sendable {
         var flags: UInt32
     }
 
-    private func pipeline(colour: MTLPixelFormat, depth: MTLPixelFormat) -> MTLRenderPipelineState? {
-        let key = SIMD2(colour.rawValue, depth.rawValue)
+    private func pipeline(colour: MTLPixelFormat, depth: MTLPixelFormat,
+                          skyDepth: Bool = false) -> MTLRenderPipelineState? {
+        let key = SIMD3(colour.rawValue, depth.rawValue, skyDepth ? 1 : 0)
         pipelinesLock.lock()
         defer { pipelinesLock.unlock() }
         if let pipeline = pipelines[key] { return pipeline }
         let descriptor = MTLRenderPipelineDescriptor()
-        descriptor.vertexFunction = library.makeFunction(name: "tileVertex")
-        descriptor.fragmentFunction = library.makeFunction(name: "tileFragment")
+        if skyDepth {
+            // Depth only: the colour already there (sky or tiles) stays.
+            descriptor.vertexFunction = library.makeFunction(name: "skyDepthVertex")
+            descriptor.colorAttachments[0].writeMask = []
+        } else {
+            descriptor.vertexFunction = library.makeFunction(name: "tileVertex")
+            descriptor.fragmentFunction = library.makeFunction(name: "tileFragment")
+        }
         descriptor.colorAttachments[0].pixelFormat = colour
         descriptor.depthAttachmentPixelFormat = depth
         do {
@@ -254,6 +262,25 @@ final class MetalTileRenderer: @unchecked Sendable {
         return statistics
     }
 
+    /// The sky's depth for a compositor: just inside the far plane. A
+    /// compositor drops pixels at the far plane itself (depth 0 in reverse
+    /// Z) as clipped, which in full immersion shows black where there's only
+    /// sky. With an infinite far plane and 0.1 m near, about 100 km away.
+    static let skyDepth: Float = 1e-6
+
+    /// After the tiles, moves every pixel still at the far plane (the sky)
+    /// to `skyDepth`, leaving colour alone. Tiles farther than that keep
+    /// their colour and only have their depth raised, so nothing is hidden.
+    /// Only a compositor needs it: a window shows the cleared sky as is.
+    func encodeSkyDepth(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat) {
+        guard let pipeline = pipeline(colour: colour, depth: depth, skyDepth: true) else { return }
+        encoder.setRenderPipelineState(pipeline)
+        encoder.setDepthStencilState(depthState)
+        var depth = Self.skyDepth
+        encoder.setVertexBytes(&depth, length: MemoryLayout<Float>.size, index: 0)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+    }
+
     private static let shaderSource = """
 #include <metal_stdlib>
 using namespace metal;
@@ -305,6 +332,18 @@ fragment float4 tileFragment(TileVertexOut in [[stage_in]],
         colour.rgb *= 0.55 + 0.45 * light;
     }
     return colour;
+}
+
+struct SkyDepthOut {
+    float4 position [[position]];
+};
+
+/// One triangle covering the view, at a fixed depth (encodeSkyDepth).
+vertex SkyDepthOut skyDepthVertex(uint vid [[vertex_id]], constant float &depth [[buffer(0)]]) {
+    float2 corner = float2((vid << 1) & 2, vid & 2);
+    SkyDepthOut out;
+    out.position = float4(corner * 2 - 1, depth, 1);
+    return out;
 }
 """
 }
