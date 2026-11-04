@@ -16,6 +16,7 @@ The tile pipeline is instrumented with signposts (`os_signpost`), so Instruments
 | Tiles | event `LoadComplete` | `TileStreaming` | progress reached 100% |
 | Frame | `Update` | `TileStreaming.update` | the whole per-frame update on the main thread |
 | Frame | `Select` | bridge | cesium-native's selection pass inside `Update` |
+| Frame | `MetalEncode` | `MetalTileRenderer` | render-only culling and draw encoding for one view |
 
 Add more with `Signposts.tiles.beginInterval("Name", id: signposter.makeSignpostID())` / `endInterval`, or `os_signpost_interval_begin` in the bridge. Names must be string literals.
 

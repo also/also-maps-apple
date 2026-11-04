@@ -26,14 +26,24 @@ struct MetalImmersiveContent: CompositorContent {
     }
 }
 
-/// One texture per eye if the device offers it, else both in one, and no
-/// foveation: MetalTileRenderer draws each view with one projection.
+/// Use foveated, dedicated eye textures when supported. Keep the unfoveated
+/// dedicated/shared fallback for devices (including simulators) without it.
 struct MetalImmersiveConfiguration: CompositorLayerConfiguration {
     func makeConfiguration(capabilities: LayerRenderer.Capabilities,
                            configuration: inout LayerRenderer.Configuration) {
-        let layouts = capabilities.supportedLayouts(options: [])
-        configuration.layout = layouts.contains(.dedicated) ? .dedicated : .shared
-        configuration.isFoveationEnabled = false
+        let wantsFoveation = capabilities.supportsFoveation
+            && ProcessInfo.processInfo.environment["ALSOMAPS_METAL_FOVEATION"] != "0"
+        let foveatedLayouts = wantsFoveation ? capabilities.supportedLayouts(options: [.foveationEnabled]) : []
+        if foveatedLayouts.contains(.dedicated) {
+            configuration.layout = .dedicated
+            configuration.isFoveationEnabled = true
+        } else {
+            // This renderer doesn't use texture-array slices yet. Only
+            // enable foveation when our dedicated layout is supported.
+            let layouts = capabilities.supportedLayouts(options: [])
+            configuration.layout = layouts.contains(.dedicated) ? .dedicated : .shared
+            configuration.isFoveationEnabled = false
+        }
     }
 }
 
@@ -47,6 +57,7 @@ final class MetalImmersiveRenderer {
     private let worldTracking = WorldTrackingProvider()
     private let queue: MTLCommandQueue?
     private var measuredEye = false
+    private var drawLog = MetalDrawLog()
     private var log = (frames: 0, anchored: 0, lastPrint: Date())
 
     init(model: MapModel, layerRenderer: LayerRenderer, metal: MetalTileRenderer) {
@@ -120,6 +131,7 @@ final class MetalImmersiveRenderer {
         guard let commands = queue?.makeCommandBuffer() else { return }
         let root = model.tilesInImmersiveSpace
         let tiles = model.streaming.drawnTiles
+        var statistics = MetalDrawStatistics()
         // Views sharing a texture (the shared layout) are drawn in one pass,
         // cleared once, each in its own viewport.
         let byTexture = Dictionary(grouping: drawable.views.indices) { drawable.views[$0].textureMap.textureIndex }
@@ -134,21 +146,28 @@ final class MetalImmersiveRenderer {
             pass.depthAttachment.loadAction = .clear
             pass.depthAttachment.clearDepth = 0
             pass.depthAttachment.storeAction = .store
+            if layerRenderer.configuration.isFoveationEnabled {
+                // Rate maps correspond to the drawable's texture indices.
+                // The compositor viewport/projection remain in logical
+                // coordinates; Metal maps them to the foveated texture.
+                pass.rasterizationRateMap = drawable.rasterizationRateMaps[textureIndex]
+            }
             guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { continue }
             for index in viewIndices {
                 let view = drawable.views[index]
                 encoder.setViewport(view.textureMap.viewport)
                 // The compositor's projection: reverse Z over its default
                 // depth range, which the cleared 0 is the far end of.
-                metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
+                statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
                              viewProjection: drawable.computeProjection(viewIndex: index)
                                  * (originFromDevice * view.transform).inverse,
-                             root: root, tiles: tiles)
+                             root: root, tiles: tiles))
             }
             encoder.endEncoding()
         }
         drawable.encodePresent(commandBuffer: commands)
         commands.commit()
+        drawLog.record(statistics)
     }
 
     private func printLog() {

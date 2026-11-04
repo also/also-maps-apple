@@ -1,5 +1,6 @@
 import Foundation
 import Metal
+import OSLog
 import simd
 
 /// A Metal renderer for streamed tiles (experimental): the same seam
@@ -33,6 +34,8 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// Pipelines by colour and depth format, made on first use.
     private var pipelines: [SIMD2<UInt>: MTLRenderPipelineState] = [:]
     private let pipelinesLock = NSLock()
+    /// A/B switch for device profiling; only draw submission changes.
+    private let cullsOffscreen = ProcessInfo.processInfo.environment["ALSOMAPS_METAL_CULLING"] != "0"
 
     /// The sky, as in ScreenMapView, as an sRGB target's clear colour (linear).
     static let skyColour = MTLClearColor(red: pow(0.55, 2.2), green: pow(0.7, 2.2), blue: pow(0.85, 2.2), alpha: 1)
@@ -60,6 +63,7 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// A tile's GPU resources, attached as its `renderObject`.
     final class Tile: @unchecked Sendable {
         struct Part {
+            let bounds: MetalBounds?
             let positions: MTLBuffer
             let texcoords: MTLBuffer?
             let normals: MTLBuffer?
@@ -70,7 +74,17 @@ final class MetalTileRenderer: @unchecked Sendable {
             let baseColor: SIMD4<Float>
         }
         let parts: [Part]
-        init(parts: [Part]) { self.parts = parts }
+        let bounds: MetalBounds?
+        let triangleCount: Int
+        init(parts: [Part]) {
+            self.parts = parts
+            // An unknown part must not be hidden by a known part's bounds.
+            bounds = parts.reduce(parts.first?.bounds) { combined, part in
+                guard let combined, let bounds = part.bounds else { return nil }
+                return combined.union(bounds)
+            }
+            triangleCount = parts.reduce(0) { $0 + $1.indexCount / 3 }
+        }
     }
 
     var handler: CNTileLoadHandler {
@@ -87,7 +101,7 @@ final class MetalTileRenderer: @unchecked Sendable {
         var parts: [Tile.Part] = []
         for primitive in tile.primitives ?? [] {
             guard let positions = buffer(primitive.positions), let indices = buffer(primitive.indices) else { continue }
-            parts.append(Tile.Part(positions: positions,
+            parts.append(Tile.Part(bounds: MetalBounds(positions: primitive.positions), positions: positions,
                                    texcoords: primitive.texcoords.flatMap(buffer),
                                    normals: primitive.normals.flatMap(buffer),
                                    indices: indices,
@@ -176,22 +190,43 @@ final class MetalTileRenderer: @unchecked Sendable {
 
     /// Draws `tiles` (each placed in the anchor's frame) after `root` (anchor
     /// frame → scene) and `viewProjection` (scene → clip, reverse Z).
+    @discardableResult
     func encode(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
                 viewProjection: simd_float4x4, root: simd_float4x4,
-                tiles: [(tile: CNTileMesh, placement: simd_float4x4)]) {
-        guard let pipeline = pipeline(colour: colour, depth: depth) else { return }
+                tiles: [(tile: CNTileMesh, placement: simd_float4x4)]) -> MetalDrawStatistics {
+        let signposter = Signposts.frame
+        let interval = signposter.beginInterval("MetalEncode", id: signposter.makeSignpostID())
+        defer { signposter.endInterval("MetalEncode", interval) }
+        var statistics = MetalDrawStatistics()
+        guard let pipeline = pipeline(colour: colour, depth: depth) else { return statistics }
         encoder.setRenderPipelineState(pipeline)
         encoder.setDepthStencilState(depthState)
         encoder.setCullMode(.none)
         let rootViewProjection = viewProjection * root
         for (tile, placement) in tiles {
             guard let gpu = tile.renderObject as? Tile else { continue }
+            statistics.tiles += 1
+            statistics.totalDrawCalls += gpu.parts.count
+            statistics.totalTriangles += gpu.triangleCount
+            let modelViewProjection = rootViewProjection * placement
+            let frustum = cullsOffscreen ? MetalFrustum(clipFromLocal: modelViewProjection) : nil
+            if frustum?.intersects(gpu.bounds) == false { continue }
             let model = root * placement
+            var drewTile = false
             for part in gpu.parts {
+                // A tile may straddle the frustum while some of its parts
+                // are wholly outside. Single-part tiles were tested above.
+                if gpu.parts.count > 1, frustum?.intersects(part.bounds) == false { continue }
+                if !drewTile {
+                    statistics.submittedTiles += 1
+                    drewTile = true
+                }
+                statistics.drawCalls += 1
+                statistics.triangles += part.indexCount / 3
                 var flags: UInt32 = 0
                 if part.texcoords != nil, part.texture != nil { flags |= 1 }
                 if part.normals != nil { flags |= 2 }
-                var uniforms = Uniforms(modelViewProjection: rootViewProjection * placement, model: model,
+                var uniforms = Uniforms(modelViewProjection: modelViewProjection, model: model,
                                         baseColor: part.baseColor, flags: flags)
                 encoder.setVertexBuffer(part.positions, offset: 0, index: 0)
                 encoder.setVertexBuffer(part.texcoords ?? part.positions, offset: 0, index: 1)
@@ -204,19 +239,7 @@ final class MetalTileRenderer: @unchecked Sendable {
                                               indexBuffer: part.indices, indexBufferOffset: 0)
             }
         }
-    }
-
-    /// An off-axis perspective looking down −z, reverse Z, from tangents
-    /// (left, right, top, bottom).
-    static func projection(tangents: SIMD4<Float>, near: Float, far: Float) -> simd_float4x4 {
-        let left = -tangents[0], right = tangents[1], top = tangents[2], bottom = -tangents[3]
-        let width = right - left, height = top - bottom
-        return simd_float4x4(columns: (
-            [2 / width, 0, 0, 0],
-            [0, 2 / height, 0, 0],
-            [(right + left) / width, (top + bottom) / height, near / (far - near), -1],
-            [0, 0, near * far / (far - near), 0]
-        ))
+        return statistics
     }
 
     private static let shaderSource = """
