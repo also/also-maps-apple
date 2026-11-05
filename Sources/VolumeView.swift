@@ -13,10 +13,8 @@ struct VolumeView: View {
     @Environment(\.openWindow) private var openWindow
     @AppStorage(ViewPreferences.photosInPlaceKey) private var photosInPlace = false
 
-    /// The setting, or ALSOMAPS_PHOTOS=1 for this run.
-    private var showsPhotos: Bool {
-        photosInPlace || ProcessInfo.processInfo.environment["ALSOMAPS_PHOTOS"] == "1"
-    }
+    /// The setting (read here so changes show at once), or ALSOMAPS_PHOTOS=1.
+    private var showsPhotos: Bool { photosInPlace || ViewPreferences.photosInPlace }
 
     var body: some View {
         RealityView { content in

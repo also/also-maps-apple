@@ -29,7 +29,7 @@ struct AddPhotosButton: View {
 struct PhotosMenu: View {
     let session: PhotoSession
     /// Runs before standing in a photo: on visionOS, opens Immersive.
-    var prepare: (() async -> Void)?
+    var prepare: (@MainActor () async -> Void)?
 
     var body: some View {
         Menu("Photos", systemImage: "photo.on.rectangle.angled") {
