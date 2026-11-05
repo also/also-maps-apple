@@ -22,6 +22,7 @@ struct PointerSurface: NSViewRepresentable {
         private var pinching = false
         private var twisting = false
         private var scale = 1.0
+        private var clickStart: SIMD2<Double>?
         private var rotation = 0.0
 
         private enum DragMode { case none, pan, orbit(from: SIMD2<Double>) }
@@ -57,6 +58,7 @@ struct PointerSurface: NSViewRepresentable {
                 mode = .orbit(from: location)
             } else {
                 mode = .pan
+                clickStart = location
                 recentDrag = [(location, event.timestamp)]
                 map.beginDrag(at: location)
             }
@@ -69,6 +71,8 @@ struct PointerSurface: NSViewRepresentable {
         override func mouseUp(with event: NSEvent) {
             if case .pan = mode {
                 dragged(event)
+                // A press and release in the same place is a click.
+                if let start = clickStart, simd_distance(start, point(event)) < 4 { map.tap(at: start) }
                 map.endDrag(at: point(event), velocity: flickVelocity(at: event.timestamp))
             }
             mode = .none

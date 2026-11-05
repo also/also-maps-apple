@@ -59,6 +59,30 @@ struct MetalMapView {
             self.map = map
             self.renderer = renderer
             queue = renderer.device.makeCommandQueue()
+            super.init()
+            map.onTap = { [weak self] point in self?.pick(at: point) }
+        }
+
+        /// Logs the map point under a click or tap. The scene frame is the
+        /// map frame, so the georeference takes a hit back to ECEF. (The
+        /// RealityKit debug lines aren't drawn in this view.)
+        private func pick(at point: SIMD2<Double>) {
+            MainActor.assumeIsolated { pick(main: point) }
+        }
+
+        private func pick(main point: SIMD2<Double>) {
+            guard let ray = MetalPicking.ray(throughPoint: point, viewSize: map.viewportSize,
+                                             halfHeightTangent: tan(ScreenMap.fieldOfView / 2),
+                                             sceneFromCamera: map.cameraMatrix) else { return }
+            guard let hit = renderer.pick(ray: ray, tiles: map.streaming.drawnTiles,
+                                          root: map.streaming.tilesRoot.transform.matrix) else {
+                print("[AlsoMaps] Pick at \(point): no hit")
+                return
+            }
+            let georeference = ScreenView.georeference(camera: map.navigation.camera)
+            let (coordinate, height) = Geodesy.geodetic(georeference.ecef(map: SIMD3<Double>(hit.position)))
+            print(String(format: "[AlsoMaps] Pick at (%.0f, %.0f): %.5f, %.5f, %.1f m, %.1f m from the eye",
+                         point.x, point.y, coordinate.latitude, coordinate.longitude, height, hit.distance))
         }
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}

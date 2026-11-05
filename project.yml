@@ -218,6 +218,7 @@ targets:
       - path: Sources/TileSource.swift
       - path: Sources/Static/StaticView.swift
       - path: Sources/Metal/MetalVisibility.swift
+      - path: Sources/Metal/MetalPicking.swift
       - path: Tests/Metal
       - path: Sources/Places/Place.swift
       - path: Sources/Config/AppConfig.swift

@@ -42,7 +42,11 @@ final class ScreenMap {
     @ObservationIgnored private var groundSampleGeneration = 0
     @ObservationIgnored private let cameraEntity = Entity()
     @ObservationIgnored private var subscription: EventSubscription?
-    @ObservationIgnored private var viewportSize = SIMD2<Double>(1, 1)
+    /// The map view's size in points (y down, like touch and pointer points).
+    @ObservationIgnored private(set) var viewportSize = SIMD2<Double>(1, 1)
+    /// Called with the point of a single click or tap, which does nothing
+    /// else on its own; a renderer sets it to pick (MetalMapView).
+    @ObservationIgnored var onTap: ((SIMD2<Double>) -> Void)?
     @ObservationIgnored private var touch = TouchState()
     @ObservationIgnored private var frameCount = 0
     @ObservationIgnored private var frameElapsed: Float = 0
@@ -281,6 +285,11 @@ final class ScreenMap {
         guard let grab = touch.grab else { return state }
         return ScreenGestures.pan(state, grab: grab, to: point, viewport: viewport,
                                   groundHeight: cameraGround.value)
+    }
+
+    /// A click or tap that didn't move.
+    func tap(at point: SIMD2<Double>) {
+        onTap?(point)
     }
 
     func beginDrag(at point: SIMD2<Double>) {
