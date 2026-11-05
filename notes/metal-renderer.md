@@ -48,6 +48,9 @@ Environment variables:
 - `ALSOMAPS_METAL_CULLING=0`: turn culling off, for a baseline. On by default.
 - `ALSOMAPS_METAL_FOVEATION=0`: turn visionOS foveation off, for a baseline.
   On by default where the dedicated layout supports it.
+- `ALSOMAPS_METAL_LOOK=<name>`: draw in one of Settings › General › Look's
+  looks for this run (`contours`, `thermal`, `blueprint`, `tinyPlanet`,
+  `insideOut`, `sonar`, `halftone`; `normal` is the default).
 
 The log reports submitted out of considered tiles, draws and triangles,
 summed over the interval. "Considered" is what would be submitted with
@@ -72,7 +75,44 @@ foveation separately with culling held fixed, and check peripheral image
 quality, both eyes and compositor depth. The simulator can't show foveation
 quality.
 
+### Looks
+
+Settings › General › Look swaps in other shaders (`MetalLooks.swift`), for
+fun. Normal draws exactly as before: other looks have their own library,
+pipelines and draw loop, compiled on first use, so the default path gains
+only a settings read per view. A look that can't be built on this GPU falls
+back to Normal.
+
+- Uniforms come from what `encode` already gets: the eye is recovered from
+  the view-projection (the point it sends to x = y = w = 0), and positions
+  are in the anchor's level frame, so height above the ellipsoid is the
+  anchor's height plus y plus the earth's curvature. Hosts pass the anchor
+  height; time is the renderer's own.
+- Sky: a full-screen triangle at depth 1e-30 with a `greater` test and no
+  depth write paints only pixels still at the cleared far plane, before the
+  immersive sky-depth pass.
+- Post-process (Halftone): a full-screen triangle that reads its own pixel
+  with framebuffer fetch, in the host's pass. Nothing is resampled, so
+  dedicated eye textures and rate maps need nothing special. Screen patterns
+  use the view direction on a plane facing forward, not pixels, so they're
+  the same size foveated or not and line up between parallel eyes.
+- Tiny planet and Inside out bend vertices onto a sphere and turn culling
+  off, since the bounds are unbent.
+
 ## Log
+
+### 2026-11-04: looks on macOS
+
+- **Observed:** all seven looks drew in the Mac window (San Francisco,
+  800 m), with no pipeline errors; Normal unchanged.
+- **Observed:** Inside out shows thin dark cracks where long triangles span
+  a big change in bend angle: each edge stays straight while the surface
+  curves. Tessellating would fix it; not done.
+- **Inferred:** Tiny planet needs looking well down to see the planet (it
+  only covers about 50° around straight down); from the default pitch it's
+  mostly sky.
+- Not run on visionOS: it builds, but the shaders compile at run time and
+  weren't exercised in the simulator or on a device.
 
 ### 2026-11-04: eye height is measured twice
 

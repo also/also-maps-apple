@@ -189,7 +189,7 @@ final class MetalImmersiveRenderer {
                 statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
                              viewProjection: drawable.computeProjection(viewIndex: index)
                                  * (originFromDevice * view.transform).inverse,
-                             root: root, tiles: tiles))
+                             root: root, anchorHeight: model.streaming.inputs.anchor.height, tiles: tiles))
                 // Sky left at the far plane would be dropped as clipped.
                 metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat)
             }

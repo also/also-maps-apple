@@ -37,6 +37,9 @@ final class MetalTileRenderer: @unchecked Sendable {
     private let pipelinesLock = NSLock()
     /// A/B switch for device profiling; only draw submission changes.
     private let cullsOffscreen = ProcessInfo.processInfo.environment["ALSOMAPS_METAL_CULLING"] != "0"
+    /// Settings › General › Look's pipelines, compiled the first time a
+    /// look other than Normal is drawn; nil if this GPU can't.
+    private lazy var looks: MetalLooks? = MetalLooks(device: device)
 
     /// The sky, as in ScreenMapView, as an sRGB target's clear colour (linear).
     static let skyColour = MTLClearColor(red: pow(0.55, 2.2), green: pow(0.7, 2.2), blue: pow(0.85, 2.2), alpha: 1)
@@ -209,14 +212,22 @@ final class MetalTileRenderer: @unchecked Sendable {
     }
 
     /// Draws `tiles` (each placed in the anchor's frame) after `root` (anchor
-    /// frame → scene) and `viewProjection` (scene → clip, reverse Z).
+    /// frame → scene) and `viewProjection` (scene → clip, reverse Z), in the
+    /// look chosen in Settings. `anchorHeight` is the anchor's height above
+    /// the ellipsoid, which only some looks use.
     @discardableResult
     func encode(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
-                viewProjection: simd_float4x4, root: simd_float4x4,
+                viewProjection: simd_float4x4, root: simd_float4x4, anchorHeight: Double = 0,
                 tiles: [(tile: CNTileMesh, placement: simd_float4x4)]) -> MetalDrawStatistics {
         let signposter = Signposts.frame
         let interval = signposter.beginInterval("MetalEncode", id: signposter.makeSignpostID())
         defer { signposter.endInterval("MetalEncode", interval) }
+        let look = MetalLook.current
+        if look != .normal, let looks,
+           let statistics = looks.encode(look, encoder, colour: colour, depth: depth, viewProjection: viewProjection,
+                                         root: root, anchorHeight: anchorHeight, tiles: tiles) {
+            return statistics
+        }
         var statistics = MetalDrawStatistics()
         guard let pipeline = pipeline(colour: colour, depth: depth) else { return statistics }
         encoder.setRenderPipelineState(pipeline)
