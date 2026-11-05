@@ -29,6 +29,7 @@ struct TouchSurface: UIViewRepresentable {
         private let twist = UIRotationGestureRecognizer()
         private let secondTap = UILongPressGestureRecognizer()
         private let twoFingerTap = UITapGestureRecognizer()
+        private let oneFingerTap = UITapGestureRecognizer()
         /// Spacing and angle aren't reported until those gestures start, so
         /// a pinch and a tilt read the same two-finger state here.
         private var twoFingersActive = false
@@ -59,7 +60,8 @@ struct TouchSurface: UIViewRepresentable {
             secondTap.addTarget(self, action: #selector(secondTapChanged))
             twoFingerTap.numberOfTouchesRequired = 2
             twoFingerTap.addTarget(self, action: #selector(twoFingerTapped))
-            for recognizer in [drag, twoFingerPan, pinch, twist, secondTap, twoFingerTap] as [UIGestureRecognizer] {
+            oneFingerTap.addTarget(self, action: #selector(tapped))
+            for recognizer in [drag, twoFingerPan, pinch, twist, secondTap, twoFingerTap, oneFingerTap] as [UIGestureRecognizer] {
                 recognizer.delegate = self
                 view.addGestureRecognizer(recognizer)
             }
@@ -152,6 +154,13 @@ struct TouchSurface: UIViewRepresentable {
                 map.endZoomDrag()
                 zoomDragStart = nil
             }
+        }
+
+        /// Fires on every tap, including the first of a double tap; only
+        /// picking listens (ScreenMap.onTap), so that's harmless.
+        @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
+            guard let view = recognizer.view else { return }
+            map.tap(at: point(recognizer.location(in: view)))
         }
 
         @objc private func twoFingerTapped(_ recognizer: UITapGestureRecognizer) {

@@ -262,6 +262,69 @@ final class MetalTileRenderer: @unchecked Sendable {
         return statistics
     }
 
+    // MARK: Picking
+
+    /// The nearest drawn surface along a ray.
+    struct PickHit {
+        let tile: CNTileMesh
+        /// Index into the tile's parts, and the triangle within it.
+        let part: Int
+        let triangle: Int
+        /// Metres along the (normalised) ray.
+        let distance: Float
+        /// Scene space, the same frame as the ray.
+        let position: SIMD3<Float>
+    }
+
+    /// Casts `ray` (scene space) at `tiles` as `encode` takes them, with the
+    /// same `root`, and returns the nearest triangle hit. Tiles whose box the
+    /// ray misses are skipped; the rest are tried nearest box first, and the
+    /// search stops once the next box starts beyond the best hit. Triangles
+    /// are read straight from the shared vertex and index buffers (the CPU
+    /// copy is gone, but storageModeShared means the CPU can still see the
+    /// GPU's), so nothing extra is kept. It tests all of a tile's triangles
+    /// and is not frustum-culled: pick against whatever was drawn, from the
+    /// main thread, for taps and clicks rather than per frame for many rays.
+    func pick(ray: MetalRay, tiles: [(tile: CNTileMesh, placement: simd_float4x4)],
+              root: simd_float4x4) -> PickHit? {
+        let length = simd_length(ray.direction)
+        guard length > 0, length.isFinite else { return nil }
+        let unit = MetalRay(origin: ray.origin, direction: ray.direction / length)
+        // Candidates in the tile's own frame. A transform of the origin and
+        // the (unnormalised) direction keeps `t` equal to scene distance.
+        var candidates: [(entry: Float, tile: CNTileMesh, gpu: Tile, local: MetalRay)] = []
+        for (tile, placement) in tiles {
+            guard let gpu = tile.renderObject as? Tile else { continue }
+            let local = unit.transformed(by: (root * placement).inverse)
+            var entry: Float = 0
+            if let bounds = gpu.bounds {
+                guard let hit = MetalPicking.entryDistance(of: local, bounds: bounds) else { continue }
+                entry = hit
+            }
+            candidates.append((entry, tile, gpu, local))
+        }
+        candidates.sort { $0.entry < $1.entry }
+        var best: PickHit?
+        for candidate in candidates {
+            if let best, candidate.entry > best.distance { break }
+            for (index, part) in candidate.gpu.parts.enumerated() {
+                let limit = best?.distance ?? .infinity
+                if let bounds = part.bounds {
+                    guard let entry = MetalPicking.entryDistance(of: candidate.local, bounds: bounds),
+                          entry <= limit else { continue }
+                }
+                let positions = UnsafeRawBufferPointer(start: part.positions.contents(), count: part.positions.length)
+                let indices = UnsafeRawBufferPointer(start: part.indices.contents(),
+                                                     count: min(part.indices.length, part.indexCount * MemoryLayout<UInt32>.size))
+                guard let hit = MetalPicking.nearestHit(of: candidate.local, positions: positions,
+                                                        indices: indices, maxDistance: limit) else { continue }
+                best = PickHit(tile: candidate.tile, part: index, triangle: hit.triangle, distance: hit.distance,
+                               position: unit.point(at: hit.distance))
+            }
+        }
+        return best
+    }
+
     /// The sky's depth for a compositor: just inside the far plane. A
     /// compositor drops pixels at the far plane itself (depth 0 in reverse
     /// Z) as clipped, which in full immersion shows black where there's only

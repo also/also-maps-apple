@@ -30,6 +30,58 @@ projections and tile and root transforms all go through the same clip matrix
 as the vertex shader. The core test target covers these cases without a key
 or GPU.
 
+### Picking (ray-casting)
+
+`MetalTileRenderer.pick(ray:tiles:root:)` returns the nearest drawn surface
+along a ray in scene space: the tile, part, triangle, distance in metres and
+the scene-space position (`PickHit`). It takes the same `tiles` and `root` as
+`encode`. Scene space is the map frame, so a hit goes to ECEF with
+`ScreenView.georeference(camera:).ecef(map:)` and to lat/lon/height with
+`Geodesy.geodetic`; `MetalMapView` does this and logs it on a click or tap
+(`[AlsoMaps] Pick at ...`). `MetalPicking.ray(throughPoint:...)` makes the
+ray for a screen point; visionOS gestures and hand controls build their own
+`MetalRay` from the hand or gaze ray and call `pick` directly.
+
+How it works: the ray is moved into each tile's frame (distances stay in
+metres, because the direction isn't renormalised), tested against the tile's
+`MetalBounds`, and tiles are tried nearest box first. For a hit box, each
+part's box is tested, then every triangle (Möller–Trumbore, double-sided,
+since the renderer doesn't cull). The search stops when the next box starts
+beyond the best hit. The maths (ray/box, ray/triangle, mesh scan, screen ray)
+is in `MetalPicking.swift` with no Metal in it, and covered by
+`MetalPickingTests` in the core target.
+
+Why this and not the other options (feature ideas, 6):
+
+- **Keep a decimated CPU copy: rejected.** Decimating changes the surface, so
+  a pick could land in the air above a roof or under it, and a full copy of
+  fine tiles is a lot of memory.
+- **No copy is needed.** Vertex and index buffers are `storageModeShared`, so
+  the CPU can read them where they are. `discardCPUData()` still frees the
+  cesium copy; picking costs **no extra memory**. (This assumes shared
+  storage on every platform we run on: Apple silicon, iOS, visionOS. A
+  discrete GPU on an Intel Mac would need managed buffers and a sync, which
+  this renderer doesn't do.)
+- **GPU depth readback: not done.** It is always consistent with what is
+  drawn and cheap for one pixel, but it can only answer for the screen's own
+  pixels, has a frame of latency, and doesn't fit a hand or gaze ray in
+  visionOS. It could be added later as a cross-check or for hover cursors.
+- **cesium-native ray-casting: not done.** The bridge doesn't expose it, and
+  it would pick the tileset's geometry, not necessarily what's drawn.
+
+Costs and limits (**Inferred**, not measured): a pick scans all triangles of
+every part whose box the ray crosses, on the calling thread. A tile can have
+tens of thousands of triangles, and a ray down a street crosses a few boxes,
+so expect well under a frame for one pick on a Mac, but this wants timing
+before anyone calls it per frame or for many rays. If it's too slow, the
+next step is a per-part grid or BVH built on the build queue (that does need
+a CPU copy or a read of the buffers once). It tests everything in
+`drawnTiles`, not only what's on screen, so geometry hidden by culling or
+behind the near plane is still hit if the ray crosses it. Parent and child
+tiles can both be in `drawnTiles` while refining, so the nearest can be
+either. Tracks aren't drawn in Metal, so can't be picked. Nothing has been
+built or run yet.
+
 ### Foveation (visionOS)
 
 The immersive space enables foveation when the compositor supports it with
@@ -73,6 +125,13 @@ quality, both eyes and compositor depth. The simulator can't show foveation
 quality.
 
 ## Log
+
+### 2026-11-05: picking added, unbuilt
+
+**Observed:** nothing; this was written without a build or tests. Check on a
+Mac that clicking the map logs plausible lat/lon (compare with the status
+line's camera position when looking straight down) and that
+`MetalPickingTests` pass.
 
 ### 2026-11-04: eye height is measured twice
 

@@ -378,6 +378,9 @@ Ordered by value for effort, with the quick wins and the unblockers first.
 
 ### 6. Picking and ray-casting (unblocks the rest)
 
+> **Done (unbuilt, untested):** CPU ray against the shared GPU buffers,
+> no retained copy. See "Picking" in `metal-renderer.md`.
+
 - **What:** a CPU ray against the drawn tiles. The bounds already exist per part
   (`MetalBounds`); add a triangle test against the CPU positions when a hit
   is within a tile's bounds. The catch: `discardCPUData()` throws the CPU copy
