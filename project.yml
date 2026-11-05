@@ -228,6 +228,12 @@ targets:
       - path: Tests/Static
       - path: Sources/Tracks
       - path: Tests/Navigation
+      # Photos in place: the metadata-to-pose maths, not the importer or the
+      # RealityKit overlay.
+      - path: Sources/Photos/PhotoMetadata.swift
+      - path: Sources/Photos/PhotoGeometry.swift
+      - path: Sources/Photos/PhotoPose.swift
+      - path: Tests/Photos
     scheme:
       testTargets: ["Also Maps Core Tests"]
     settings:
