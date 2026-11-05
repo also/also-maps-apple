@@ -159,6 +159,10 @@ final class MetalImmersiveRenderer {
         guard let commands = queue?.makeCommandBuffer() else { return }
         let root = model.tilesInImmersiveSpace
         let tiles = model.streaming.drawnTiles
+        // A guest place, drawn after the map: see-through over it in an overlay.
+        let guestRoot = model.guestTilesInImmersiveSpace
+        let guestTiles = model.guest?.streaming.drawnTiles ?? []
+        let guestOpacity = model.guest?.mode == .overlay ? GuestPlace.overlayOpacity : 1
         var statistics = MetalDrawStatistics()
         // Views sharing a texture (the shared layout) are drawn in one pass,
         // cleared once, each in its own viewport.
@@ -186,10 +190,15 @@ final class MetalImmersiveRenderer {
                 encoder.setViewport(view.textureMap.viewport)
                 // The compositor's projection: reverse Z over its default
                 // depth range, which the cleared 0 is the far end of.
+                let viewProjection = drawable.computeProjection(viewIndex: index)
+                    * (originFromDevice * view.transform).inverse
                 statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
-                             viewProjection: drawable.computeProjection(viewIndex: index)
-                                 * (originFromDevice * view.transform).inverse,
-                             root: root, tiles: tiles))
+                             viewProjection: viewProjection, root: root, tiles: tiles))
+                if let guestRoot {
+                    statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
+                                                viewProjection: viewProjection, root: guestRoot,
+                                                tiles: guestTiles, opacity: guestOpacity))
+                }
                 // Sky left at the far plane would be dropped as clipped.
                 metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat)
             }

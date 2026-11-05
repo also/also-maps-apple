@@ -76,10 +76,20 @@ struct MetalMapView {
                 let projection = MetalProjection.perspective(
                     tangents: [halfHeight * aspect, halfHeight * aspect, halfHeight, halfHeight],
                     near: Float(near), far: Float(far))
-                let statistics = renderer.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
-                                viewProjection: projection * map.cameraMatrix.inverse,
+                let viewProjection = projection * map.cameraMatrix.inverse
+                var statistics = renderer.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
+                                viewProjection: viewProjection,
                                 root: map.streaming.tilesRoot.transform.matrix,
                                 tiles: map.streaming.drawnTiles)
+                // A guest place after the map: see-through over it in an overlay.
+                if let guest = map.guest, guest.isShown {
+                    statistics.add(renderer.encode(encoder, colour: view.colorPixelFormat,
+                                                   depth: view.depthStencilPixelFormat,
+                                                   viewProjection: viewProjection,
+                                                   root: guest.streaming.tilesRoot.transform.matrix,
+                                                   tiles: guest.streaming.drawnTiles,
+                                                   opacity: guest.mode == .overlay ? GuestPlace.overlayOpacity : 1))
+                }
                 encoder.endEncoding()
                 commands.present(drawable)
                 commands.commit()

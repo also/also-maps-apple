@@ -28,11 +28,13 @@ final class MetalTileRenderer: @unchecked Sendable {
     private let queue: MTLCommandQueue
     private let library: MTLLibrary
     private let depthState: MTLDepthStencilState
+    /// A translucent pass's colour: drawn where its depth pre-pass left the
+    /// nearest surface, without writing depth again.
+    private let translucentDepthState: MTLDepthStencilState
     /// Sampler states by glTF sampler, shared between tiles.
     private var samplers: [SIMD4<Int>: MTLSamplerState] = [:]
     private let samplersLock = NSLock()
-    /// Pipelines by colour and depth format and kind (tiles, or the
-    /// depth-only sky pass), made on first use.
+    /// Pipelines by colour and depth format and kind, made on first use.
     private var pipelines: [SIMD3<UInt>: MTLRenderPipelineState] = [:]
     private let pipelinesLock = NSLock()
     /// A/B switch for device profiling; only draw submission changes.
@@ -47,16 +49,26 @@ final class MetalTileRenderer: @unchecked Sendable {
         guard let device else { throw MetalError.noDevice }
         self.device = device
         // Compiled at launch from source: building .metal files needs Xcode's
-        // separately installed Metal Toolchain.
-        library = try device.makeLibrary(source: Self.shaderSource, options: nil)
+        // separately installed Metal Toolchain. Invariant positions, so a
+        // translucent pass lands on exactly the depth its pre-pass wrote.
+        // UNVERIFIED: that this holds with foveation's rasterization-rate
+        // maps too; if the guest shimmers in an overlay, that's the suspect.
+        let options = MTLCompileOptions()
+        options.preserveInvariance = true
+        library = try device.makeLibrary(source: Self.shaderSource, options: options)
         let depth = MTLDepthStencilDescriptor()
         depth.depthCompareFunction = .greater
         depth.isDepthWriteEnabled = true
+        let translucentDepth = MTLDepthStencilDescriptor()
+        translucentDepth.depthCompareFunction = .greaterEqual
+        translucentDepth.isDepthWriteEnabled = false
         guard let queue = device.makeCommandQueue(),
-              let depthState = device.makeDepthStencilState(descriptor: depth)
+              let depthState = device.makeDepthStencilState(descriptor: depth),
+              let translucentDepthState = device.makeDepthStencilState(descriptor: translucentDepth)
         else { throw MetalError.setup }
         self.queue = queue
         self.depthState = depthState
+        self.translucentDepthState = translucentDepthState
     }
 
     // MARK: Tiles
@@ -181,20 +193,47 @@ final class MetalTileRenderer: @unchecked Sendable {
         var flags: UInt32
     }
 
+    private enum PipelineKind: UInt {
+        /// Opaque tiles.
+        case tiles
+        /// The depth-only sky pass (encodeSkyDepth).
+        case skyDepth
+        /// Tiles' depth only: a translucent pass's pre-pass.
+        case tileDepth
+        /// Tiles blended over what's there by their alpha.
+        case translucentTiles
+    }
+
     private func pipeline(colour: MTLPixelFormat, depth: MTLPixelFormat,
-                          skyDepth: Bool = false) -> MTLRenderPipelineState? {
-        let key = SIMD3(colour.rawValue, depth.rawValue, skyDepth ? 1 : 0)
+                          kind: PipelineKind = .tiles) -> MTLRenderPipelineState? {
+        let key = SIMD3(colour.rawValue, depth.rawValue, kind.rawValue)
         pipelinesLock.lock()
         defer { pipelinesLock.unlock() }
         if let pipeline = pipelines[key] { return pipeline }
         let descriptor = MTLRenderPipelineDescriptor()
-        if skyDepth {
+        switch kind {
+        case .skyDepth:
             // Depth only: the colour already there (sky or tiles) stays.
             descriptor.vertexFunction = library.makeFunction(name: "skyDepthVertex")
             descriptor.colorAttachments[0].writeMask = []
-        } else {
+        case .tileDepth:
+            // No fragment function: depth only. UNVERIFIED on a device.
+            descriptor.vertexFunction = library.makeFunction(name: "tileVertex")
+            descriptor.colorAttachments[0].writeMask = []
+        case .tiles, .translucentTiles:
             descriptor.vertexFunction = library.makeFunction(name: "tileVertex")
             descriptor.fragmentFunction = library.makeFunction(name: "tileFragment")
+        }
+        if kind == .translucentTiles {
+            // Over: colour by its alpha, and the target's alpha stays opaque.
+            let attachment = descriptor.colorAttachments[0]!
+            attachment.isBlendingEnabled = true
+            attachment.rgbBlendOperation = .add
+            attachment.alphaBlendOperation = .add
+            attachment.sourceRGBBlendFactor = .sourceAlpha
+            attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
+            attachment.sourceAlphaBlendFactor = .one
+            attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
         }
         descriptor.colorAttachments[0].pixelFormat = colour
         descriptor.depthAttachmentPixelFormat = depth
@@ -210,18 +249,53 @@ final class MetalTileRenderer: @unchecked Sendable {
 
     /// Draws `tiles` (each placed in the anchor's frame) after `root` (anchor
     /// frame → scene) and `viewProjection` (scene → clip, reverse Z).
+    ///
+    /// With `opacity` under 1 they're drawn see-through over what's already
+    /// there (a guest place over the map, so draw it after): a depth-only
+    /// pass first, then colour blended only where that pass left the
+    /// nearest of these tiles' surfaces. So only their nearest surface shows,
+    /// once, over whatever is behind it, with no sorting; anything already
+    /// drawn in front of them (a building of the map's poking through) stays
+    /// opaque.
     @discardableResult
     func encode(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
                 viewProjection: simd_float4x4, root: simd_float4x4,
-                tiles: [(tile: CNTileMesh, placement: simd_float4x4)]) -> MetalDrawStatistics {
+                tiles: [(tile: CNTileMesh, placement: simd_float4x4)],
+                opacity: Float = 1) -> MetalDrawStatistics {
         let signposter = Signposts.frame
         let interval = signposter.beginInterval("MetalEncode", id: signposter.makeSignpostID())
         defer { signposter.endInterval("MetalEncode", interval) }
         var statistics = MetalDrawStatistics()
-        guard let pipeline = pipeline(colour: colour, depth: depth) else { return statistics }
-        encoder.setRenderPipelineState(pipeline)
-        encoder.setDepthStencilState(depthState)
         encoder.setCullMode(.none)
+        guard opacity < 1 else {
+            guard let pipeline = pipeline(colour: colour, depth: depth) else { return statistics }
+            encoder.setRenderPipelineState(pipeline)
+            encoder.setDepthStencilState(depthState)
+            draw(encoder, viewProjection: viewProjection, root: root, tiles: tiles, opacity: 1,
+                 statistics: &statistics)
+            return statistics
+        }
+        guard let depthPass = pipeline(colour: colour, depth: depth, kind: .tileDepth),
+              let colourPass = pipeline(colour: colour, depth: depth, kind: .translucentTiles)
+        else { return statistics }
+        encoder.setRenderPipelineState(depthPass)
+        encoder.setDepthStencilState(depthState)
+        // Counted once, for the colour pass.
+        var depthStatistics = MetalDrawStatistics()
+        draw(encoder, viewProjection: viewProjection, root: root, tiles: tiles, opacity: 1,
+             statistics: &depthStatistics)
+        encoder.setRenderPipelineState(colourPass)
+        encoder.setDepthStencilState(translucentDepthState)
+        draw(encoder, viewProjection: viewProjection, root: root, tiles: tiles, opacity: opacity,
+             statistics: &statistics)
+        return statistics
+    }
+
+    /// One pass over `tiles` with whatever pipeline is set, culled against
+    /// the view; `opacity` scales each part's alpha.
+    private func draw(_ encoder: MTLRenderCommandEncoder, viewProjection: simd_float4x4, root: simd_float4x4,
+                      tiles: [(tile: CNTileMesh, placement: simd_float4x4)], opacity: Float,
+                      statistics: inout MetalDrawStatistics) {
         let rootViewProjection = viewProjection * root
         for (tile, placement) in tiles {
             guard let gpu = tile.renderObject as? Tile else { continue }
@@ -246,8 +320,10 @@ final class MetalTileRenderer: @unchecked Sendable {
                 var flags: UInt32 = 0
                 if part.texcoords != nil, part.texture != nil { flags |= 1 }
                 if part.normals != nil { flags |= 2 }
+                var baseColor = part.baseColor
+                baseColor.w *= opacity
                 var uniforms = Uniforms(modelViewProjection: modelViewProjection, model: model,
-                                        baseColor: part.baseColor, flags: flags)
+                                        baseColor: baseColor, flags: flags)
                 encoder.setVertexBuffer(part.positions, offset: 0, index: 0)
                 encoder.setVertexBuffer(part.texcoords ?? part.positions, offset: 0, index: 1)
                 encoder.setVertexBuffer(part.normals ?? part.positions, offset: 0, index: 2)
@@ -259,7 +335,6 @@ final class MetalTileRenderer: @unchecked Sendable {
                                               indexBuffer: part.indices, indexBufferOffset: 0)
             }
         }
-        return statistics
     }
 
     /// The sky's depth for a compositor: just inside the far plane. A
@@ -273,7 +348,7 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// their colour and only have their depth raised, so nothing is hidden.
     /// Only a compositor needs it: a window shows the cleared sky as is.
     func encodeSkyDepth(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat) {
-        guard let pipeline = pipeline(colour: colour, depth: depth, skyDepth: true) else { return }
+        guard let pipeline = pipeline(colour: colour, depth: depth, kind: .skyDepth) else { return }
         encoder.setRenderPipelineState(pipeline)
         encoder.setDepthStencilState(depthState)
         var depth = Self.skyDepth
@@ -297,7 +372,9 @@ constant uint kTextured = 1;
 constant uint kLit = 2;
 
 struct TileVertexOut {
-    float4 position [[position]];
+    // Invariant: a translucent pass's colour draw must meet its depth
+    // pre-pass exactly.
+    float4 position [[position, invariant]];
     float2 uv;
     float3 normal;
 };
