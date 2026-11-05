@@ -90,4 +90,15 @@ enum ViewPreferences {
         ProcessInfo.processInfo.environment["ALSOMAPS_METAL"] == "1"
             || UserDefaults.standard.bool(forKey: drawsWithMetalKey)
     }
+
+    /// UserDefaults key: photos in place (notes/photos-in-place.md): add your
+    /// own photos, see them on the map where they were taken, and stand in
+    /// them. Off by default.
+    static let photosInPlaceKey = "PhotosInPlace"
+
+    /// The setting, or ALSOMAPS_PHOTOS=1, which turns it on for a run.
+    static var photosInPlace: Bool {
+        ProcessInfo.processInfo.environment["ALSOMAPS_PHOTOS"] == "1"
+            || UserDefaults.standard.bool(forKey: photosInPlaceKey)
+    }
 }

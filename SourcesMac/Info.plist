@@ -28,5 +28,7 @@
 	<false/>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.navigation</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Also Maps reads where your photos were taken to place them on the map. Photos stay on your device.</string>
 </dict>
 </plist>

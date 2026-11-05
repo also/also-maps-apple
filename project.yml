@@ -97,6 +97,10 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
+        # Photos in place, off by default: only asked for when a picked photo's
+        # data has no location, or for Photos Near Here. The picker itself
+        # needs no permission.
+        NSPhotoLibraryUsageDescription: Also Maps reads where your photos were taken to place them on the map. Photos stay on your device.
         # Game controllers drive the map (MapInput) rather than system navigation.
         GCSupportsControllerUserInteraction: true
         GCSupportedGameControllers:
@@ -168,6 +172,7 @@ targets:
           - Config
           - Credentials
           - Places
+          - Photos
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
     dependencies:
@@ -184,6 +189,10 @@ targets:
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         LSApplicationCategoryType: public.app-category.navigation
+        # Photos in place, off by default: only asked for when a picked photo's
+        # data has no location, or for Photos Near Here. The picker itself
+        # needs no permission.
+        NSPhotoLibraryUsageDescription: Also Maps reads where your photos were taken to place them on the map. Photos stay on your device.
     settings:
       groups: [CesiumBridge, AppName]
       base:
@@ -320,6 +329,7 @@ targets:
           - Config
           - Credentials
           - Places
+          - Photos
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
     dependencies:
@@ -342,6 +352,10 @@ targets:
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         UILaunchScreen: {}
+        # Photos in place, off by default: only asked for when a picked photo's
+        # data has no location, or for Photos Near Here. The picker itself
+        # needs no permission.
+        NSPhotoLibraryUsageDescription: Also Maps reads where your photos were taken to place them on the map. Photos stay on your device.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
