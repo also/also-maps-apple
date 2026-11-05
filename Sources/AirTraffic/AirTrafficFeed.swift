@@ -174,7 +174,9 @@ final class AirTrafficFeed {
         guard pollsInBackground else { return }
         task = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.pollIfDue()
+                // Gone (its map closed without stopping it): stop too.
+                guard let feed = self else { return }
+                await feed.pollIfDue()
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -198,15 +200,13 @@ final class AirTrafficFeed {
         schedule.requested(at: now, area: area)
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        let outcome: AirTrafficSchedule.Outcome
+        var outcome = AirTrafficSchedule.Outcome.failure
         do {
             let (data, response) = try await fetch(request)
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                 if http.statusCode == 429 || http.statusCode == 503 {
                     let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init)
                     outcome = .rateLimited(retryAfter: retryAfter)
-                } else {
-                    outcome = .failure
                 }
                 lastError = "HTTP \(http.statusCode)"
             } else {
@@ -217,10 +217,12 @@ final class AirTrafficFeed {
                 if isRunning {
                     aircraftCount = snapshot.reports.count
                     onSnapshot?(snapshot, clock())
+                    #if DEBUG
+                    print("[AlsoMaps] air traffic: \(aircraftCount) aircraft within \(Int(area.radius / 1000)) km of \(String(format: "%.4f, %.4f", area.centre.latitude, area.centre.longitude))")
+                    #endif
                 }
             }
         } catch {
-            outcome = .failure
             lastError = error.localizedDescription
         }
         schedule.finished(outcome, at: clock())
