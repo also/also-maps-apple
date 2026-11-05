@@ -75,6 +75,8 @@ The pin button next to the mode picker jumps to a saved place: its position, zoo
 
 The remote config can replace these defaults; see below.
 
+**Two places (experimental, off by default):** with Settings › General › Two places on, a Guest menu next to Places streams a second place and shows it beside the map's centre (at its own heights) or over it (ground matched, turned to a heading, drawn see-through), at the same scale. It's a second streamer, so a second Google map session and about twice the tiles, memory and requests. `ALSOMAPS_GUEST_PLACE=<id>` shows one at launch, with `ALSOMAPS_GUEST_MODE=side|overlay`, `ALSOMAPS_GUEST_HEADING` and `ALSOMAPS_GUEST_RADIUS`. See [notes/two-places.md](notes/two-places.md).
+
 ## Remote config
 
 Every platform reads `https://maps.also.dev/config/v1.json`, a static file published from also-maps-site, on launch, on returning to the foreground and every 15 minutes while active (every minute while blocked). `Sources/Config/` holds the file's model and rules (`AppConfig`), its fetching and saved copy (`AppConfigStore`) and how the app applies it (`AppGate`).
