@@ -58,9 +58,19 @@ Two consequences in plain terms:
 - **Good at:** everything from neighbourhood to planet. Terrain has real stereo depth because it's metres away in the room. You feel the landscape's shape.
 - **Bad at:** low, close work. Nearby buildings become small objects very close to your face (§7), and the world's size changes whenever "the ground under you" changes, which is exactly the estimate we don't have reliably (§8).
 
-### Model (the volume)
+### Diorama (the volume)
 
-The map is an object in a box you look into, like a model on a table. You don't stand in it; you look at it from outside, from a fixed viewpoint in front. Tilting a model toward you to see it better is natural here in a way it isn't when you stand in the world. "Flying" in the volume is moving the model under your gaze.
+The map is an object in a box you look into, like a diorama on a table. You don't stand in it; you look at it from outside, from a fixed viewpoint in front. Tilting a diorama toward you to see it better is natural here in a way it isn't when you stand in the world.
+
+**Owner:**
+
+- The volume and the immersive space are the app's two modes. The volume is the default; the immersive space is much more immersive, probably more useful, and more fun.
+- The volume is neither a way to fly nor a control panel. The same controls work there, but moving a clipped map around doesn't feel like flying. It's looking at a model.
+
+**Proposal:**
+
+- Flying is designed for the immersive space; the volume's goals are those of inspecting a diorama.
+- As the default, the volume still gets the basics: level when it should be, and the world never moving by itself. Its tilt bug (§10) is worth fixing properly.
 
 ### Flat screens (Mac, iPhone, iPad)
 
@@ -87,7 +97,7 @@ Moving through the bands should be continuous for the drone mode: climbing from 
 | **Drone** (immersive) | Today | You're a drone pilot riding the drone: you fly anywhere, climb to orbit in one go | **Owner:** the ground is level. Far up, some tilt helps so you needn't look straight down; the current tilt-with-altitude curve (none below 50 km, a quarter turn by 500 km) is arbitrary and tunable | Giant |
 | **Ground / globe** (Google Earth VR-style) | Future | Two distinct experiences: standing over the land, or facing a planet. A button switches between them with a short, deliberate transition | **Owner:** ground is level, globe is fully tilted toward you; nothing in between except during the transition | Giant; ground mode has a ceiling, globe mode a floor, and the ranges overlap |
 | **Human scale** | Test toggle today | You're life-size, flying; a real sense of height and speed | Level always | Pilot |
-| **Volume** | Today | A model on a table that you fly over | The model can tilt toward you, as you'd tilt a model; at low altitude it should look level with the box | Model |
+| **Volume** | Today | A diorama you look at and move; not flying (owner) | The model can tilt toward you, as you'd tilt a model; at low altitude it should look level with the box | Model |
 | **Flat screen** (Mac, iPhone) | Today | A flight view on a screen, or orbit/pan/zoom on the Mac | Camera pitch | None |
 
 **Tilt by altitude versus tilt by toggle.** Altitude-driven tilt is convenient (no button) but makes tilt depend on altitude, and altitude depends on a ground estimate, so tilt inherits the estimate's noise. A toggle makes tilt a pure choice that nothing can disturb. **Proposal:** if the drone keeps an altitude curve, compute it from something that changes only when you climb (the camera's height above a coarse, slowly varying ground), never from the per-frame estimate.
@@ -224,5 +234,5 @@ Before adding anything that can move the world (scale, tilt, position), ask: **w
 3. **Speed near buildings:** adopt nearest-surface speed (§6)?
 4. **Scale near buildings:** worth an experiment (§7), and automatic or deliberate?
 5. **Bottom of the giant:** should descending to street level ease into human scale, making the two one continuous mode?
-6. **The volume:** is it still a primary way to fly, or mainly a control panel and overview now that immersive is the focus? It decides how much effort its tilt model deserves.
+6. **The volume** (answered): one of the two modes and the default; a diorama to look at, not a way to fly (§3).
 7. **Solid ground versus freedom:** stop at the ground (hard), slow near it (soft), or allow passing through with a clear visual cue (useful for exploring, but breaks the illusion)?
