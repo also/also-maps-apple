@@ -69,7 +69,7 @@ final class TileStreaming {
     private var streamer: CNTileStreamer?
     private let tileUploader = TileUploader()
     /// Builds each tile's renderer resources instead of RealityKit entities
-    /// (the Metal spike); the tiles to draw are then in `drawnTiles` each
+    /// (MetalTileRenderer); the tiles to draw are then in `drawnTiles` each
     /// frame and nothing is added under `tilesRoot`. Setting or clearing it
     /// while streaming restarts, so every tile is built the new way.
     var customTileHandler: CNTileLoadHandler? {

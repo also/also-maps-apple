@@ -54,6 +54,8 @@ struct ImmersiveMapView: View {
         .task {
             // Measured once, on entry: the eye the map is placed around.
             // Implausible heights (tracking glitches) keep the assumed eye.
+            // MetalImmersiveRenderer measures it separately, differently
+            // (notes/metal-renderer.md, "Eye height").
             if let head = await headTracker.headPosition(), (0.5...2.5).contains(head.y) {
                 model.measuredEye = SIMD3<Double>(head)
             }

@@ -17,6 +17,12 @@ The tile pipeline is instrumented with signposts (`os_signpost`), so Instruments
 | Frame | `Update` | `TileStreaming.update` | the whole per-frame update on the main thread |
 | Frame | `Select` | bridge | cesium-native's selection pass inside `Update` |
 | Frame | `MetalEncode` | `MetalTileRenderer` | render-only culling and draw encoding for one view |
+| Tiles | `MetalBuild` | `MetalTileRenderer` | one tile's Metal buffers and textures, off the main thread. Begin message: builds in flight. |
+| Frame | `ImmersiveTick` | `MetalImmersiveRenderer` | visionOS Metal space: the model's tick, including streaming's `Update` |
+| Frame | `ImmersiveWait` | `MetalImmersiveRenderer` | waiting for the compositor's optimal input time |
+| Frame | `ImmersiveRender` | `MetalImmersiveRenderer` | querying the drawable, encoding both eyes and committing |
+| Frame | event `MissedDeadline` | `MetalImmersiveRenderer` | a frame committed after the compositor's rendering deadline; message: by how much |
+| Frame | event `FrameGap` | `MetalImmersiveRenderer` | more than 1.5 frames (at 90 Hz) between presentation times; message: the gap |
 
 Add more with `Signposts.tiles.beginInterval("Name", id: signposter.makeSignpostID())` / `endInterval`, or `os_signpost_interval_begin` in the bridge. Names must be string literals.
 

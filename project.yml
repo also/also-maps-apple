@@ -6,11 +6,24 @@ options:
     macOS: "26.0"
     tvOS: "26.0"
     iOS: "26.0"
+# Optimised: Debug (keys from Config/Secrets.xcconfig, DEBUG code) compiled
+# as fast as Release, for running on a device. The unoptimised Debug build
+# misses frame deadlines on Vision Pro (notes/metal-renderer.md).
+configs:
+  Debug: debug
+  Optimised: debug
+  Release: release
 settings:
   base:
     # Xcode's recommended project settings, set here so it stops prompting.
     DEAD_CODE_STRIPPING: YES
     STRING_CATALOG_GENERATE_SYMBOLS: YES
+  configs:
+    Optimised:
+      GCC_OPTIMIZATION_LEVEL: s
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      SWIFT_COMPILATION_MODE: wholemodule
+      ENABLE_DEBUG_DYLIB: NO
 packages:
   # cesium-native, prebuilt: https://github.com/also/cesium-native-xcframework
   CesiumNative:
@@ -41,12 +54,13 @@ settingGroups:
     PRODUCT_MODULE_NAME: AlsoMaps
 configFiles:
   Debug: Config/App.xcconfig
+  Optimised: Config/App.xcconfig
   Release: Config/App.xcconfig
 targets:
   Also Maps visionOS:
     scheme:
       # Tick ALSOMAPS_* to stream the public Cesium sample instead of Google's tiles.
-      environmentVariables:
+      environmentVariables: &visionOSEnvironment
         - variable: ALSOMAPS_TILESET_URL
           value: https://raw.githubusercontent.com/CesiumGS/3d-tiles-samples/main/1.0/TilesetWithDiscreteLOD/tileset.json
           isEnabled: false
@@ -393,3 +407,22 @@ targets:
         Release:
           GOOGLE_MAPS_API_KEY: ""
           CESIUM_ION_TOKEN: ""
+
+schemes:
+  # The visionOS app built Optimised, without Metal API validation or GPU
+  # frame capture: for using it on a Vision Pro rather than debugging it.
+  Also Maps visionOS (Optimised):
+    build:
+      targets:
+        Also Maps visionOS: all
+    run:
+      config: Optimised
+      enableGPUValidationMode: disabled
+      enableGPUFrameCaptureMode: disabled
+      environmentVariables: *visionOSEnvironment
+    profile:
+      config: Optimised
+    analyze:
+      config: Optimised
+    archive:
+      config: Release

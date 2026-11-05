@@ -1,13 +1,14 @@
 import ARKit
 import CompositorServices
 import Metal
+import OSLog
 import SwiftUI
 
-/// The immersive presentation drawn with Metal (a spike; Settings › Immersion):
-/// the same MapModel, placement and streaming as ImmersiveMapView, but the
-/// tiles are drawn by MetalTileRenderer into a CompositorLayer, with their
-/// real depth. The volume stays the control panel; look-and-pinch on the map
-/// isn't available, but controllers are.
+/// The immersive presentation drawn with Metal (Settings › General › Draw
+/// with Metal): the same MapModel, placement and streaming as
+/// ImmersiveMapView, but the tiles are drawn by MetalTileRenderer into a
+/// CompositorLayer, with their real depth. The volume stays the control
+/// panel; look-and-pinch on the map isn't available, but controllers are.
 struct MetalImmersiveContent: CompositorContent {
     static let spaceID = "metal-map"
 
@@ -94,17 +95,41 @@ final class MetalImmersiveRenderer {
             let deltaTime = lastPresentation.map { Float(Self.seconds($0.duration(to: presentation))) } ?? 1 / 90
             lastPresentation = presentation
 
+            // Signposts (docs/profiling.md): where each frame's time goes, and
+            // the frames that were late or skipped.
+            let signposter = Signposts.frame
+            if deltaTime > 1.5 / 90 {
+                signposter.emitEvent("FrameGap", "\(deltaTime * 1000, format: .fixed(precision: 1)) ms between presentations")
+            }
+
             frame.startUpdate()
+            let tick = signposter.beginInterval("ImmersiveTick", id: signposter.makeSignpostID())
             model.metalImmersiveTick(deltaTime: min(max(deltaTime, 0), 0.1))
+            signposter.endInterval("ImmersiveTick", tick)
             frame.endUpdate()
 
+            let wait = signposter.beginInterval("ImmersiveWait", id: signposter.makeSignpostID())
             try? await clock.sleep(until: timing.optimalInputTime, tolerance: nil)
+            signposter.endInterval("ImmersiveWait", wait)
+            // The wait suspends the main actor, so the space can close in
+            // the meantime (exiting Immersive). Submitting to an invalidated
+            // layer's frame aborts; the top of the loop handles it instead.
+            guard layerRenderer.state == .running else { continue }
 
             frame.startSubmission()
-            if let drawable = frame.queryDrawable() {
-                render(drawable, at: presentation)
-            }
+            // One drawable per target (the display, plus one while capturing,
+            // say). None (the layer is going away): drop the frame. Ending a
+            // submission without one is invalid and aborts.
+            let drawables = frame.queryDrawables()
+            guard !drawables.isEmpty else { continue }
+            let render = signposter.beginInterval("ImmersiveRender", id: signposter.makeSignpostID())
+            for drawable in drawables { self.render(drawable, at: presentation) }
+            signposter.endInterval("ImmersiveRender", render)
             frame.endSubmission()
+            let overrun = Self.seconds(timing.renderingDeadline.duration(to: clock.now))
+            if overrun > 0 {
+                signposter.emitEvent("MissedDeadline", "\(overrun * 1000, format: .fixed(precision: 1)) ms after the rendering deadline")
+            }
             printLog()
         }
     }
@@ -120,8 +145,11 @@ final class MetalImmersiveRenderer {
         originFromDevice.columns.3.y += 1.6
         #endif
         if anchor != nil { log.anchored += 1 }
-        // Measured once, as ImmersiveMapView does: the eye the map is placed
+        // Measured once, like ImmersiveMapView's: the eye the map is placed
         // around. Implausible heights (tracking glitches) keep the assumed eye.
+        // A second copy, and it diverges: it takes the first pose without
+        // waiting for `isTracked`, as HeadTracker does. A follow-up could share
+        // one measurement (notes/metal-renderer.md, "Eye height").
         if !measuredEye, anchor != nil {
             measuredEye = true
             let head = originFromDevice.columns.3
@@ -162,6 +190,8 @@ final class MetalImmersiveRenderer {
                              viewProjection: drawable.computeProjection(viewIndex: index)
                                  * (originFromDevice * view.transform).inverse,
                              root: root, tiles: tiles))
+                // Sky left at the far plane would be dropped as clipped.
+                metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat)
             }
             encoder.endEncoding()
         }

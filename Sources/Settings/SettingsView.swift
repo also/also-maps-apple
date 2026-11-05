@@ -105,6 +105,10 @@ struct SettingsView: View {
         }
     }
 
+    static let termsURL = URL(string: "https://maps.also.dev/terms/")!
+    static let googleMapsTermsURL = URL(string: "https://maps.google.com/help/terms_maps/")!
+    static let googlePrivacyURL = URL(string: "https://policies.google.com/privacy")!
+
     // MARK: Categories
 
     private var general: some View {
@@ -123,6 +127,18 @@ struct SettingsView: View {
                 Text("Tiles drawn, load progress and requests, shown over the map.")
             }
 
+            #if !os(tvOS)
+            Section {
+                Toggle("Draw with Metal", isOn: $drawsWithMetal)
+            } footer: {
+                #if os(visionOS)
+                Text("Draws the immersive map with the app's own Metal renderer instead of RealityKit, always in full immersion, with real depth. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
+                #else
+                Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
+                #endif
+            }
+            #endif
+
             #if os(visionOS)
             Section {
                 Picker("Turn and zoom around", selection: $settings.keyboardTurnPivot) {
@@ -133,6 +149,18 @@ struct SettingsView: View {
                 Text("Where you are keeps the ground beneath you fixed, so zooming is moving straight up or down and turning is turning on the spot.")
             }
             #endif
+
+            // Google Maps Platform Terms §3.2.2(a): the app's terms must say
+            // it includes Google Maps content, under Google's terms and privacy policy.
+            Section {
+                Link("Terms of Use", destination: Self.termsURL)
+                Link("Google Maps Terms", destination: Self.googleMapsTermsURL)
+                Link("Google Privacy Policy", destination: Self.googlePrivacyURL)
+            } header: {
+                Text("Terms")
+            } footer: {
+                Text("Also Maps includes Google Maps features and content. Their use is subject to the Google Maps/Google Earth Additional Terms of Service and the Google Privacy Policy.")
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("General")
@@ -201,20 +229,6 @@ struct SettingsView: View {
             } header: {
                 Text("Streaming")
             }
-
-            #if !os(tvOS)
-            Section {
-                Toggle("Draw with Metal", isOn: $drawsWithMetal)
-            } header: {
-                Text("Renderer")
-            } footer: {
-                #if os(visionOS)
-                Text("Draws the immersive map with the app's own Metal renderer instead of RealityKit, always in full immersion, with real depth. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
-                #else
-                Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
-                #endif
-            }
-            #endif
 
             #if os(visionOS)
             debugging
