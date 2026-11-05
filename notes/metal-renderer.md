@@ -74,6 +74,55 @@ quality.
 
 ## Log
 
+### 2026-11-04: immersion styles (mixed works, progressive needs layered)
+
+- **Observed (simulator):** the Metal space now opens mixed or full,
+  following Settings › Immersion › Full immersion (`model.fullImmersion`),
+  as the RealityKit space does, and coexists with the system environment.
+  In mixed, the simulator's room shows wherever there's no map; in full,
+  the sky as before. Both on the visionOS 27 Vision Pro simulator with
+  `ALSOMAPS_METAL=1 ALSOMAPS_PRESENTATION=immersive` (plus
+  `ALSOMAPS_FULL_IMMERSION=1` for full). Not yet checked on a device, nor
+  switching the toggle while the space is open.
+- What mixed needed, per WWDC24 "Render Metal with passthrough in
+  visionOS" (10092): clear colour to all zeros (premultiplied alpha; full
+  clears opaque), depth still cleared to 0, and real depth for every drawn
+  pixel. Nothing in `LayerRenderer.Configuration` changes. The sky's
+  depth-only pass is skipped in mixed: sky pixels stay at the far plane,
+  which the compositor drops, so passthrough shows there. The style is read
+  each frame, so the toggle should apply live.
+- **Inferred:** tile fragments write their texture's alpha unblended. Google's
+  photorealistic textures are opaque, so this should be fine; content with
+  alpha below 1 would show as unpremultiplied, translucent colour in mixed.
+  Worth a look on the device.
+- **Progressive (Digital Crown) isn't done.** visionOS 26 adds it for
+  CompositorServices ("Controlling Metal rendering immersion level"; WWDC25
+  "What's new in Metal rendering for immersive apps", 294), but only with
+  the **layered** layout. The space declares `.progressive` (with `.full`),
+  the configuration sets `drawableRenderContextStencilFormat` (checked
+  against `drawableRenderContextSupportedStencilFormats`), and each frame
+  calls `drawable.addRenderContext(commandBuffer:)`, then
+  `drawMaskOnStencilAttachment(commandEncoder:value:)` before drawing, a
+  stencil test against that value, and `renderContext.endEncoding` in place
+  of `endEncoding`; the system draws the portal's faded edge. The SDK
+  headers (`drawable_render_context.h`) say the encoder must have
+  `renderTargetArrayLength` equal to the drawable's view count and that
+  dedicated and shared layouts aren't supported, except on one-view
+  platforms such as the simulator. So this renderer, which draws each eye
+  in its own pass into dedicated textures, would need both eyes in one
+  layered pass: vertex amplification (or instancing) writing
+  `[[render_target_array_index]]`, per-eye view-projections in the
+  uniforms, and culling against both eyes. That's a change to
+  `MetalTiles.swift`'s shaders and `encode`, so it's left as its own piece
+  of work. It would also bring the vertex amplification the foveation note
+  above mentions.
+- **Not done: an edge fade.** In mixed the map ends in a hard cut against
+  passthrough at the streaming reach, as the RealityKit space's does. A
+  fade would be a premultiplied alpha ramp by horizontal distance from the
+  viewer in the tile fragment shader, with blending on; a shader change,
+  so left for whoever owns the shaders. Progressive's portal edge is
+  faded by the system and wouldn't need it.
+
 ### 2026-11-04: eye height is measured twice
 
 - **Observed (code):** both immersive spaces place the map around an eye
