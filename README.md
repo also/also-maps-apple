@@ -53,7 +53,7 @@ xcodebuild -scheme 'Also Maps Core Tests' -destination 'platform=macOS' test
 - **Zoom:** pinch with both hands and move them apart or together. The view's half-width ranges from 50 m to 10,000 km, about a hemisphere. Below 50 km the ground is placed by sampling terrain. Above 50 km it's placed by the Earth's curve, so sea level at the view's edges meets the base plane, with no sampling. At hemisphere scale, tiles on the far side of the Earth are skipped.
 - **Turn:** pinch with both hands and twist about the vertical. The map turns around the focus point and can turn while zooming.
 - **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F descend and climb (which is zoom), `=` and `-` zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.
-- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, Y faces north, and X toggles Fly. The ornament shows these hints while a controller is connected. Keyboard and controller input combine, and the turn pivot in Settings applies to both.
+- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, Y faces north, and X holds or releases the loaded tiles (see [Holding tiles](#holding-tiles)). The ornament shows these hints while a controller is connected. Keyboard and controller input combine, and the turn pivot in Settings applies to both.
 
 On a Mac, the map also takes the usual mouse and trackpad controls:
 
@@ -63,11 +63,13 @@ On a Mac, the map also takes the usual mouse and trackpad controls:
 
 `ALSOMAPS_HEADING`, in degrees clockwise from north, sets the starting direction.
 
-## Fly
+## Holding tiles
 
-The airplane button, or X on a controller, toggles **Fly**. Streaming freezes, so the loaded tiles stay as they are. Every control then does exactly what it does outside Fly: the same moves, turns and zoom, at the same rates and around the same pivot (the "Turn and zoom around" setting), applied to the frozen scene instead of the live map. The surface stays on the base plane. Turning Fly off resumes streaming from where you are, without anything visibly moving.
+**Hold tiles**, in the debug panel, or X on a controller, freezes streaming, so the loaded tiles stay as they are. Every control then does exactly what it does with live tiles: the same moves, turns and zoom, at the same rates and around the same pivot (the "Turn and zoom around" setting), applied to the frozen scene instead of the live map. The surface stays on the base plane. Releasing the tiles resumes streaming from where you are, without anything visibly moving. While tiles are held and the debug panel is closed, the toolbar shows a Tiles Held button that releases them.
 
-Detail doesn't improve as you zoom in, because nothing new loads while frozen. Changing view mode or going to a place leaves Fly.
+Detail doesn't improve as you zoom in, because nothing new loads while frozen. You can travel about 1.5× and zoom out about 3× the held region before stopping. Changing view mode or going to a place releases the tiles.
+
+The debug panel opens from the wrench in the toolbar, which shows when Settings → Advanced → Debugging has **Show debug controls** on. It also has the debugging overlays and view-state copy and restore, the same controls as that Settings page.
 
 ## Places
 
@@ -162,7 +164,7 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 
 **Debugging** (Advanced, visionOS):
 - **Show pivot and centre markers** draws a red post where turns and zooms pivot, and a blue post at the map's centre.
-- **Copy View State** copies the whole view as JSON (position, zoom, heading, presentation, Fly pose and settings) and prints it to the console.
+- **Copy View State** copies the whole view as JSON (position, zoom, heading, presentation, held tiles and settings) and prints it to the console.
 - **Restore from Clipboard** brings a copied state back.
 
 At launch, `ALSOMAPS_STATE=<that JSON>` restores a state and `ALSOMAPS_MARKERS=1` shows the markers.

@@ -84,6 +84,8 @@ enum ViewPreferences {
     /// UserDefaults key: draw tiles with the app's Metal renderer instead of
     /// RealityKit (the map window on a screen, the immersive mode on visionOS).
     static let drawsWithMetalKey = "DrawsWithMetal"
+    /// UserDefaults key: show the wrench that opens the volume's debug panel.
+    static let showsDebugControlsKey = "ShowsDebugControls"
 
     /// The setting, or ALSOMAPS_METAL=1, which turns it on for a run.
     static var drawsWithMetal: Bool {

@@ -11,6 +11,8 @@ struct VolumeView: View {
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(ViewPreferences.showsDebugControlsKey) private var showsDebugControls = false
+    @State private var showsDebugPanel = false
 
     var body: some View {
         RealityView { content in
@@ -40,13 +42,6 @@ struct VolumeView: View {
         .toolbar {
             ToolbarItemGroup(placement: .bottomOrnament) {
                 presentationPicker
-                Toggle(isOn: Binding(get: { model.tilesHeld },
-                                     set: { model.setTilesHeld($0) })) {
-                    Label("Fly", systemImage: "airplane")
-                }
-                .toggleStyle(.button)
-                .labelStyle(.iconOnly)
-                .help("Hold tiles: fly through what's loaded without requesting more")
                 Toggle(isOn: Binding(get: { model.isRecordingTrack },
                                      set: { $0 ? model.startTrack() : model.stopTrack() })) {
                     Label(model.isRecordingTrack ? "Stop Recording" : "Record Track",
@@ -98,7 +93,30 @@ struct VolumeView: View {
                     }
                     .labelStyle(.iconOnly)
                 }
+                // Shown whenever tiles are held, even with the debug controls
+                // hidden (X on a controller holds them), since the map stops
+                // at the edge of what's loaded. Tapping releases them.
+                if model.tilesHeld, !showsDebugPanel {
+                    Button("Tiles Held", systemImage: "pause.circle.fill") { model.setTilesHeld(false) }
+                        .help("Tiles are held: tap to stream again")
+                }
+                if showsDebugControls {
+                    Toggle(isOn: $showsDebugPanel) {
+                        Label("Debug", systemImage: "wrench.and.screwdriver")
+                    }
+                    .toggleStyle(.button)
+                    .labelStyle(.iconOnly)
+                    .help("Debug controls")
+                }
             }
+        }
+        .ornament(attachmentAnchor: .scene(.trailing), contentAlignment: .leading) {
+            if showsDebugPanel {
+                DebugPanel()
+            }
+        }
+        .onChange(of: showsDebugControls) { _, shows in
+            if !shows { showsDebugPanel = false }
         }
         // The attribution on a back edge of the volume, away from the window
         // controls below its front, which the system keeps a readable size
@@ -126,6 +144,10 @@ struct VolumeView: View {
             }
             if ProcessInfo.processInfo.environment["ALSOMAPS_TILE_BOUNDS"] == "1" {
                 model.showsTileBounds = true
+            }
+            // ALSOMAPS_DEBUG_PANEL=1 opens the debug panel for the run.
+            if ProcessInfo.processInfo.environment["ALSOMAPS_DEBUG_PANEL"] == "1" {
+                showsDebugPanel = true
             }
             // ALSOMAPS_SHOW_TRACK=1 draws the latest track.
             if ProcessInfo.processInfo.environment["ALSOMAPS_SHOW_TRACK"] == "1" {

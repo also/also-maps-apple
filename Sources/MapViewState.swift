@@ -6,7 +6,7 @@ import simd
 /// the settings that shape navigation. Copied as JSON from Settings; restored
 /// from the clipboard or, at launch, from ALSOMAPS_STATE.
 ///
-/// Version 2 is camera-centric. Older (focus, radius, Fly) states aren't
+/// Version 2 is camera-centric. Older (focus, radius, held-tile pose) states aren't
 /// supported.
 struct MapViewState: Codable {
     static let currentVersion = 2
