@@ -302,6 +302,37 @@ struct FetchCounters {
 }
 @end
 
+/// The one tile cache, shared by every streamer's session. The app can run
+/// more than one streamer at once (a second tileset beside the main one, or
+/// a restart while the old streamer drains), and separate NSURLCache
+/// instances over the same directory would each keep their own index of it.
+/// NSURLCache is thread-safe, so one instance serves every session.
+static CNTileCache* CNSharedTileCache(void) {
+  static CNTileCache* cache;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    // The system's shared cache is ~10 MB on disk, far less than one scene (~56 MB),
+    // so tiles were evicted before the next load. Responses over 5% of the
+    // disk capacity aren't stored, so this stays well above the largest tile.
+    NSURL* cachesDir = [NSFileManager.defaultManager
+        URLForDirectory:NSCachesDirectory
+               inDomain:NSUserDomainMask
+      appropriateForURL:nil
+                 create:YES
+                  error:nil];
+    // Unsandboxed builds share ~/Library/Caches, so namespace by bundle.
+    NSString* bundleName = NSBundle.mainBundle.bundleIdentifier ?: @"AlsoMaps";
+    NSURL* tilesDir = [[cachesDir URLByAppendingPathComponent:bundleName
+                                                  isDirectory:YES]
+        URLByAppendingPathComponent:@"tiles"
+                        isDirectory:YES];
+    cache = [[CNTileCache alloc] initWithMemoryCapacity:64ull * 1024 * 1024
+                                           diskCapacity:1024ull * 1024 * 1024
+                                           directoryURL:tilesDir];
+  });
+  return cache;
+}
+
 @interface CNMetricsDelegate : NSObject <NSURLSessionTaskDelegate>
 - (instancetype)initWithCounters:(std::shared_ptr<FetchCounters>)counters;
 @end
@@ -359,24 +390,7 @@ public:
     NSURLSessionConfiguration* config =
         [NSURLSessionConfiguration defaultSessionConfiguration];
     config.HTTPMaximumConnectionsPerHost = 12;
-    // The shared cache is ~10 MB on disk, far less than one scene (~56 MB), so
-    // tiles were evicted before the next load. Responses over 5% of the disk
-    // capacity aren't stored, so this stays well above the largest tile.
-    NSURL* cachesDir = [NSFileManager.defaultManager
-        URLForDirectory:NSCachesDirectory
-               inDomain:NSUserDomainMask
-      appropriateForURL:nil
-                 create:YES
-                  error:nil];
-    // Unsandboxed builds share ~/Library/Caches, so namespace by bundle.
-    NSString* bundleName = NSBundle.mainBundle.bundleIdentifier ?: @"AlsoMaps";
-    NSURL* tilesDir = [[cachesDir URLByAppendingPathComponent:bundleName
-                                                  isDirectory:YES]
-        URLByAppendingPathComponent:@"tiles"
-                        isDirectory:YES];
-    config.URLCache = [[CNTileCache alloc] initWithMemoryCapacity:64ull * 1024 * 1024
-                                                     diskCapacity:1024ull * 1024 * 1024
-                                                     directoryURL:tilesDir];
+    config.URLCache = CNSharedTileCache();
     config.requestCachePolicy = NSURLRequestUseProtocolCachePolicy;
     _session = [NSURLSession
         sessionWithConfiguration:config
