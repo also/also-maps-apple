@@ -47,6 +47,9 @@ settingGroups:
       - LIBASYNC_STATIC
       - SPDLOG_COMPILED_LIB
       - SPDLOG_FMT_EXTERNAL
+      # The prebuilt library is a release build. Without this, ReferenceCounted
+      # in its headers has a debug-only member the library's objects don't.
+      - NDEBUG
   # One app on every platform. The Mac shows this name, not the display name, in
   # Finder and the menu bar; Swift module names can't have spaces.
   AppName:
@@ -72,6 +75,9 @@ targets:
           isEnabled: false
         - variable: ALSOMAPS_RADIUS
           value: "800"
+          isEnabled: false
+        - variable: ALSOMAPS_TRACES
+          value: ""
           isEnabled: false
     type: application
     platform: visionOS
@@ -164,6 +170,9 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - TraceDrape.swift
+          - TraceFile.swift
+          - TracesMenu.swift
           - DebugLines.swift
           - Config
           - Credentials
@@ -220,6 +229,7 @@ targets:
       - path: Sources/Metal/MetalVisibility.swift
       - path: Tests/Metal
       - path: Sources/Places/Place.swift
+      - path: Sources/TraceFile.swift
       - path: Sources/Config/AppConfig.swift
       - path: Sources/Config/AppConfigStore.swift
       - path: Sources/Credentials/CredentialStore.swift
@@ -254,6 +264,9 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - TraceDrape.swift
+          - TraceFile.swift
+          - TracesMenu.swift
           - DebugLines.swift
           - Config
           - Credentials/CredentialStore.swift
@@ -310,6 +323,9 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - TraceDrape.swift
+          - TraceFile.swift
+          - TracesMenu.swift
           - DebugLines.swift
           - Config
           - Credentials

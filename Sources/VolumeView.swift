@@ -86,6 +86,8 @@ struct VolumeView: View {
                 }
                 .labelStyle(.iconOnly)
                 .help("Go to a place")
+                TracesMenu(streaming: model.streaming) { model.go(to: $0) }
+                    .labelStyle(.iconOnly)
                 Button("Settings", systemImage: "gearshape") {
                     openWindow(id: SettingsView.windowID)
                 }
