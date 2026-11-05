@@ -283,6 +283,9 @@ struct AttributionView: View {
                 VStack(spacing: 2) {
                     Text("\(stats.renderedTiles) tiles · \(stats.entities) entities · \(Int(model.streaming.loadProgress))%")
                     Text(stats.requestsSummary)
+                    if model.airTraffic.feed.isRunning {
+                        Text(model.airTraffic.feed.summary)
+                    }
                 }
                 .font(.caption.monospacedDigit())
             }
@@ -300,7 +303,9 @@ struct AttributionView: View {
                     }
                     .frame(height: 18)
                 }
-                Text(model.streaming.credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
+                // Live air traffic's source, after the tiles' own.
+                let airTraffic = model.airTraffic.feed.isRunning ? [AirTrafficQuery.attribution] : []
+                Text((model.streaming.credits.map(\.text) + airTraffic).filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption)
                     .lineLimit(1)
             }

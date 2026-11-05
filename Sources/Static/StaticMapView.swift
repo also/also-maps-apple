@@ -148,6 +148,9 @@ struct StaticMapView: View {
 struct AttributionBar: View {
     let streaming: TileStreaming
     var creditLineLimit: Int? = 1
+    /// Other data drawn over the map, credited after the tiles' own (live
+    /// air traffic's source).
+    var otherCredits: [String] = []
 
     var body: some View {
         VStack(spacing: 4) {
@@ -159,7 +162,7 @@ struct AttributionBar: View {
                     Image("GoogleMapsLogo")
                         .accessibilityLabel("Google Maps")
                 }
-                Text(streaming.credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
+                Text((streaming.credits.map(\.text) + otherCredits).filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption)
                     .lineLimit(creditLineLimit)
             }

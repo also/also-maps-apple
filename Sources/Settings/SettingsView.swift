@@ -13,6 +13,7 @@ struct SettingsView: View {
 
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
     @AppStorage(ViewPreferences.drawsWithMetalKey) private var drawsWithMetal = false
+    @AppStorage(ViewPreferences.showsAirTrafficKey) private var showsAirTraffic = false
     #if os(iOS)
     /// On iPhone the list comes first; nothing picked shows General on iPad.
     @State private var category: Category?
@@ -136,6 +137,14 @@ struct SettingsView: View {
                 #else
                 Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
                 #endif
+            }
+            #endif
+
+            #if !os(tvOS)
+            Section {
+                Toggle("Live air traffic", isOn: $showsAirTraffic)
+            } footer: {
+                Text("Aircraft around the map, from adsb.lol's ADS-B data, updated every 10 seconds, with trails of their last three minutes. Positions and heights are approximate. Not drawn with Metal.")
             }
             #endif
 

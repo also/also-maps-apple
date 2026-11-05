@@ -466,7 +466,8 @@ struct ScreenMapView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            AttributionBar(streaming: map.streaming, creditLineLimit: creditLineLimit)
+            AttributionBar(streaming: map.streaming, creditLineLimit: creditLineLimit,
+                           otherCredits: map.airTraffic.feed.isRunning ? [AirTrafficQuery.attribution] : [])
                 .padding(8)
         }
     }
@@ -478,6 +479,9 @@ struct ScreenMapView: View {
             if showsStats {
                 Text("\(stats.renderedTiles) tiles · \(stats.entities) entities · \(Int(map.streaming.loadProgress))% · \(map.framesPerSecond) fps")
                 Text(stats.requestsSummary)
+                if map.airTraffic.feed.isRunning {
+                    Text(map.airTraffic.feed.summary)
+                }
                 Text(String(format: "%.5f, %.5f · %.0f m · heading %.0f° · pitch %.0f°",
                             camera.latitude, camera.longitude, camera.height,
                             camera.heading * 180 / .pi, camera.pitch * 180 / .pi))
