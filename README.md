@@ -187,25 +187,6 @@ Where things land when unsandboxed:
 
 Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](docs/profiling.md). Tile caching, the request counters in the Tuning stats, and how to measure them are in [docs/tile-caching.md](docs/tile-caching.md).
 
-## Running and inspecting the visionOS app (for tools and agents)
-
-Agents can build, install, launch and screenshot the app in the Apple Vision Pro simulator, but no tool tried so far can tap, click or gesture in it (#56). Don't retry the approaches below. Set up what you need at launch, check it with screenshots, and ask the person to try anything that needs interaction.
-
-```
-xcodebuild -scheme "Also Maps visionOS" -destination 'generic/platform=visionOS Simulator' -derivedDataPath build ARCHS=arm64 build
-xcrun simctl install booted "build/Build/Products/Debug-xrsimulator/Also Maps.app"
-SIMCTL_CHILD_ALSOMAPS_PRESENTATION=immersive xcrun simctl launch booted dev.also.maps
-```
-
-`ARCHS=arm64` is needed because the generic destination also builds x86_64, which fails to link: the cesium-native package has only arm64 simulator slices.
-
-`simctl launch` passes each `SIMCTL_CHILD_`-prefixed variable to the app without the prefix, so the `ALSOMAPS_*` variables described in the sections above work as they do in the scheme. To set a preference before launch, use `xcrun simctl spawn booted defaults write dev.also.maps <key> <value>`, with a key from `ViewPreferences` (`Sources/StreamingSettings.swift`). The iOS Simulator tool's `screenshot` captures the device, and `xcrun simctl spawn booted log show` reads its log.
-
-What doesn't work, on Xcode 27.2 with the visionOS 27.0 simulator runtime:
-- **The iOS Simulator tool's `tap`, `swipe`, `touch_path` and `button`** fail with `dtuhidServiceNotVended(name: "com.apple.coredevice.feature.remote.hid.digitizer")`, and restarting the simulator doesn't help. The simulator's input daemon (`dtuhidd`) provides keyboard, pointer, Digital Crown and button input but no touch input, which those actions use.
-- **Claude's computer use** can't reach the simulator window. There's no Simulator.app in Xcode 27: the window belongs to Device Hub (`com.apple.dt.Devices`, in `Xcode.app/Contents/Applications`). The background tools list no windows for it, and under full-screen control every click in the window fails with "Could not verify which document this window is editing".
-- **Codex's computer use** finds and captures the window by Device Hub's bundle ID, but runs into problems interacting with the app's controls.
-
 ## Known gaps
 
 - The main thread still spends 2–3 ms per frame on tile selection and on re-placing every tile, even when the view isn't moving (#2).
