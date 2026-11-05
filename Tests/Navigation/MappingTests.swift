@@ -70,12 +70,12 @@ struct LegacySeamTests {
         }
     }
 
-    @Test func flyPoseComposesAfterThePlacement() {
+    @Test func heldPoseComposesAfterThePlacement() {
         let legacy = state(radius: 600)
-        let fly = Similarity(scale: 1.5, rotation: simd_quatd(angle: 30 * degrees, axis: SIMD3(0, 1, 0)),
+        let heldPose = Similarity(scale: 1.5, rotation: simd_quatd(angle: 30 * degrees, axis: SIMD3(0, 1, 0)),
                              translation: SIMD3(0.4, 0, -0.3))
-        let expected = fly.after(LegacyMapping.placement(legacy, immersive5))
-        let placed = LegacyMapping.georeference(legacy, immersive5, fly: fly).placement(of: LegacyMapping.anchor(legacy))
+        let expected = heldPose.after(LegacyMapping.placement(legacy, immersive5))
+        let placed = LegacyMapping.georeference(legacy, immersive5, heldPose: heldPose).placement(of: LegacyMapping.anchor(legacy))
         #expect(maximumDifference(placed, expected, over: samplePoints) < 1e-9)
     }
 

@@ -201,7 +201,7 @@ There are two estimates, with different jobs and different trust requirements.
 
 ## 9. Live and held tiles
 
-A user-facing choice (the airplane button, or X on a controller). Flying is identical either way.
+A user-facing choice (Hold tiles in the debug panel, or X on a controller). Flying is identical either way.
 
 - **Live:** the streaming inputs (anchor, AOI, LOD viewpoint) follow the camera each frame. They're applied in the same tick as the tiles root.
 - **Held:**
@@ -287,4 +287,4 @@ This revision adds the view tilt τ and the tilt mode's state. Old focus-centric
 2. **Tilt pivot and raised centre:** today's facing tilt pivots on the content centre and raises it toward eye level. Is that the right behaviour for the globe state?
 3. **Ground changes while live:** today the camera stays put and the map eases. Would moving the camera with the ground feel better at all altitudes, not just after place jumps?
 4. **Defaults for AOI and detail:** immersive modes now stream more tiles. Are `.blended` and today's detail settings right?
-5. **Held-tile limits** (1.5× travel, 3× climb), and whether "Fly" is the right name for holding.
+5. **Held-tile limits** (1.5× travel, 3× climb).

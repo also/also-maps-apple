@@ -40,7 +40,7 @@ Specify window pinch as an anchored dolly with a screen-space constraint. Specif
 
 **Reference:** §3.1, check against today; §9, v1 conversion; §10, stage 1 verification.
 
-Deriving a camera position from the inverse legacy transform establishes eye coincidence, but does not establish that the new display mapping reproduces the complete legacy transform. The new mapping also imposes C(pitch), a derived scale, and no independent roll. An arbitrary Fly-composed similarity may fall outside that family.
+Deriving a camera position from the inverse legacy transform establishes eye coincidence, but does not establish that the new display mapping reproduces the complete legacy transform. The new mapping also imposes C(pitch), a derived scale, and no independent roll. An arbitrary held-tile pose similarity may fall outside that family.
 
 Prove which legacy states are representable before making exact conversion a migration requirement. Compare the full transform, not only the eye position or view ray. For unrepresentable states, choose a documented approximation or retain a compatibility placement. Treat this as an early design experiment, before removing the legacy state.
 
@@ -94,7 +94,7 @@ Prioritize:
 - Terrain discontinuities, missing ground, and late-arriving surface data.
 - Live/held transitions under the chosen content contract.
 - Asynchronous tile completions across anchor changes.
-- Full-transform legacy conversion, including representative Fly states.
+- Full-transform legacy conversion, including representative held-tile states.
 - Window gestures over non-planar geometry.
 
 The anchored solver needs a convergence criterion, iteration limit, and defined failure result. “One or two corrections” is not a sufficient correctness contract. Measure anchor error in room metres and use absolute positional tolerances where relative transform tolerances would hide visible errors.

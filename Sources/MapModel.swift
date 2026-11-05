@@ -614,7 +614,7 @@ final class MapModel {
             go(to: PlaceLibrary.place(in: places, stepping: -1, from: currentPlaceID))
         case .faceNorth where !tracks.isPlaying:
             navigation = NavigationOperations.faceNorth(navigation)
-        case .toggleFly:
+        case .toggleTileHold:
             setTilesHeld(!tilesHeld)
         default:
             break
