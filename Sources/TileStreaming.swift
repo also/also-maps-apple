@@ -100,9 +100,15 @@ final class TileStreaming {
     /// Longest main-thread update in the current debug-log second.
     private var debugSlowestUpdate: TimeInterval = 0
 
-    init(inputs: StreamingInputs, settings: StreamingSettings) {
+    /// Which streamer this is, in the debug log: nil for the main map's,
+    /// or a name for another (the world in miniature's) streaming its own
+    /// tileset alongside it.
+    let name: String?
+
+    init(inputs: StreamingInputs, settings: StreamingSettings, name: String? = nil) {
         self.inputs = inputs
         self.settings = settings
+        self.name = name
     }
 
     /// Creates the streamer for the current tile source, or explains which
@@ -280,7 +286,7 @@ final class TileStreaming {
         debugLogElapsed += deltaTime
         if debugLogElapsed > 1 {
             debugLogElapsed = 0
-            print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB)")
+            print("[AlsoMaps] \(name.map { "\($0): " } ?? "")render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB)")
             debugSlowestUpdate = 0
         }
         #endif
