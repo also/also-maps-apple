@@ -262,6 +262,23 @@ final class MapModel {
         placementRoot.transform.matrix * root.transform.matrix * streaming.tilesRoot.transform.matrix
     }
 
+    /// Where a ray in the immersive space's origin frame meets the gesture
+    /// slab's top, if it does: what an entity-targeted gesture would have
+    /// hit, for the Metal space's spatial events (MetalSpatialGestures).
+    func immersiveGestureHit(origin: SIMD3<Float>, direction: SIMD3<Float>) -> SIMD3<Float>? {
+        guard let bounds = gestureTarget.components[CollisionComponent.self]?.shapes.first?.bounds else { return nil }
+        let slabInSpace = placementRoot.transform.matrix * root.transform.matrix * gestureTarget.transform.matrix
+        let spaceInSlab = slabInSpace.inverse
+        let o = spaceInSlab * SIMD4(origin, 1), d = spaceInSlab * SIMD4(direction, 0)
+        // Seen from above only, as the slab's top face.
+        guard d.y < 0, o.y > bounds.max.y else { return nil }
+        let t = (bounds.max.y - o.y) / d.y
+        let local = o + t * d
+        guard abs(local.x) <= bounds.max.x, abs(local.z) <= bounds.max.z else { return nil }
+        let hit = slabInSpace * local
+        return SIMD3(hit.x, hit.y, hit.z)
+    }
+
     /// The volume went away (closed, or replaced by a blocking notice). It no
     /// longer drives streaming; opening it attaches again.
     func volumeDidClose() {

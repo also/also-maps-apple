@@ -74,6 +74,65 @@ quality.
 
 ## Log
 
+### 2026-11-04: look-and-pinch from spatial events
+
+The RealityKit space gets pan, zoom and twist from SwiftUI gestures targeted
+at an invisible slab entity (`mapGestures`). A `CompositorLayer` has no
+entities, so the Metal space now builds the same gestures from
+`LayerRenderer.onSpatialEvent` (`MetalSpatialGestures`, with the pure logic in
+`Sources/Navigation/PinchGestures.swift`) and feeds the same `MapModel`
+calls (`drag`, `magnify`, `rotate` and their ends).
+
+- **Observed (SDK, XROS 27.2):** `onSpatialEvent` hands the layer a
+  `SpatialEventCollection` (SwiftUI's type). Each event has its own `id`,
+  `kind` (`.indirectPinch`, `.directPinch`, …), `phase`, `chirality`,
+  `selectionRay` and `inputDevicePose.pose3D`. Each pinching hand is a
+  separate event, so two-handed zoom and twist can be built from two ids.
+  `targetedEntity` and `location3D` are there too but have nothing to target
+  in a compositor layer.
+- **Alternatives, set aside:** ARKit hand tracking would mean recognising
+  pinches ourselves, and has no gaze, so it couldn't tell what's looked at;
+  it's the sibling custom-controls work's territory. A GPU depth pick isn't
+  needed: the RealityKit space's slab is a plane too, so a CPU ray test
+  matches it.
+- **How it maps:**
+  - a pinch counts only if its selection ray hits the gesture slab's top
+    face (`MapModel.immersiveGestureHit`: the slab's own transform and
+    collision box, so the same 50 m area as RealityKit's); one that misses is
+    ignored until it ends;
+  - after that the hand's position drives it and the ray isn't followed;
+  - one hand: a drag from the hit point, carried 1:1 with the hand, once the
+    hand has moved 1 cm (DragGesture's minimum distance);
+  - two hands: magnify by the change in horizontal distance between the
+    hands, twist by the turn of the line between them about +Y, both about
+    the midpoint of the two hits; the drag ends while both are down, and the
+    hand left after a two-handed gesture drags on from its point's current
+    place, without a jump.
+- **Inferred (not checked against every SDK):** an immersive space's
+  content is either a `CompositorLayer` or SwiftUI/RealityKit content, not
+  both, so there's no entity for SwiftUI's entity gestures to target. That
+  rules out an invisible gesture slab in the Metal space.
+- **Observed:** builds for visionOS (device and simulator), macOS, iOS and
+  tvOS; `PinchGestureTests` cover the drag, zoom, twist sign and the
+  two-to-one-hand hand-over. In the visionOS 27 simulator the Metal space
+  still opens and renders with the handler installed.
+- **Not tested:** any actual pinch. The simulator tooling here couldn't
+  inject input into a visionOS 27 simulator, and nothing has run on a
+  device. Needs checking on a Vision Pro:
+  - that events arrive in the immersive space's origin frame (the
+    simulator-only 1.6 m eye lift is applied to them, as to the renderer);
+  - whether `selectionRay` is present on the first `.active` event of an
+    indirect pinch;
+  - whether 1:1 hand travel feels like the RealityKit space's drag
+    (DragGesture's indirect `location3D` may scale with distance);
+  - the twist direction and zoom feel against the RealityKit space;
+  - that game controllers don't also arrive as pinches (the RealityKit
+    space routes them away with `handlesGameControllerEvents`, which the
+    XROS 27.2 SDK has only as a `View` modifier, not for compositor content);
+    the handler takes `.indirectPinch` events only, which may be enough;
+  - the `[AlsoMaps] Metal gestures:` Debug lines show each pinch's hit or
+    miss.
+
 ### 2026-11-04: eye height is measured twice
 
 - **Observed (code):** both immersive spaces place the map around an eye
