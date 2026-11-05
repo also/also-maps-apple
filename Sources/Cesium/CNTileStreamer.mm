@@ -1389,4 +1389,38 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
       .catchInMainThread([completion](std::exception&&) { completion(NAN); });
 }
 
+- (void)sampleSurfaceHeightsAtLatitudes:(NSArray<NSNumber *> *)latitudes
+                             longitudes:(NSArray<NSNumber *> *)longitudes
+                             completion:(void (^)(NSArray<NSNumber *> *heights))completion {
+  const NSUInteger count = std::min(latitudes.count, longitudes.count);
+  std::vector<Cartographic> positions;
+  positions.reserve(count);
+  for (NSUInteger i = 0; i < count; ++i) {
+    positions.push_back(Cartographic::fromDegrees(longitudes[i].doubleValue,
+                                                  latitudes[i].doubleValue, 0.0));
+  }
+  if (positions.empty()) {
+    completion(@[]);
+    return;
+  }
+  // One result per input position, in order (sampleSuccess says which hit).
+  _tileset->sampleHeightMostDetailed(positions)
+      .thenInMainThread([completion, count](SampleHeightResult&& result) {
+        NSMutableArray<NSNumber *> *heights = [NSMutableArray arrayWithCapacity:count];
+        for (NSUInteger i = 0; i < count; ++i) {
+          const bool hit = i < result.positions.size() &&
+                           i < result.sampleSuccess.size() && result.sampleSuccess[i];
+          [heights addObject:@(hit ? result.positions[i].height : NAN)];
+        }
+        completion(heights);
+      })
+      .catchInMainThread([completion, count](std::exception&&) {
+        NSMutableArray<NSNumber *> *heights = [NSMutableArray arrayWithCapacity:count];
+        for (NSUInteger i = 0; i < count; ++i) {
+          [heights addObject:@(NAN)];
+        }
+        completion(heights);
+      });
+}
+
 @end

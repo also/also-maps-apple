@@ -295,6 +295,26 @@ final class TileStreaming {
                                      radius: radius, completion: completion)
     }
 
+    /// Samples the most detailed surface at each of `coordinates` and
+    /// reports a height per point, metres above the ellipsoid (NaN where it
+    /// missed), on the main thread during a later update. May load many
+    /// tiles. Returns false, and never calls back, if there's no streamer
+    /// yet (no key) to ask.
+    ///
+    /// The heights are derived from the tiles, so Google's terms don't let
+    /// them be stored beyond what the tiles' cache headers allow: keep them
+    /// in memory, for drawing.
+    @discardableResult
+    func sampleSurfaceHeights(at coordinates: [GeoCoordinate],
+                              _ completion: @escaping @Sendable ([Double]) -> Void) -> Bool {
+        guard let streamer else { return false }
+        streamer.sampleSurfaceHeights(latitudes: coordinates.map { NSNumber(value: $0.latitude) },
+                                      longitudes: coordinates.map { NSNumber(value: $0.longitude) }) { heights in
+            completion(heights.map(\.doubleValue))
+        }
+        return true
+    }
+
     /// The extent and height range of each tile drawn last frame: ground
     /// estimates from what's loaded, with no network.
     func renderedHeightRanges() -> [TileHeightRange] {

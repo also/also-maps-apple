@@ -197,6 +197,16 @@ typedef struct {
                               completion:(void (^)(double height))completion
     NS_SWIFT_NAME(sampleGroundHeight(latitude:longitude:radius:completion:));
 
+/// Samples the most detailed surface at each point (degrees; the two arrays
+/// the same length) and reports one height per point, in metres above the
+/// ellipsoid, NAN where the sample failed. The surface is the highest hit,
+/// so roofs, trees and bridges count. May load many tiles. Completion runs
+/// on the main thread during a later updateWithDeltaTime: call.
+- (void)sampleSurfaceHeightsAtLatitudes:(NSArray<NSNumber *> *)latitudes
+                             longitudes:(NSArray<NSNumber *> *)longitudes
+                             completion:(void (^)(NSArray<NSNumber *> *heights))completion
+    NS_SWIFT_NAME(sampleSurfaceHeights(latitudes:longitudes:completion:));
+
 @end
 
 NS_ASSUME_NONNULL_END
