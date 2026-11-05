@@ -159,6 +159,7 @@ targets:
           - TrackSession.swift
           - TrackOverlay.swift
           - TubeExtruder.swift
+          - AirTraffic
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift
@@ -228,6 +229,8 @@ targets:
       - path: Tests/Static
       - path: Sources/Tracks
       - path: Tests/Navigation
+      - path: Sources/AirTraffic
+      - path: Tests/AirTraffic
     scheme:
       testTargets: ["Also Maps Core Tests"]
     settings:
@@ -305,6 +308,7 @@ targets:
           - TrackSession.swift
           - TrackOverlay.swift
           - TubeExtruder.swift
+          - AirTraffic
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift
