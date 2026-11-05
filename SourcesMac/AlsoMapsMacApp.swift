@@ -37,6 +37,12 @@ struct MacMapView: View {
     let settings: StreamingSettings
     @State private var map: ScreenMap
     @FocusState private var focused: Bool
+    @AppStorage(ViewPreferences.photosInPlaceKey) private var photosInPlace = false
+
+    /// The setting, or ALSOMAPS_PHOTOS=1 for this run.
+    private var showsPhotos: Bool {
+        photosInPlace || ProcessInfo.processInfo.environment["ALSOMAPS_PHOTOS"] == "1"
+    }
 
     init(start: StaticView, settings: StreamingSettings) {
         self.settings = settings
@@ -56,15 +62,32 @@ struct MacMapView: View {
             .onKeyPress(phases: .all) { _ in .handled }
             .onAppear { focused = true }
             .onChange(of: settings) { _, settings in map.settings = settings }
+            .onChange(of: showsPhotos, initial: true) { _, shows in map.photosEnabled = shows }
             .overlay(alignment: .topTrailing) {
-                Menu("Places", systemImage: "mappin.and.ellipse") {
-                    ForEach(PlaceLibrary.all) { place in
-                        Button(place.name) { map.go(to: place) }
+                HStack {
+                    if showsPhotos {
+                        AddPhotosButton(session: map.photos)
+                            .fixedSize()
+                        PhotosMenu(session: map.photos)
+                            .menuStyle(.button)
+                            .fixedSize()
                     }
+                    Menu("Places", systemImage: "mappin.and.ellipse") {
+                        ForEach(PlaceLibrary.all) { place in
+                            Button(place.name) { map.go(to: place) }
+                        }
+                    }
+                    .menuStyle(.button)
+                    .fixedSize()
                 }
-                .menuStyle(.button)
-                .fixedSize()
                 .padding(8)
+            }
+            // Above the attribution, which stays visible.
+            .overlay(alignment: .bottom) {
+                if showsPhotos {
+                    PhotoViewerControls(session: map.photos)
+                        .padding(.bottom, 56)
+                }
             }
     }
 }

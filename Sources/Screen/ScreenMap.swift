@@ -31,6 +31,23 @@ final class ScreenMap {
     /// visionOS. While a track plays it has the camera, and movement input
     /// is ignored; going to a place stops it.
     let tracks = TrackSession()
+    /// The user's photos, their markers, and the one stood in, which
+    /// ScreenMapView draws over the view (notes/photos-in-place.md).
+    let photos = PhotoSession()
+    /// Settings' Photos in place (or ALSOMAPS_PHOTOS=1), applied by the
+    /// window. Off: no markers, and any photo is left.
+    var photosEnabled = false {
+        didSet {
+            guard photosEnabled != oldValue else { return }
+            photos.overlay.isEnabled = photosEnabled
+            if !photosEnabled { leavePhoto() }
+        }
+    }
+    fileprivate var standsInPhoto: Bool { photos.activeID != nil }
+    /// A marker's width as a fraction of its distance from the camera:
+    /// about 3° across.
+    fileprivate static let photoMarkerWidthPerDistance = 0.05
+    @ObservationIgnored private var photoGroundTimer = 0.0
 
     @ObservationIgnored private var flight = ModelFlightStyle()
     @ObservationIgnored private var cameraGround = CameraGround()
@@ -48,8 +65,12 @@ final class ScreenMap {
     @ObservationIgnored private var frameElapsed: Float = 0
 
     /// Vertical field of view, radians: the window camera's and the LOD
-    /// camera's.
+    /// camera's, except while standing in a photo.
     static let fieldOfView = Double.pi / 4
+    /// The window camera's vertical field of view now: wider than usual
+    /// while standing in a photo, so the whole photo fits over the view at
+    /// its true angular size.
+    private(set) var viewFieldOfView = ScreenMap.fieldOfView
     /// Lowest camera height above the estimated ground, metres.
     private static let minimumAltitude = 2.0
     /// Highest camera height above the estimated ground, metres: a view
@@ -75,12 +96,22 @@ final class ScreenMap {
                                                                      fieldOfView: Self.fieldOfView, aspect: 1),
                                   settings: settings)
         navigation = flight.activate(navigation)
+
+        photos.host = self
+        photos.overlay.isEnabled = false
+        let streaming = self.streaming
+        photos.sampleGround = { coordinate, completion in
+            guard streaming.isStreaming else { return false }
+            streaming.sampleGroundHeight(around: coordinate, radius: PhotoPose.groundSampleRadius, completion)
+            return true
+        }
     }
 
     func attach(_ content: inout RealityViewCameraContent) {
         content.camera = .virtual
         content.add(streaming.tilesRoot)
         content.add(tracks.overlay.root)
+        content.add(photos.overlay.root)
         content.add(cameraEntity)
         applyView()
         streaming.start()
@@ -119,6 +150,7 @@ final class ScreenMap {
     // MARK: Places
 
     func go(to place: Place) {
+        leavePhoto()
         touch = TouchState()
         tracks.stopPlayback()
         tracks.markJump()
@@ -151,6 +183,7 @@ final class ScreenMap {
     /// Plays the latest track from its first pose.
     func startPlayback() {
         guard let first = tracks.startPlayback() else { return }
+        leavePhoto()
         touch = TouchState()
         navigation = flight.activate(NavigationState(camera: first))
     }
@@ -178,6 +211,14 @@ final class ScreenMap {
         tracks.record(navigation.camera)
         applyView()
         streaming.update(deltaTime: deltaTime)
+        if photosEnabled {
+            // Grounds that failed (tiles not loaded there yet) are tried again.
+            photoGroundTimer += dt
+            if photoGroundTimer >= 2 {
+                photoGroundTimer = 0
+                photos.requestGrounds()
+            }
+        }
         countFrame(deltaTime)
     }
 
@@ -196,6 +237,8 @@ final class ScreenMap {
         heldActions = input.held
 
         guard input.isMoving, !tracks.isPlaying else { return }
+        // Flying steps out of a photo: it only lines up from its pose.
+        leavePhoto()
         flight.dollySurfaceHeight = cameraGround.value
         navigation = flight.step(navigation, input: input.controlInput, deltaTime: deltaTime, context: context)
     }
@@ -216,7 +259,7 @@ final class ScreenMap {
 
     private var context: NavigationContext {
         NavigationContext(cameraGround: cameraGround.value,
-                          minimumAltitude: Self.minimumAltitude,
+                          minimumAltitude: standsInPhoto ? 1 : Self.minimumAltitude,
                           maximumAltitude: Self.maximumAltitude)
     }
 
@@ -226,16 +269,22 @@ final class ScreenMap {
     private func applyView() {
         let camera = navigation.camera
         streaming.inputs = ScreenView.streamingInputs(camera: camera, groundHeight: cameraGround.value,
-                                                      fieldOfView: Self.fieldOfView, aspect: viewport.aspect)
+                                                      fieldOfView: viewFieldOfView, aspect: viewport.aspect)
         let georeference = ScreenView.georeference(camera: camera)
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
         let altitude = max(camera.height - cameraGround.value, Self.minimumAltitude)
         tracks.overlay.update(georeference: georeference,
                               worldRadius: TrackOverlay.screenRadiusPerAltitude * altitude)
+        if photosEnabled {
+            // A constant size on screen: in proportion to the distance.
+            let eye = camera.position
+            photos.overlay.updateMarkers(photos.photos, hiding: photos.activeID, georeference: georeference,
+                                         width: { Self.photoMarkerWidthPerDistance * simd_distance($0, eye) })
+        }
 
         let (near, far) = ScreenView.clipping(altitude: camera.height - cameraGround.value)
         cameraEntity.components.set(PerspectiveCameraComponent(near: Float(near), far: Float(far),
-                                                               fieldOfViewInDegrees: Float(Self.fieldOfView * 180 / .pi)))
+                                                               fieldOfViewInDegrees: Float(viewFieldOfView * 180 / .pi)))
         cameraEntity.orientation = simd_quatf(vector: SIMD4<Float>(ScreenView.cameraOrientation(camera: camera).vector))
         cameraEntity.position = .zero
     }
@@ -269,7 +318,7 @@ final class ScreenMap {
     private static let turnPerScreen = Double.pi
 
     private var viewport: ScreenViewport {
-        ScreenViewport(size: viewportSize, fieldOfView: Self.fieldOfView)
+        ScreenViewport(size: viewportSize, fieldOfView: viewFieldOfView)
     }
 
     private func groundPoint(under point: SIMD2<Double>) -> SIMD3<Double>? {
@@ -285,6 +334,7 @@ final class ScreenMap {
 
     func beginDrag(at point: SIMD2<Double>) {
         guard !tracks.isPlaying else { return }
+        leavePhoto()
         touch = TouchState()
         touch.grab = groundPoint(under: point)
     }
@@ -309,6 +359,7 @@ final class ScreenMap {
 
     func beginTwoFingers(at centre: SIMD2<Double>) {
         guard !tracks.isPlaying else { return }
+        leavePhoto()
         touch = TouchState()
         touch.grab = groundPoint(under: centre)
     }
@@ -348,6 +399,7 @@ final class ScreenMap {
     /// time: a double tap (2), a two-finger tap (0.5).
     func zoom(at point: SIMD2<Double>, by factor: Double) {
         guard !tracks.isPlaying, let pivot = groundPoint(under: point) else { return }
+        leavePhoto()
         // A scroll asks again before the last step is done; keep what's left.
         let unfinished = touch.zoom.map { $0.rate * $0.remaining } ?? 0
         touch = TouchState()
@@ -358,6 +410,7 @@ final class ScreenMap {
     /// trackpad scroll, measured at the middle of the view.
     func scroll(by delta: SIMD2<Double>) {
         guard !tracks.isPlaying, let grab = groundPoint(under: viewport.centre) else { return }
+        leavePhoto()
         touch = TouchState()
         navigation = ScreenGestures.pan(navigation, grab: grab, to: viewport.centre + delta, viewport: viewport,
                                         groundHeight: cameraGround.value)
@@ -368,6 +421,7 @@ final class ScreenMap {
     /// follows) and up levelling the view.
     func orbit(by drag: SIMD2<Double>) {
         guard !tracks.isPlaying, let pivot = groundPoint(under: viewport.centre) else { return }
+        leavePhoto()
         touch = TouchState()
         var state = NavigationOperations.orbit(navigation, about: pivot,
                                                by: drag.x / viewportSize.x * Self.turnPerScreen, context: context)
@@ -378,6 +432,7 @@ final class ScreenMap {
 
     func beginZoomDrag(at point: SIMD2<Double>) {
         guard !tracks.isPlaying else { return }
+        leavePhoto()
         touch = TouchState()
         touch.grab = groundPoint(under: point)
     }
@@ -424,6 +479,58 @@ final class ScreenMap {
     }
 }
 
+// MARK: Photos in place
+
+extension ScreenMap: PhotoSessionHost {
+    /// A camera jump to where the photo was taken, at eye height, looking
+    /// its way, with the window widened to fit the photo, which ScreenMapView
+    /// draws over the view at its true angular size.
+    func standInPhoto(_ id: PlacedPhoto.ID) {
+        guard photosEnabled, let photo = photos.photo(id), let coordinate = photo.coordinate else { return }
+        // Without a ground sample or a recorded altitude, stand on the
+        // ellipsoid until the sample arrives and lifts the camera.
+        let camera = photo.camera ?? CameraPose(latitude: coordinate.latitude, longitude: coordinate.longitude,
+                                                height: PhotoPose.eyeAboveGround, heading: photo.heading,
+                                                pitch: photo.adjustment.pitch)
+        tracks.stopPlayback()
+        touch = TouchState()
+        currentPlaceID = nil
+        cameraGround.reset(to: photo.ground ?? camera.height - PhotoPose.eyeAboveGround)
+        photos.setActive(id)
+        viewFieldOfView = PhotoPose.windowFieldOfView(toShow: photo.fieldOfView, aspect: viewport.aspect,
+                                                      minimum: Self.fieldOfView)
+        navigation = flight.activate(NavigationState(camera: camera))
+        // A camera jump: the track starts a new segment.
+        tracks.markJump()
+        applyView()
+        photos.requestGrounds()
+    }
+
+    /// Back to flying with the usual field of view, at least the usual
+    /// minimum height above the ground.
+    func leavePhoto() {
+        guard standsInPhoto else { return }
+        photos.setActive(nil)
+        viewFieldOfView = Self.fieldOfView
+        navigation.camera.height = context.clampHeight(navigation.camera.height)
+        tracks.markJump()
+        applyView()
+    }
+
+    /// The nudges changed, or the ground under the photo arrived.
+    func activePhotoAdjusted() {
+        guard let photo = photos.active, let camera = photo.camera else { return }
+        if let ground = photo.ground { cameraGround.reset(to: ground) }
+        var state = navigation
+        state.camera = camera
+        if state.headingLink == .linked { state.movementHeading = camera.heading }
+        navigation = state
+        applyView()
+    }
+
+    var photoSearchCentre: GeoCoordinate { navigation.camera.coordinate }
+}
+
 /// The map in a window: the scene, its attribution, and input hints and
 /// (if turned on in Settings) stats. Hosts add their own controls around it.
 struct ScreenMapView: View {
@@ -451,6 +558,22 @@ struct ScreenMapView: View {
             .ignoresSafeArea()
             if let sceneOverride {
                 sceneOverride.ignoresSafeArea()
+            }
+            // The photo stood in, centred on the view direction at its true
+            // angular size, so it lines up with the scene behind it.
+            if let photo = map.photos.active {
+                let size = PhotoPose.screenSize(photo.fieldOfView, windowFieldOfView: map.viewFieldOfView,
+                                                viewportHeight: viewportSize.height)
+                // In an overlay so it never changes the stack's size.
+                Color.clear
+                    .overlay {
+                        Image(decorative: photo.image, scale: 1)
+                            .resizable()
+                            .frame(width: size.width, height: size.height)
+                            .opacity(map.photos.frameOpacity)
+                    }
+                    .allowsHitTesting(false)
+                    .ignoresSafeArea()
             }
         }
         .overlay(alignment: .topLeading) {

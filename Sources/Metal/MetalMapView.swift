@@ -71,7 +71,7 @@ struct MetalMapView {
                       let encoder = commands.makeRenderCommandEncoder(descriptor: pass)
                 else { return }
                 let aspect = Float(view.drawableSize.width / view.drawableSize.height)
-                let halfHeight = Float(tan(ScreenMap.fieldOfView / 2))
+                let halfHeight = Float(tan(map.viewFieldOfView / 2))
                 let (near, far) = map.clipping
                 let projection = MetalProjection.perspective(
                     tangents: [halfHeight * aspect, halfHeight * aspect, halfHeight, halfHeight],
