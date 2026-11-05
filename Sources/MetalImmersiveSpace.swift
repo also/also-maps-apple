@@ -159,6 +159,11 @@ final class MetalImmersiveRenderer {
         guard let commands = queue?.makeCommandBuffer() else { return }
         let root = model.tilesInImmersiveSpace
         let tiles = model.streaming.drawnTiles
+        // The clay and sun study, when any of it is on: one shadow map for
+        // the frame, rendered before the eyes' passes and shared by both.
+        let inputs = model.streaming.inputs
+        let lighting = SunStudy.shared.lighting(anchor: inputs.anchor, streamingRadius: inputs.streamingRadius)
+            .map { metal.prepare($0, commands: commands, tiles: tiles) }
         var statistics = MetalDrawStatistics()
         // Views sharing a texture (the shared layout) are drawn in one pass,
         // cleared once, each in its own viewport.
@@ -168,7 +173,7 @@ final class MetalImmersiveRenderer {
             let pass = MTLRenderPassDescriptor()
             pass.colorAttachments[0].texture = colour
             pass.colorAttachments[0].loadAction = .clear
-            pass.colorAttachments[0].clearColor = MetalTileRenderer.skyColour
+            pass.colorAttachments[0].clearColor = lighting?.clearColour ?? MetalTileRenderer.skyColour
             pass.colorAttachments[0].storeAction = .store
             pass.depthAttachment.texture = depth
             pass.depthAttachment.loadAction = .clear
@@ -186,10 +191,18 @@ final class MetalImmersiveRenderer {
                 encoder.setViewport(view.textureMap.viewport)
                 // The compositor's projection: reverse Z over its default
                 // depth range, which the cleared 0 is the far end of.
+                let originFromView = originFromDevice * view.transform
+                let viewProjection = drawable.computeProjection(viewIndex: index) * originFromView.inverse
                 statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
-                             viewProjection: drawable.computeProjection(viewIndex: index)
-                                 * (originFromDevice * view.transform).inverse,
-                             root: root, tiles: tiles))
+                             viewProjection: viewProjection, root: root, tiles: tiles, lighting: lighting,
+                             eye: SIMD3(originFromView.columns.3.x, originFromView.columns.3.y,
+                                        originFromView.columns.3.z)))
+                if let lighting {
+                    let viewport = view.textureMap.viewport
+                    metal.encodeSunPath(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
+                                        viewProjection: viewProjection, root: root, lighting: lighting,
+                                        aspect: Float(viewport.width / max(viewport.height, 1)))
+                }
                 // Sky left at the far plane would be dropped as clipped.
                 metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat)
             }

@@ -67,19 +67,34 @@ struct MetalMapView {
             MainActor.assumeIsolated {
                 guard view.drawableSize.height > 0,
                       let pass = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
-                      let commands = queue?.makeCommandBuffer(),
-                      let encoder = commands.makeRenderCommandEncoder(descriptor: pass)
+                      let commands = queue?.makeCommandBuffer()
                 else { return }
+                let tiles = map.streaming.drawnTiles
+                let root = map.streaming.tilesRoot.transform.matrix
+                // The clay and sun study, when any of it is on: its shadow
+                // pass goes in first, before the pass that reads it.
+                let inputs = map.streaming.inputs
+                let lighting = SunStudy.shared.lighting(anchor: inputs.anchor, streamingRadius: inputs.streamingRadius)
+                    .map { renderer.prepare($0, commands: commands, tiles: tiles) }
+                pass.colorAttachments[0].clearColor = lighting?.clearColour ?? MetalTileRenderer.skyColour
+                guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { return }
                 let aspect = Float(view.drawableSize.width / view.drawableSize.height)
                 let halfHeight = Float(tan(ScreenMap.fieldOfView / 2))
                 let (near, far) = map.clipping
                 let projection = MetalProjection.perspective(
                     tangents: [halfHeight * aspect, halfHeight * aspect, halfHeight, halfHeight],
                     near: Float(near), far: Float(far))
+                let camera = map.cameraMatrix
+                let viewProjection = projection * camera.inverse
                 let statistics = renderer.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
-                                viewProjection: projection * map.cameraMatrix.inverse,
-                                root: map.streaming.tilesRoot.transform.matrix,
-                                tiles: map.streaming.drawnTiles)
+                                viewProjection: viewProjection, root: root, tiles: tiles,
+                                lighting: lighting,
+                                eye: SIMD3(camera.columns.3.x, camera.columns.3.y, camera.columns.3.z))
+                if let lighting {
+                    renderer.encodeSunPath(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
+                                           viewProjection: viewProjection, root: root, lighting: lighting,
+                                           aspect: aspect)
+                }
                 encoder.endEncoding()
                 commands.present(drawable)
                 commands.commit()
