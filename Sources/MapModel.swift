@@ -49,6 +49,7 @@ final class MapModel {
         didSet {
             guard presentation != oldValue else { return }
             stopPlayback()
+            stopRouteReplay()
             endManipulation()
             // In the volume each host's level map has its own pitch; the
             // assist re-targets. Immersive hosts ignore pitch.
@@ -205,6 +206,10 @@ final class MapModel {
         root.addChild(streaming.tilesRoot)
         streaming.tilesRoot.addChild(tileBoundsOverlay.root)
         root.addChild(tracks.overlay.root)
+        root.addChild(routes.overlay.root)
+        routes.sampleSurfaceHeights = { [weak streaming] coordinates, completion in
+            streaming?.sampleSurfaceHeights(at: coordinates, completion) ?? false
+        }
         // Indirect only (look + pinch). Allowing direct input meant hands that
         // were merely inside the map's area counted as touching it and
         // dragged the map with no pinch at all.
@@ -349,6 +354,7 @@ final class MapModel {
     func go(to place: Place) {
         if tilesHeld { setTilesHeld(false) }
         stopPlayback()
+        stopRouteReplay()
         endManipulation()
         // Framed level for this host already.
         settlesPitch = false
@@ -411,8 +417,8 @@ final class MapModel {
     /// restarts if this kind of gesture began again somewhere new (visionOS
     /// can cancel a gesture without calling onEnded).
     private func beginOrContinue(_ kind: GestureKind, at start: SIMD3<Float>) -> Bool {
-        // The played track has the camera; gestures are ignored.
-        guard !tracks.isPlaying else { return false }
+        // A played track or route replay has the camera; gestures are ignored.
+        guard !cameraIsPlayed else { return false }
         if let existing = manipulation?.starts[kind], existing != start { endManipulation() }
         if manipulation == nil {
             guard let framing else { return false }
@@ -491,7 +497,9 @@ final class MapModel {
         }
         let dt = Double(deltaTime)
         applyInput(deltaTime: dt)
-        if tracks.isPlaying {
+        if let chased = routes.update(deltaTime: dt) {
+            advanceRouteReplay(chased)
+        } else if tracks.isPlaying {
             advancePlayback(deltaTime: dt)
         } else if settlesPitch, manipulation == nil {
             // Until the pitch reaches the new host's target: a new scene's
@@ -511,6 +519,8 @@ final class MapModel {
         if let framing {
             tracks.overlay.update(georeference: framing.georeference,
                                   worldRadius: TrackOverlay.roomRadius / framing.georeference.scale)
+            routes.overlay.update(georeference: framing.georeference,
+                                  worldRadius: RouteOverlay.roomRadius / framing.georeference.scale)
         }
         streaming.update(deltaTime: deltaTime)
         tileBoundsOverlay.update(inputs: streaming.inputs, scale: streaming.tilesRoot.transform.scale.x,
@@ -538,8 +548,8 @@ final class MapModel {
         }
         heldActions = input.held
 
-        // The played track has the camera; movement is ignored.
-        guard input.isMoving, !tracks.isPlaying else {
+        // A played track or route replay has the camera; movement is ignored.
+        guard input.isMoving, !cameraIsPlayed else {
             // Re-sample once movement settles, like the end of a drag.
             if wasMoving {
                 wasMoving = false
@@ -612,7 +622,7 @@ final class MapModel {
             go(to: PlaceLibrary.place(in: places, stepping: 1, from: currentPlaceID))
         case .previousPlace where !places.isEmpty:
             go(to: PlaceLibrary.place(in: places, stepping: -1, from: currentPlaceID))
-        case .faceNorth where !tracks.isPlaying:
+        case .faceNorth where !cameraIsPlayed:
             navigation = NavigationOperations.faceNorth(navigation)
         case .toggleFly:
             setTilesHeld(!tilesHeld)
@@ -855,6 +865,7 @@ final class MapModel {
 
     /// Plays the latest track from the start.
     func startPlayback() {
+        stopRouteReplay()
         guard let first = tracks.startPlayback() else { return }
         if tilesHeld { setTilesHeld(false) }
         endManipulation()
@@ -893,6 +904,77 @@ final class MapModel {
         navigation = state
     }
 
+    // MARK: Routes
+
+    /// An imported route (behind ViewPreferences.importsRoutes): drawn on
+    /// the map, and replayed with the camera chasing the moving point. The
+    /// chase camera is the navigation camera like any other, so in the
+    /// immersive space it's the eye. A replay is stopped like track
+    /// playback: by a place, a restored view, a presentation switch, or
+    /// starting track playback; gestures and movement are ignored meanwhile.
+    let routes = RouteSession()
+
+    /// A track or a route replay is driving the camera.
+    private var cameraIsPlayed: Bool { tracks.isPlaying || routes.isReplaying }
+
+    /// Opens a route file and frames the camera on it.
+    func openRoute(_ url: URL) {
+        guard let place = routes.open(url) else { return }
+        go(to: place)
+    }
+
+    /// ALSOMAPS_ROUTE and its options (RouteSession.LaunchOptions): opens
+    /// the route, framed, and replays it if asked.
+    func openRouteFromEnvironment() {
+        guard let place = routes.openFromEnvironment() else { return }
+        go(to: place)
+        if RouteSession.replaysAtLaunch { startRouteReplay() }
+    }
+
+    /// Frames the open route again.
+    func frameRoute() {
+        guard let route = routes.route else { return }
+        go(to: route.place)
+    }
+
+    func startRouteReplay() {
+        if tracks.isPlaying { stopPlayback() }
+        guard let first = routes.startReplay() else { return }
+        if tilesHeld { setTilesHeld(false) }
+        endManipulation()
+        // As for track playback: nothing but the replay moves the camera.
+        settlesPitch = false
+        placeAwaitsGround = false
+        lastPlaybackGroundSample = 0
+        framing = nil
+        setPlayedCamera(chased(first))
+        applyView()
+        requestGroundSample()
+    }
+
+    func stopRouteReplay() {
+        guard routes.isReplaying else { return }
+        routes.stopReplay()
+        requestGroundSample()
+    }
+
+    private func advanceRouteReplay(_ camera: CameraPose) {
+        setPlayedCamera(chased(camera))
+        // The ground estimates otherwise wait for motion to settle.
+        if !routes.isReplaying || routes.replayTime - lastPlaybackGroundSample >= 2 * routes.speedup {
+            lastPlaybackGroundSample = routes.replayTime
+            requestGroundSample()
+        }
+    }
+
+    /// The chase camera kept above the ground under it, which can be higher
+    /// than the route (climbing out of a valley, with the camera behind).
+    private func chased(_ camera: CameraPose) -> CameraPose {
+        var camera = camera
+        camera.height = context.clampHeight(camera.height)
+        return camera
+    }
+
     // MARK: View state
 
     func captureState() -> MapViewState {
@@ -911,6 +993,7 @@ final class MapModel {
     func restore(_ state: MapViewState) {
         if tilesHeld { setTilesHeld(false) }
         stopPlayback()
+        stopRouteReplay()
         endManipulation()
         settings = state.settings
         groundSampleGeneration += 1  // Drop any sample in flight.

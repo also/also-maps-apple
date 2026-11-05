@@ -11,6 +11,12 @@ struct VolumeView: View {
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(ViewPreferences.importsRoutesKey) private var importsRoutesSetting = false
+    @State private var importingRoute = false
+
+    /// The setting, read through its storage so a change redraws the
+    /// toolbar, or the launch variables that turn it on for a run.
+    private var importsRoutes: Bool { importsRoutesSetting || ViewPreferences.importsRoutes }
 
     var body: some View {
         RealityView { content in
@@ -86,6 +92,13 @@ struct VolumeView: View {
                 }
                 .labelStyle(.iconOnly)
                 .help("Go to a place")
+                if importsRoutes {
+                    RouteMenu(routes: model.routes, importing: $importingRoute,
+                              frame: { model.frameRoute() },
+                              setReplaying: { $0 ? model.startRouteReplay() : model.stopRouteReplay() })
+                        .labelStyle(.iconOnly)
+                        .help("Open a GPX or GeoJSON route, colour it and replay it")
+                }
                 Button("Settings", systemImage: "gearshape") {
                     openWindow(id: SettingsView.windowID)
                 }
@@ -112,6 +125,7 @@ struct VolumeView: View {
                 AttributionView()
             }
         }
+        .routeImporter(isPresented: $importingRoute) { model.openRoute($0) }
         .task {
             // Debug: ALSOMAPS_OPEN_SETTINGS=1 opens the Settings window, and
             // ALSOMAPS_PRESENTATION=immersive (or volume) starts in that mode.
@@ -154,6 +168,9 @@ struct VolumeView: View {
             if ProcessInfo.processInfo.environment["ALSOMAPS_PLAY_TRACK"] == "1" {
                 model.startPlayback()
             }
+            // ALSOMAPS_ROUTE=<file> opens a route and frames it, in whichever
+            // presentation the above chose (RouteSession.LaunchOptions).
+            model.openRouteFromEnvironment()
         }
     }
 
@@ -286,6 +303,7 @@ struct AttributionView: View {
                 }
                 .font(.caption.monospacedDigit())
             }
+            RouteLegend(routes: model.routes)
             HStack(spacing: 8) {
                 if model.streaming.showsGoogleLogo {
                     Image("GoogleMapsLogo")
