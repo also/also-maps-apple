@@ -29,6 +29,8 @@ final class ScreenMap {
     @ObservationIgnored var touchInput = MapInput()
     /// While typing into a field over the map, keys aren't controls.
     @ObservationIgnored var ignoresKeyboard = false
+    /// Leave CPU/GPU time for the network controller while its screen is open.
+    @ObservationIgnored var isPaused = false
     /// Recording, drawing and playing back camera tracks, shared with
     /// visionOS. While a track plays it has the camera, and movement input
     /// is ignored; going to a place stops it.
@@ -166,6 +168,7 @@ final class ScreenMap {
     // MARK: Frame loop
 
     private func tick(deltaTime: Float) {
+        guard !isPaused else { return }
         guard streaming.isStreaming else {
             // Waiting for a key. Once there is one, the ground sample that
             // had no streamer to ask can run.

@@ -95,6 +95,10 @@ targets:
         # Only encryption built into the OS (CesiumNative's OpenSSL isn't linked in): exempt, so
         # TestFlight skips the export compliance question.
         ITSAppUsesNonExemptEncryption: false
+        # Remote control (Sources/Remote): Bonjour and the local control connection.
+        NSLocalNetworkUsageDescription: Let an iPhone, the CLI or an agent on this network control the map.
+        NSBonjourServices:
+          - _alsomaps-rc._tcp
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         # Voice control (Sources/Voice): on-device speech recognition.
@@ -250,6 +254,24 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps.CoreTests
 
+  # Networking tests run separately from the platform-neutral navigation core.
+  AlsoMapsRemoteTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Sources/Navigation
+      - path: Sources/MapInput.swift
+      - path: Sources/Remote/RemoteControlProtocol.swift
+      - path: Sources/Remote/RemoteControlSession.swift
+      - path: Tests/Remote
+    scheme:
+      testTargets: [AlsoMapsRemoteTests]
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps.RemoteTests
+
   # Static map on Apple TV, sharing the Mac scene and streaming pipeline.
   Also Maps tvOS:
     type: application
@@ -315,6 +337,8 @@ targets:
           - Screen
           - Settings
           - MapInput.swift
+          - Remote/RemoteControlProtocol.swift
+          - Remote/RemoteControlSession.swift
           - Tracks
           - TrackSession.swift
           - TrackOverlay.swift
@@ -346,6 +370,10 @@ targets:
       path: SourcesPhone/Info.plist
       properties:
         CFBundleDisplayName: Also Maps
+        # Remote control (Sources/Remote): Bonjour and the local control connection.
+        NSLocalNetworkUsageDescription: Connect your iPhone controls to Also Maps on Vision Pro or a Mac.
+        NSBonjourServices:
+          - _alsomaps-rc._tcp
         # Only encryption built into the OS (CesiumNative's OpenSSL isn't linked in): exempt, so
         # TestFlight skips the export compliance question.
         ITSAppUsesNonExemptEncryption: false

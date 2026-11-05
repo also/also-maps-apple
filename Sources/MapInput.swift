@@ -27,7 +27,7 @@ struct MapInput {
     /// One-shot actions; reported while the button is held, so the model
     /// fires them on the frame a button goes down. `talk` is push to talk:
     /// the map also watches for its release.
-    enum Action: Hashable { case previousPlace, nextPlace, faceNorth, toggleFly, talk }
+    enum Action: String, Hashable { case previousPlace, nextPlace, faceNorth, toggleFly, talk }
     var held: Set<Action> = []
 
     var isMoving: Bool { move != .zero || turn != 0 || zoom != 0 || altitude != 0 || pitch != 0 }

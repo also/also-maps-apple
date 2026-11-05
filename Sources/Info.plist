@@ -41,6 +41,12 @@
 	<string>Also Maps listens while you hold the talk button, so you can fly by voice.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Also Maps recognizes speech on this device to turn what you say into map commands.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_alsomaps-rc._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Let an iPhone, the CLI or an agent on this network control the map.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationPreferredDefaultSceneSessionRole</key>

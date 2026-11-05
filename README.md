@@ -241,3 +241,10 @@ Verified: Debug build and launch on the iPhone 18 Pro simulator (iOS 27.0),
 with textured San Francisco tiles, the Places control and wrapped attribution
 visible in portrait. Touch-driven place selection, rotation and physical-device
 performance still need manual verification.
+
+## iPhone controller for Vision Pro
+
+Tap the controller button on iPhone to control the visionOS map over local or
+peer-to-peer Wi-Fi. On Vision Pro, open **iPhone Controller** in the map controls,
+enable pairing, and enter its code on the phone. See
+[setup, transport details, and testing](docs/iphone-controller.md).

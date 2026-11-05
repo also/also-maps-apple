@@ -12,6 +12,8 @@ import UIKit
 @MainActor
 @Observable
 final class MapModel {
+    let remoteControl = RemoteControlSession(role: .host)
+
     /// Volume extents in metres (width, height, depth).
     nonisolated static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
 
@@ -536,7 +538,9 @@ final class MapModel {
             #endif
         }
 
-        let input = MapInput.current()
+        var input = MapInput.current()
+        input.merge(remoteControl.input)
+        for action in remoteControl.takeActions() { perform(action) }
 
         // Buttons act once, on the frame they go down.
         for action in input.held.subtracting(heldActions) {
