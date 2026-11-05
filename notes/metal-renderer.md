@@ -74,6 +74,18 @@ quality.
 
 ## Log
 
+### 2026-11-05: packed vertex streams and unwaited mip generation (untested)
+
+- **Inferred:** vertex data per textured vertex drops from 24 B to 10 B and
+  per-texture `waitUntilCompleted` goes away. Written without a build or
+  device; nothing here has been measured. See `MetalPacking.swift` and the
+  status paragraphs under ideas 8 and 22a in `metal-feature-ideas.md`.
+- To measure: GPU memory (Xcode memory gauge or `device.currentAllocatedSize`)
+  before and after on the same view; `MetalBuild` signposts (build time per
+  tile should fall, packing adds CPU work); a visual diff for texture seams
+  (half UVs) and surface wobble (snorm16 positions), and lit untextured
+  content for normals.
+
 ### 2026-11-04: eye height is measured twice
 
 - **Observed (code):** both immersive spaces place the map around an eye

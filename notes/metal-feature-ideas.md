@@ -325,6 +325,44 @@ Ordered by value for effort, with the quick wins and the unblockers first.
 - **Files:** `MetalTiles.swift` (`texture(for:)`), possibly `Sources/Cesium/*`
   (bridge) for the compressed route.
 
+**Status (prototype branch, not built or tested).** The upload no longer does
+a `waitUntilCompleted` per texture: a tile's mips are generated in one blit
+command buffer, committed without waiting, and the tile counts as loaded from
+its completed handler. `ALSOMAPS_METAL_ASTC=1` is parsed
+(`MetalTextureCompression`) but no encoder exists, so it logs once and uploads
+RGBA8. No ASTC encoder I know of is both compact and dependency-free: a
+valid-but-naive encoder (one partition, fixed endpoint mode) is a few hundred
+lines, and its quality on photogrammetry would be poor enough to need
+measuring against astcenc anyway.
+
+**Plan for real ASTC 6×6 (sRGB, `.astc_6x6_sRGB`):**
+
+1. *Vendor astcenc* (Apache-2.0, C++, about 25 files, builds as a static
+   library; add as a SwiftPM/xcodegen target and call it from the bridge or
+   from `makeTexture`). Use the `fast` or `veryfast` preset, 6×6, LDR sRGB,
+   one thread per tile build (we're already on a global queue). Encode each
+   mip level (or encode level 0 and every smaller level; there's no GPU
+   `generateMipmaps` on compressed formats), then `replace(region:)` per
+   level. **Inferred** cost: astcenc `veryfast` is on the order of tens of
+   MP/s per core on Apple silicon, so a 512×512 mip chain (0.35 MP) is
+   roughly 10–30 ms: 5–15× the 1.3–2 ms per tile `MetalBuild` now takes.
+   Measure before trusting that; it may need a lower preset or a background
+   queue with an uncompressed fallback until the encode finishes.
+2. *Or pass KTX2/Basis through from the bridge* (cheaper at runtime, bigger
+   change): ask cesium-native to keep the KTX2 payload for tilesets that offer
+   it, add a `compressedImage` property to `CNPrimitive` (additive;
+   `TileUploader` keeps reading `rgba`), and transcode UASTC to ASTC 4×4 with
+   the Basis Universal transcoder (about 1 ms a texture). Google's photorealistic
+   tiles ship JPEG, so this only helps tilesets with KTX2; check which the
+   app actually streams before choosing it.
+
+**Sizes** (from `MetalTextureCompression.byteCount`, tested): a 512×512
+mipmapped RGBA8 texture is 1,398,100 B; ASTC 6×6 with mips is 158,432 B
+(11%, 3.56 bits per pixel). At a few hundred resident tiles that's the gap
+between hundreds of MB and tens. ASTC needs Apple silicon (Intel Macs and some
+simulators lack it): gate on `device.supportsFamily(.apple2)` or later and
+fall back to RGBA8.
+
 ### 9. Argument buffers and indirect command buffers
 
 - **What:** put all part data (buffer addresses, texture, bounds) in a
@@ -371,6 +409,20 @@ Ordered by value for effort, with the quick wins and the unblockers first.
   RealityKit's `TileUploader` also reads, so it must be additive.
 - **Files:** `MetalTiles.swift` (build/shader), `Sources/Cesium/*` (bridge
   output).
+
+**Status (prototype branch, not built or tested).** Vertex compaction is
+done on the build thread in `MetalPacking.swift`, so the bridge and
+`TileUploader` are untouched: positions float4 (16 B) become snorm16×3 (6 B)
+decoded in the vertex function from a per-part centre and half-extent (from
+`MetalBounds`); texcoords float2 (8 B) become half2 (4 B) with the v flip
+applied once at pack time; normals float4 (16 B) become octahedral snorm16×2
+(4 B). A textured vertex goes from 24 B to 10 B, a lit one from 32 B to 10 B
+plus 4 B of normal. Position error is half of `extent / 65534` per axis:
+about 1.5 cm over a 1 km part. Known risks: half UVs have about half a texel
+of error near u = 1 on 2048-wide textures and repeat-wrapped UVs far from
+[0, 1] lose more (switch to unorm16 with a per-part range if seams show up);
+parts with no finite bounds are now skipped. Not done: `MTLHeap`, a staging
+upload queue and `bytesNoCopy` buffers.
 
 ---
 

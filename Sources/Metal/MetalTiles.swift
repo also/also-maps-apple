@@ -36,6 +36,9 @@ final class MetalTileRenderer: @unchecked Sendable {
     private var pipelines: [SIMD3<UInt>: MTLRenderPipelineState] = [:]
     private let pipelinesLock = NSLock()
     /// A/B switch for device profiling; only draw submission changes.
+    private let compression = MetalTextureCompression.current()
+    private static let astcUnavailableNotice: Void = print(
+        "[AlsoMaps] ALSOMAPS_METAL_ASTC=1: no ASTC encoder is vendored yet; uploading RGBA8")
     private let cullsOffscreen = ProcessInfo.processInfo.environment["ALSOMAPS_METAL_CULLING"] != "0"
 
     /// The sky, as in ScreenMapView, as an sRGB target's clear colour (linear).
@@ -73,6 +76,9 @@ final class MetalTileRenderer: @unchecked Sendable {
             let texture: MTLTexture?
             let sampler: MTLSamplerState?
             let baseColor: SIMD4<Float>
+            /// Decodes `positions` (snorm16 x3) back to tile-local metres.
+            let positionCentre: SIMD3<Float>
+            let positionHalfExtent: SIMD3<Float>
         }
         let parts: [Part]
         let bounds: MetalBounds?
@@ -91,6 +97,9 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// Tile builds running now, for the MetalBuild signpost.
     private let buildsInFlight = OSAllocatedUnfairLock(initialState: 0)
 
+    /// Mip generation for every texture of a tile goes in one command buffer
+    /// that isn't waited on: the tile counts as loaded from its completed
+    /// handler, so the build thread never blocks on the GPU.
     var handler: CNTileLoadHandler {
         { [self] tile, completion in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -101,29 +110,57 @@ final class MetalTileRenderer: @unchecked Sendable {
                 }
                 let interval = signposter.beginInterval("MetalBuild", id: signposter.makeSignpostID(),
                                                         "\(inFlight) in flight")
-                tile.renderObject = self.build(tile)
+                let (gpuTile, commands) = self.build(tile)
+                tile.renderObject = gpuTile
                 tile.discardCPUData()
                 self.buildsInFlight.withLock { $0 -= 1 }
                 signposter.endInterval("MetalBuild", interval)
-                completion()
+                if let commands {
+                    commands.addCompletedHandler { _ in completion() }
+                    commands.commit()
+                } else {
+                    completion()
+                }
             }
         }
     }
 
-    private func build(_ tile: CNTileMesh) -> Tile {
+    /// The tile's resources, and the uncommitted command buffer that
+    /// finishes its textures (nil if none needs the GPU).
+    private func build(_ tile: CNTileMesh) -> (Tile, MTLCommandBuffer?) {
         var parts: [Tile.Part] = []
+        var commands: MTLCommandBuffer?
+        var blit: MTLBlitCommandEncoder?
         for primitive in tile.primitives ?? [] {
-            guard let positions = buffer(primitive.positions), let indices = buffer(primitive.indices) else { continue }
-            parts.append(Tile.Part(bounds: MetalBounds(positions: primitive.positions), positions: positions,
-                                   texcoords: primitive.texcoords.flatMap(buffer),
-                                   normals: primitive.normals.flatMap(buffer),
+            // Without finite bounds there's nothing to quantise against.
+            guard let bounds = MetalBounds(positions: primitive.positions) else { continue }
+            let frame = MetalPacking.PositionFrame(bounds: bounds)
+            guard let packedPositions = MetalPacking.packPositions(primitive.positions, frame: frame),
+                  let positions = buffer(packedPositions), let indices = buffer(primitive.indices)
+            else { continue }
+            var texture: MTLTexture?
+            if let made = makeTexture(for: primitive) {
+                texture = made
+                if made.mipmapLevelCount > 1 {
+                    if blit == nil {
+                        commands = queue.makeCommandBuffer()
+                        blit = commands?.makeBlitCommandEncoder()
+                    }
+                    blit?.generateMipmaps(for: made)
+                }
+            }
+            parts.append(Tile.Part(bounds: bounds, positions: positions,
+                                   texcoords: primitive.texcoords.flatMap(MetalPacking.packTexcoords).flatMap(buffer),
+                                   normals: primitive.normals.flatMap(MetalPacking.packNormals).flatMap(buffer),
                                    indices: indices,
                                    indexCount: primitive.indices.count / MemoryLayout<UInt32>.size,
-                                   texture: texture(for: primitive),
+                                   texture: texture,
                                    sampler: sampler(for: primitive),
-                                   baseColor: primitive.baseColor))
+                                   baseColor: primitive.baseColor,
+                                   positionCentre: frame.centre, positionHalfExtent: frame.halfExtent))
         }
-        return Tile(parts: parts)
+        blit?.endEncoding()
+        return (Tile(parts: parts), commands)
     }
 
     private func buffer(_ data: Data) -> MTLBuffer? {
@@ -146,9 +183,13 @@ final class MetalTileRenderer: @unchecked Sendable {
         return sampler
     }
 
-    /// sRGB, mipmapped. The bridge's RGBA rows start at the image's top, as
-    /// Metal's texture origin does.
-    private func texture(for primitive: CNPrimitive) -> MTLTexture? {
+    /// sRGB, mipmapped (the caller generates the mips). The bridge's RGBA rows
+    /// start at the image's top, as Metal's texture origin does.
+    ///
+    /// ALSOMAPS_METAL_ASTC=1 is reserved for ASTC 6x6 (see
+    /// notes/metal-feature-ideas.md, idea 8): no encoder is vendored yet, so
+    /// it only logs once and uploads RGBA8.
+    private func makeTexture(for primitive: CNPrimitive) -> MTLTexture? {
         guard let rgba = primitive.rgba, primitive.textureWidth > 0, primitive.textureHeight > 0 else { return nil }
         let width = primitive.textureWidth, height = primitive.textureHeight
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm_srgb, width: width,
@@ -161,13 +202,7 @@ final class MetalTileRenderer: @unchecked Sendable {
             texture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0,
                             withBytes: base, bytesPerRow: width * 4)
         }
-        if texture.mipmapLevelCount > 1, let commands = queue.makeCommandBuffer(),
-           let blit = commands.makeBlitCommandEncoder() {
-            blit.generateMipmaps(for: texture)
-            blit.endEncoding()
-            commands.commit()
-            commands.waitUntilCompleted()
-        }
+        if compression != .none { _ = Self.astcUnavailableNotice }
         return texture
     }
 
@@ -178,6 +213,8 @@ final class MetalTileRenderer: @unchecked Sendable {
         var modelViewProjection: simd_float4x4
         var model: simd_float4x4
         var baseColor: SIMD4<Float>
+        var positionCentre: SIMD4<Float>
+        var positionHalfExtent: SIMD4<Float>
         var flags: UInt32
     }
 
@@ -247,7 +284,9 @@ final class MetalTileRenderer: @unchecked Sendable {
                 if part.texcoords != nil, part.texture != nil { flags |= 1 }
                 if part.normals != nil { flags |= 2 }
                 var uniforms = Uniforms(modelViewProjection: modelViewProjection, model: model,
-                                        baseColor: part.baseColor, flags: flags)
+                                        baseColor: part.baseColor,
+                                        positionCentre: SIMD4(part.positionCentre, 0),
+                                        positionHalfExtent: SIMD4(part.positionHalfExtent, 0), flags: flags)
                 encoder.setVertexBuffer(part.positions, offset: 0, index: 0)
                 encoder.setVertexBuffer(part.texcoords ?? part.positions, offset: 0, index: 1)
                 encoder.setVertexBuffer(part.normals ?? part.positions, offset: 0, index: 2)
@@ -290,6 +329,8 @@ struct TileUniforms {
     float4x4 modelViewProjection;
     float4x4 model;
     float4 baseColor;
+    float4 positionCentre;
+    float4 positionHalfExtent;
     uint flags;
 };
 
@@ -302,18 +343,31 @@ struct TileVertexOut {
     float3 normal;
 };
 
-/// Positions are float4 (xyz + padding) offsets from the tile's centre; the
-/// bridge flips v for RealityKit, so it's flipped back for Metal's top-left
-/// texture origin.
+/// MetalPacking.octDecode.
+float3 octDecode(short2 packed) {
+    float2 e = max(float2(packed) / 32767.0, -1.0);
+    float3 n = float3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (n.z < 0.0) {
+        n.xy = (1.0 - abs(n.yx)) * float2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+    }
+    return normalize(n);
+}
+
+/// Packed streams (MetalPacking): positions are snorm16 x3 in the part's box
+/// (centre and half-extent in the uniforms), texcoords half2 with v already
+/// flipped for Metal's top-left origin, normals octahedral snorm16 x2.
 vertex TileVertexOut tileVertex(uint vid [[vertex_id]],
-                                const device float4 *positions [[buffer(0)]],
-                                const device float2 *texcoords [[buffer(1)]],
-                                const device float4 *normals [[buffer(2)]],
+                                const device packed_short3 *positions [[buffer(0)]],
+                                const device half2 *texcoords [[buffer(1)]],
+                                const device short2 *normals [[buffer(2)]],
                                 constant TileUniforms &uniforms [[buffer(3)]]) {
     TileVertexOut out;
-    out.position = uniforms.modelViewProjection * float4(positions[vid].xyz, 1);
-    out.uv = (uniforms.flags & kTextured) ? float2(texcoords[vid].x, 1 - texcoords[vid].y) : float2(0);
-    out.normal = (uniforms.flags & kLit) ? (uniforms.model * float4(normals[vid].xyz, 0)).xyz : float3(0, 1, 0);
+    float3 snorm = max(float3(short3(positions[vid])) / 32767.0, -1.0);
+    float3 position = uniforms.positionCentre.xyz + uniforms.positionHalfExtent.xyz * snorm;
+    out.position = uniforms.modelViewProjection * float4(position, 1);
+    out.uv = (uniforms.flags & kTextured) ? float2(texcoords[vid]) : float2(0);
+    out.normal = (uniforms.flags & kLit) ? (uniforms.model * float4(octDecode(normals[vid]), 0)).xyz
+                                         : float3(0, 1, 0);
     return out;
 }
 
