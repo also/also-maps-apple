@@ -93,13 +93,24 @@ back to Normal.
   immersive sky-depth pass.
 - Post-process (Halftone): a full-screen triangle that reads its own pixel
   with framebuffer fetch, in the host's pass. Nothing is resampled, so
-  dedicated eye textures and rate maps need nothing special. Screen patterns
-  use the view direction on a plane facing forward, not pixels, so they're
-  the same size foveated or not and line up between parallel eyes.
+  dedicated eye textures and rate maps need nothing special. The dot screen
+  is printed on a world-fixed cube of directions (equal-angle faces, a whole
+  number of cells per face so dots meet across edges), not on pixels or the
+  view's axes: it stays put as the head turns, is the same size foveated or
+  not, and lines up between the eyes. An earlier version used a plane facing
+  the view, which on visionOS looked like a screen door fixed to the head.
 - Tiny planet and Inside out bend vertices onto a sphere and turn culling
   off, since the bounds are unbent.
 
 ## Log
+
+### 2026-11-04: halftone fixed to the world, blueprint grid removed
+
+- **Observed (owner, visionOS):** Halftone's dots moved with the headset,
+  like a screen door fixed to the head, because they were laid out on the
+  view's own axes. They're now on a world-fixed cube of directions.
+- **Observed (owner):** Blueprint was noisy; its 100/500 m ground grid is
+  gone, leaving the triangle wireframe. The faint sky graph paper stays.
 
 ### 2026-11-04: looks on macOS
 

@@ -133,11 +133,6 @@ final class MetalLooks: @unchecked Sendable {
         var anchorFromClip: simd_float4x4
         /// xyz: the eye; w: seconds, wrapping every 10 minutes.
         var eyeTime: SIMD4<Float>
-        /// The view's right, up and forward axes, for screen-space patterns
-        /// that line up between two eyes.
-        var right: SIMD4<Float>
-        var up: SIMD4<Float>
-        var forward: SIMD4<Float>
         /// x: the anchor's height above the ellipsoid; y: the bend radius
         /// (MetalLook.bendRadius).
         var parameters: SIMD4<Float>
@@ -258,18 +253,8 @@ final class MetalLooks: @unchecked Sendable {
         let anchorFromClip = clipFromAnchor.inverse
         let eyeH = anchorFromClip * SIMD4<Float>(0, 0, 1, 0)
         let eye = SIMD3(eyeH.x, eyeH.y, eyeH.z) / eyeH.w
-        // Rows of clip-from-anchor: x and y have some of w (off-axis) mixed
-        // in; w is depth along the view's forward axis.
-        let rows = clipFromAnchor.transpose
-        func xyz(_ v: SIMD4<Float>) -> SIMD3<Float> { SIMD3(v.x, v.y, v.z) }
-        let forward = simd_normalize(xyz(rows.columns.3))
-        func axis(_ row: SIMD4<Float>) -> SIMD4<Float> {
-            let v = xyz(row)
-            return SIMD4(simd_normalize(v - simd_dot(v, forward) * forward), 0)
-        }
         let radius = look.bendRadius(eyeHeight: eye.y)
         return Frame(anchorFromClip: anchorFromClip, eyeTime: SIMD4(eye, time),
-                     right: axis(rows.columns.0), up: axis(rows.columns.1), forward: SIMD4(forward, 0),
                      parameters: SIMD4(anchorHeight, radius, 0, 0))
     }
 
@@ -290,9 +275,6 @@ struct LookDraw {
 struct LookFrame {
     float4x4 anchorFromClip;
     float4 eyeTime;
-    float4 right;
-    float4 up;
-    float4 forward;
     float4 parameters;
 };
 
@@ -486,10 +468,7 @@ fragment float4 blueprintFragment(LookVertexOut in [[stage_in]],
     float face = 0.1 + 0.12 * saturate(dot(n, normalize(float3(0.4, 1, 0.3))));
     float shade = luminance(baseColour(in, texture, s, draw).rgb);
     float3 colour = paper * (0.85 + face + 0.25 * shade);
-    // A 100 m drafting grid on the level frame, 500 m in bolder lines.
-    float grid = max(max(lines(p.x, 100, 1.0), lines(p.z, 100, 1.0)) * 0.35,
-                     max(lines(p.x, 500, 2.0), lines(p.z, 500, 2.0)) * 0.6);
-    colour = mix(colour, chalk, max(edge * 0.8, grid));
+    colour = mix(colour, chalk, edge * 0.8);
     return float4(colour, 1);
 }
 
@@ -512,13 +491,6 @@ vertex ScreenOut lookScreenVertex(uint vid [[vertex_id]], constant float &depth 
 static float3 viewDirection(float2 ndc, constant LookFrame &frame) {
     float4 near = frame.anchorFromClip * float4(ndc, 1, 1);
     return normalize(near.xyz / near.w - frame.eyeTime.xyz);
-}
-
-/// The same direction as coordinates on a plane facing the view: lines up
-/// between two parallel eyes, so patterns on the screen fuse in stereo.
-static float2 viewPlane(float3 direction, constant LookFrame &frame) {
-    float ahead = max(dot(direction, frame.forward.xyz), 1e-3);
-    return float2(dot(direction, frame.right.xyz), dot(direction, frame.up.xyz)) / ahead;
 }
 
 fragment float4 blueprintSky(ScreenOut in [[stage_in]], constant LookFrame &frame [[buffer(1)]]) {
@@ -593,14 +565,31 @@ fragment float4 sonarSky(ScreenOut in [[stage_in]]) {
 
 // MARK: Halftone
 
-/// One ink's dot screen: a cell grid at `angle` degrees, a dot covering
-/// `amount` of its cell.
-static float dots(float2 plane, float amount, float angle, float cell) {
-    float a = angle * 0.0174533;
-    float2 rotated = float2x2(cos(a), -sin(a), sin(a), cos(a)) * plane / cell;
-    float2 offset = fract(rotated) - 0.5;
-    float radius = sqrt(saturate(amount)) * 0.56;
+/// A direction as a face of a cube around the anchor and equal-angle
+/// coordinates on it, from -pi/4 to pi/4. The screen is printed on this
+/// cube, fixed to the world, so dots stay put as the head turns, and,
+/// being at infinity, line up between the eyes.
+static float2 cubeFace(float3 d) {
+    float3 a = abs(d);
+    float2 uv = a.x >= max(a.y, a.z) ? d.yz / a.x : a.y >= a.z ? d.xz / a.y : d.xy / a.z;
+    return atan(uv);
+}
+
+/// One ink's dot screen on a cube face: a square grid of `cell` radians,
+/// rounded so a whole number fits each face, plus dots on its corners when
+/// `diagonal` (a 45° screen). Either way the dots meet across the cube's
+/// edges. Each dot covers `amount` of its cell.
+static float dots(float2 uv, float amount, float cell, bool diagonal) {
+    float quarter = M_PI_F / 2;
+    float size = quarter / max(1.0, round(quarter / cell));
+    float2 offset = fract((uv + quarter / 2) / size) - 0.5;
     float distance = length(offset);
+    float pitch = 1;
+    if (diagonal) {
+        distance = min(distance, length(abs(offset) - 0.5));
+        pitch = M_SQRT1_2_F;
+    }
+    float radius = sqrt(saturate(amount)) * 0.56 * pitch;
     float edge = fwidth(distance) + 1e-4;
     return 1 - smoothstep(radius - edge, radius + edge, distance);
 }
@@ -610,14 +599,13 @@ static float dots(float2 plane, float amount, float angle, float cell) {
 /// warm colours, on newsprint.
 fragment float4 halftonePost(ScreenOut in [[stage_in]], float4 finished [[color(0)]],
                              constant LookFrame &frame [[buffer(1)]]) {
-    float2 plane = viewPlane(viewDirection(in.ndc, frame), frame);
+    float2 uv = cubeFace(viewDirection(in.ndc, frame));
     float3 rgb = pow(saturate(finished.rgb), 1 / 2.2);
     float tone = luminance(rgb);
-    float cell = 0.008;
     // Contrast stretched a little, as a press would.
-    float black = dots(plane, saturate((0.92 - tone) * 1.25), 45, cell);
+    float black = dots(uv, saturate((0.92 - tone) * 1.25), 0.0113, true);
     float warmth = saturate((rgb.r - max(rgb.g, rgb.b)) * 3 + (rgb.r + rgb.g - 2 * rgb.b) * 0.8);
-    float red = dots(plane, warmth * 0.7, 15, cell * 1.3);
+    float red = dots(uv, warmth * 0.7, 0.0104, false);
     float3 paper = float3(0.95, 0.92, 0.84);
     float3 printed = paper * (1 - red * float3(0.05, 0.75, 0.7)) * (1 - black * 0.9);
     return float4(srgbToLinear(printed), 1);
