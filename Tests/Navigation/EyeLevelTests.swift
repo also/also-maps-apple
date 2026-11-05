@@ -115,4 +115,38 @@ struct EyeLevelTests {
         let after = framing(solution.pose)
         #expect(simd_distance(after.georeference.map(grab), p) < 1e-3)
     }
+
+    /// A far point on the flat gesture slab sits above the curved Earth (here
+    /// about 48 m, 25 km out), and zooming in towards it near the floor
+    /// magnifies that height. The solve must still follow every update,
+    /// keeping the point under the hand along the map, instead of freezing
+    /// and then jumping.
+    @Test
+    func zoomingInOnAFarPointFollowsEveryUpdate() {
+        let start = EyeLevelModel.framePlace(centre: ronda, radius: 3_000, heading: 0.2,
+                                             room: immersive, groundHeight: 565)
+        let before = framing(start)
+        let p = SIMD3(10.0, 0.02, -40)
+        let grab = before.georeference.ecef(map: p)
+        var pose = start
+        var frozen = 0
+        // 2% a step, from about 950 m to the 55 m floor.
+        for step in 1...160 {
+            let target = AdaptiveModel.AnchorTarget(grab: grab, target: p,
+                                                    scale: before.georeference.scale * pow(1.02, Double(step)),
+                                                    heading: start.heading, headingOrigin: start.coordinate,
+                                                    pitch: { _ in start.pitch })
+            let solution = AdaptiveModel.solve(target, from: pose, room: immersive, scaleSurface: 565,
+                                               context: context) { framing($0) }
+            let reachesFloor = solution.pose.height <= 565 + 55 + 1e-6
+            if !reachesFloor {
+                if GeoMath.distance(from: pose.coordinate, to: solution.pose.coordinate) < 1e-6 { frozen += 1 }
+                let offset = p - framing(solution.pose).georeference.map(grab)
+                #expect(simd_length(SIMD2(offset.x, offset.z)) < 0.01)
+            }
+            pose = solution.pose
+        }
+        #expect(frozen == 0)
+        #expect(abs(pose.height - (565 + 55)) < 1e-6)
+    }
 }

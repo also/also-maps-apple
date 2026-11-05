@@ -74,6 +74,36 @@ quality.
 
 ## Log
 
+### 2026-11-04: zoom stepped near the ground (both spaces)
+
+- **Observed (owner, Vision Pro, Metal space):** pinch-zooming close to the
+  ground could get jumpy and steppy.
+- **Observed (core test):** replaying a two-handed zoom from about 950 m
+  toward the 55 m floor, 2% an update, about a point 40 m out on the gesture
+  slab: the camera's position didn't move for runs of updates while its
+  height did, then jumped 300–600 m, and the pinched point drifted over a
+  metre off the hand. A point 8 m out stayed smooth.
+- **Cause (observed in the solver's iterations):** the slab is flat and the
+  Earth isn't, so a point 25 km out on it is about 48 m above the ground.
+  That height stays fixed as you zoom in onto it, so its room-space offset
+  along the map's up grows with the scale. The solve can't correct that part:
+  moving the camera only shifts the map east and north, and its height comes
+  from the scale. `AdaptiveModel.solve` picked the best iteration by the full
+  3D error, so the unmoved first guess often won, until the scale error
+  outgrew the offset and it jumped. Being low means looking at far points,
+  so this showed near the ground.
+- **Fix:** judge iterations by the error along the map (not along its up)
+  together with the scale error. `zoomingInOnAFarPointFollowsEveryUpdate`
+  fails without it and passes with it.
+- **Inferred:** the RealityKit space uses the same solve, with a slab out to
+  the same 50 m, so it should have stepped the same way and gets the same
+  fix. Not compared on a device.
+- **Not ruled out, if steps remain:** the 55 m floor is measured from
+  `cameraGround`, which follows loading tiles all the time, including
+  during a gesture (eased over about 0.3 s), so the floor can rise or fall
+  under you. Spatial events may also arrive less often than frames; each
+  one moves the view directly, with no smoothing.
+
 ### 2026-11-04: look-and-pinch from spatial events
 
 The RealityKit space gets pan, zoom and twist from SwiftUI gestures targeted
