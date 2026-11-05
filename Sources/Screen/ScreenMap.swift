@@ -31,6 +31,13 @@ final class ScreenMap {
     /// visionOS. While a track plays it has the camera, and movement input
     /// is ignored; going to a place stops it.
     let tracks = TrackSession()
+    /// An imported route (behind ViewPreferences.importsRoutes), drawn on
+    /// the map and replayed with a chase camera, which has the camera as a
+    /// playing track does.
+    let routes = RouteSession()
+
+    /// A track or a route replay is driving the camera.
+    var cameraIsPlayed: Bool { tracks.isPlaying || routes.isReplaying }
 
     @ObservationIgnored private var flight = ModelFlightStyle()
     @ObservationIgnored private var cameraGround = CameraGround()
@@ -75,16 +82,23 @@ final class ScreenMap {
                                                                      fieldOfView: Self.fieldOfView, aspect: 1),
                                   settings: settings)
         navigation = flight.activate(navigation)
+        routes.sampleSurfaceHeights = { [weak streaming] coordinates, completion in
+            streaming?.sampleSurfaceHeights(at: coordinates, completion) ?? false
+        }
     }
 
     func attach(_ content: inout RealityViewCameraContent) {
         content.camera = .virtual
         content.add(streaming.tilesRoot)
         content.add(tracks.overlay.root)
+        content.add(routes.overlay.root)
         content.add(cameraEntity)
         applyView()
         streaming.start()
         sampleGround(around: startGround.centre, radius: startGround.radius, liftsCamera: startGround.lifts)
+        // After the start's ground sample, which would otherwise replace
+        // the one that lifts the route's framing onto the ground.
+        openRouteFromEnvironment()
         subscription = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             MainActor.assumeIsolated {
                 self?.tick(deltaTime: Float(event.deltaTime))
@@ -121,6 +135,7 @@ final class ScreenMap {
     func go(to place: Place) {
         touch = TouchState()
         tracks.stopPlayback()
+        routes.stopReplay()
         tracks.markJump()
         currentPlaceID = place.id
         let camera = ScreenView.framePlace(place, fieldOfView: Self.fieldOfView)
@@ -150,9 +165,48 @@ final class ScreenMap {
 
     /// Plays the latest track from its first pose.
     func startPlayback() {
+        routes.stopReplay()
         guard let first = tracks.startPlayback() else { return }
         touch = TouchState()
         navigation = flight.activate(NavigationState(camera: first))
+    }
+
+    // MARK: Routes
+
+    /// Opens a route file and frames the camera on it.
+    func openRoute(_ url: URL) {
+        guard let place = routes.open(url) else { return }
+        go(to: place)
+    }
+
+    /// ALSOMAPS_ROUTE and its options (RouteSession.LaunchOptions).
+    private func openRouteFromEnvironment() {
+        guard let place = routes.openFromEnvironment() else { return }
+        go(to: place)
+        if RouteSession.replaysAtLaunch { startRouteReplay() }
+    }
+
+    /// Frames the open route again.
+    func frameRoute() {
+        guard let route = routes.route else { return }
+        go(to: route.place)
+    }
+
+    func startRouteReplay() {
+        tracks.stopPlayback()
+        guard let first = routes.startReplay() else { return }
+        touch = TouchState()
+        navigation = flight.activate(NavigationState(camera: chased(first)))
+    }
+
+    func stopRouteReplay() { routes.stopReplay() }
+
+    /// The chase camera kept above the ground under it, which can be higher
+    /// than the route (climbing out of a valley, with the camera behind).
+    private func chased(_ camera: CameraPose) -> CameraPose {
+        var camera = camera
+        camera.height = context.clampHeight(camera.height)
+        return camera
     }
 
     // MARK: Frame loop
@@ -168,7 +222,10 @@ final class ScreenMap {
             return
         }
         let dt = Double(deltaTime)
-        if let played = tracks.advancePlayback(deltaTime: dt) {
+        if let chase = routes.update(deltaTime: dt) {
+            navigation.camera = chased(chase)
+            if navigation.headingLink == .linked { navigation.movementHeading = chase.heading }
+        } else if let played = tracks.advancePlayback(deltaTime: dt) {
             navigation.camera = played
             if navigation.headingLink == .linked { navigation.movementHeading = played.heading }
         }
@@ -195,7 +252,7 @@ final class ScreenMap {
         }
         heldActions = input.held
 
-        guard input.isMoving, !tracks.isPlaying else { return }
+        guard input.isMoving, !cameraIsPlayed else { return }
         flight.dollySurfaceHeight = cameraGround.value
         navigation = flight.step(navigation, input: input.controlInput, deltaTime: deltaTime, context: context)
     }
@@ -207,7 +264,7 @@ final class ScreenMap {
             go(to: PlaceLibrary.place(in: places, stepping: 1, from: currentPlaceID))
         case .previousPlace where !places.isEmpty:
             go(to: PlaceLibrary.place(in: places, stepping: -1, from: currentPlaceID))
-        case .faceNorth where !tracks.isPlaying:
+        case .faceNorth where !cameraIsPlayed:
             navigation = NavigationOperations.faceNorth(navigation)
         default:
             break
@@ -232,6 +289,8 @@ final class ScreenMap {
         let altitude = max(camera.height - cameraGround.value, Self.minimumAltitude)
         tracks.overlay.update(georeference: georeference,
                               worldRadius: TrackOverlay.screenRadiusPerAltitude * altitude)
+        routes.overlay.update(georeference: georeference,
+                              worldRadius: RouteOverlay.screenRadiusPerAltitude * altitude)
 
         let (near, far) = ScreenView.clipping(altitude: camera.height - cameraGround.value)
         cameraEntity.components.set(PerspectiveCameraComponent(near: Float(near), far: Float(far),
@@ -284,20 +343,20 @@ final class ScreenMap {
     }
 
     func beginDrag(at point: SIMD2<Double>) {
-        guard !tracks.isPlaying else { return }
+        guard !cameraIsPlayed else { return }
         touch = TouchState()
         touch.grab = groundPoint(under: point)
     }
 
     func drag(to point: SIMD2<Double>) {
-        guard !tracks.isPlaying else { return }
+        guard !cameraIsPlayed else { return }
         navigation = panned(navigation, to: point)
     }
 
     /// `velocity` is points per second: a flick keeps the map coasting.
     func endDrag(at point: SIMD2<Double>, velocity: SIMD2<Double>) {
         defer { touch.grab = nil }
-        guard !tracks.isPlaying, simd_length(velocity) > 150,
+        guard !cameraIsPlayed, simd_length(velocity) > 150,
               let from = groundPoint(under: point),
               let to = groundPoint(under: point + velocity * 0.05)
         else { return }
@@ -308,7 +367,7 @@ final class ScreenMap {
     }
 
     func beginTwoFingers(at centre: SIMD2<Double>) {
-        guard !tracks.isPlaying else { return }
+        guard !cameraIsPlayed else { return }
         touch = TouchState()
         touch.grab = groundPoint(under: centre)
     }
@@ -316,7 +375,7 @@ final class ScreenMap {
     /// `translation`, `scale` and `rotation` are since the fingers came
     /// down; `rotation` is radians clockwise on screen.
     func twoFingers(at centre: SIMD2<Double>, translation: SIMD2<Double>, scale: Double, rotation: Double) {
-        guard !tracks.isPlaying else { return }
+        guard !cameraIsPlayed else { return }
         switch touch.twoFingers.update(translation: translation, scale: scale, rotation: rotation) {
         case .undecided:
             break
@@ -347,7 +406,7 @@ final class ScreenMap {
     /// Zooms by `factor` about the ground under a point, a moment at a
     /// time: a double tap (2), a two-finger tap (0.5).
     func zoom(at point: SIMD2<Double>, by factor: Double) {
-        guard !tracks.isPlaying, let pivot = groundPoint(under: point) else { return }
+        guard !cameraIsPlayed, let pivot = groundPoint(under: point) else { return }
         // A scroll asks again before the last step is done; keep what's left.
         let unfinished = touch.zoom.map { $0.rate * $0.remaining } ?? 0
         touch = TouchState()
@@ -357,7 +416,7 @@ final class ScreenMap {
     /// Moves the map by `delta` screen points with nothing to hold on to: a
     /// trackpad scroll, measured at the middle of the view.
     func scroll(by delta: SIMD2<Double>) {
-        guard !tracks.isPlaying, let grab = groundPoint(under: viewport.centre) else { return }
+        guard !cameraIsPlayed, let grab = groundPoint(under: viewport.centre) else { return }
         touch = TouchState()
         navigation = ScreenGestures.pan(navigation, grab: grab, to: viewport.centre + delta, viewport: viewport,
                                         groundHeight: cameraGround.value)
@@ -367,7 +426,7 @@ final class ScreenMap {
     /// is points moved, right turning the camera clockwise (the near ground
     /// follows) and up levelling the view.
     func orbit(by drag: SIMD2<Double>) {
-        guard !tracks.isPlaying, let pivot = groundPoint(under: viewport.centre) else { return }
+        guard !cameraIsPlayed, let pivot = groundPoint(under: viewport.centre) else { return }
         touch = TouchState()
         var state = NavigationOperations.orbit(navigation, about: pivot,
                                                by: drag.x / viewportSize.x * Self.turnPerScreen, context: context)
@@ -377,7 +436,7 @@ final class ScreenMap {
     }
 
     func beginZoomDrag(at point: SIMD2<Double>) {
-        guard !tracks.isPlaying else { return }
+        guard !cameraIsPlayed else { return }
         touch = TouchState()
         touch.grab = groundPoint(under: point)
     }
@@ -385,7 +444,7 @@ final class ScreenMap {
     /// Zooms directly by `scale` since the last call, about the ground the
     /// drag began on: a double tap held and dragged.
     func zoomDrag(by scale: Double) {
-        guard !tracks.isPlaying, let grab = touch.grab else { return }
+        guard !cameraIsPlayed, let grab = touch.grab else { return }
         navigation = ScreenGestures.zoom(navigation, about: grab, scale: scale, context: context)
     }
 
@@ -395,7 +454,7 @@ final class ScreenMap {
 
     /// What's left of a flick and a tap's zoom.
     private func applyGlide(deltaTime: Double) {
-        guard !tracks.isPlaying else { return }
+        guard !cameraIsPlayed else { return }
         if touch.coast != .zero {
             let step = touch.coast * deltaTime
             navigation = NavigationOperations.move(navigation, forward: step.x, right: step.y)

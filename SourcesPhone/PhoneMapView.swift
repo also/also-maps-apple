@@ -8,7 +8,13 @@ struct PhoneMapView: View {
     @State private var selection = initialPlace
     @State private var showsPlaces = false
     @State private var showsSettings = false
+    @State private var importingRoute = false
+    @AppStorage(ViewPreferences.importsRoutesKey) private var importsRoutesSetting = false
     @Environment(\.scenePhase) private var scenePhase
+
+    /// The setting, read through its storage so a change redraws the bar,
+    /// or the launch variables that turn it on for a run.
+    private var importsRoutes: Bool { importsRoutesSetting || ViewPreferences.importsRoutes }
 
     private static var initialPlace: Place? {
         let env = ProcessInfo.processInfo.environment
@@ -39,22 +45,32 @@ struct PhoneMapView: View {
                         .ignoresSafeArea()
                 }
                 .overlay(alignment: .bottom) {
-                    // The track has the camera while it plays.
-                    if !map.tracks.isPlaying {
+                    // A track or route replay has the camera while it plays.
+                    if !map.cameraIsPlayed {
                         DroneControls(map: map)
                             // Clear of the attribution along the bottom.
                             .padding(.bottom, 64)
                             .transition(.opacity)
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: map.tracks.isPlaying)
+                .animation(.easeInOut(duration: 0.2), value: map.cameraIsPlayed)
             // No title: you fly away from the place you picked. The bar is
             // just the Places button, over the map.
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .overlay(alignment: .top) {
-                trackStatus
+                VStack(spacing: 4) {
+                    trackStatus
+                    if importsRoutes, map.routes.route != nil || map.routes.errorMessage != nil {
+                        RouteLegend(routes: map.routes)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(.black.opacity(0.5), in: .rect(cornerRadius: 8))
+                            .foregroundStyle(.white)
+                    }
+                }
             }
+            .routeImporter(isPresented: $importingRoute) { map.openRoute($0) }
             // Write out the recording in case the app is suspended.
             .onChange(of: scenePhase) { _, phase in
                 if phase != .active { map.tracks.flush() }
@@ -65,6 +81,11 @@ struct PhoneMapView: View {
                     trackControls
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if importsRoutes {
+                        RouteMenu(routes: map.routes, importing: $importingRoute,
+                                  frame: { map.frameRoute() },
+                                  setReplaying: { $0 ? map.startRouteReplay() : map.stopRouteReplay() })
+                    }
                     Button("Settings", systemImage: "gearshape") {
                         showsSettings = true
                     }

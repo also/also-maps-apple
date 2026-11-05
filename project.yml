@@ -159,6 +159,10 @@ targets:
           - TrackSession.swift
           - TrackOverlay.swift
           - TubeExtruder.swift
+          - Routes
+          - RouteSession.swift
+          - RouteOverlay.swift
+          - RouteControls.swift
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift
@@ -310,6 +314,10 @@ targets:
           - TrackSession.swift
           - TrackOverlay.swift
           - TubeExtruder.swift
+          - Routes
+          - RouteSession.swift
+          - RouteOverlay.swift
+          - RouteControls.swift
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift

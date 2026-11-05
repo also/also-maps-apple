@@ -37,6 +37,12 @@ struct MacMapView: View {
     let settings: StreamingSettings
     @State private var map: ScreenMap
     @FocusState private var focused: Bool
+    @AppStorage(ViewPreferences.importsRoutesKey) private var importsRoutesSetting = false
+    @State private var importingRoute = false
+
+    /// The setting, read through its storage so a change redraws the
+    /// menus, or the launch variables that turn it on for a run.
+    private var importsRoutes: Bool { importsRoutesSetting || ViewPreferences.importsRoutes }
 
     init(start: StaticView, settings: StreamingSettings) {
         self.settings = settings
@@ -57,14 +63,32 @@ struct MacMapView: View {
             .onAppear { focused = true }
             .onChange(of: settings) { _, settings in map.settings = settings }
             .overlay(alignment: .topTrailing) {
-                Menu("Places", systemImage: "mappin.and.ellipse") {
-                    ForEach(PlaceLibrary.all) { place in
-                        Button(place.name) { map.go(to: place) }
+                VStack(alignment: .trailing, spacing: 8) {
+                    HStack(spacing: 8) {
+                        if importsRoutes {
+                            RouteMenu(routes: map.routes, importing: $importingRoute,
+                                      frame: { map.frameRoute() },
+                                      setReplaying: { $0 ? map.startRouteReplay() : map.stopRouteReplay() })
+                                .menuStyle(.button)
+                                .fixedSize()
+                        }
+                        Menu("Places", systemImage: "mappin.and.ellipse") {
+                            ForEach(PlaceLibrary.all) { place in
+                                Button(place.name) { map.go(to: place) }
+                            }
+                        }
+                        .menuStyle(.button)
+                        .fixedSize()
+                    }
+                    if importsRoutes, map.routes.route != nil || map.routes.errorMessage != nil {
+                        RouteLegend(routes: map.routes)
+                            .padding(6)
+                            .background(.black.opacity(0.5), in: .rect(cornerRadius: 6))
+                            .foregroundStyle(.white)
                     }
                 }
-                .menuStyle(.button)
-                .fixedSize()
                 .padding(8)
             }
+            .routeImporter(isPresented: $importingRoute) { map.openRoute($0) }
     }
 }
