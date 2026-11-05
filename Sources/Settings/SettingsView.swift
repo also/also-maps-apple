@@ -13,6 +13,7 @@ struct SettingsView: View {
 
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
     @AppStorage(ViewPreferences.drawsWithMetalKey) private var drawsWithMetal = false
+    @AppStorage(ViewPreferences.guestPlacesKey) private var offersGuestPlaces = false
     #if os(iOS)
     /// On iPhone the list comes first; nothing picked shows General on iPad.
     @State private var category: Category?
@@ -139,6 +140,14 @@ struct SettingsView: View {
             }
             #endif
 
+            #if !os(tvOS)
+            Section {
+                Toggle("Two places (experimental)", isOn: $offersGuestPlaces)
+            } footer: {
+                Text("Adds a Guest menu by Places: stream a second place beside the map or over it, at the same scale. It streams as much again, so it uses about twice the data and memory.")
+            }
+            #endif
+
             #if os(visionOS)
             Section {
                 Picker("Turn and zoom around", selection: $settings.keyboardTurnPivot) {
@@ -240,7 +249,7 @@ struct SettingsView: View {
                 }
                 .disabled(settings == defaults)
             } footer: {
-                Text("Returns every setting except Show stats, Draw with Metal and your keys to how the app ships.")
+                Text("Returns every setting except Show stats, Draw with Metal, Two places and your keys to how the app ships.")
             }
         }
         .formStyle(.grouped)

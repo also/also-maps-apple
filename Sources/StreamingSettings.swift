@@ -85,6 +85,16 @@ enum ViewPreferences {
     /// RealityKit (the map window on a screen, the immersive mode on visionOS).
     static let drawsWithMetalKey = "DrawsWithMetal"
 
+    /// UserDefaults key: offer a guest place, a second place streamed beside
+    /// or over the map (experimental; see GuestPlace). Off by default.
+    static let guestPlacesKey = "GuestPlaces"
+
+    /// The setting, or ALSOMAPS_GUEST_PLACE, which shows that guest for a run.
+    static var offersGuestPlaces: Bool {
+        !(ProcessInfo.processInfo.environment["ALSOMAPS_GUEST_PLACE"] ?? "").isEmpty
+            || UserDefaults.standard.bool(forKey: guestPlacesKey)
+    }
+
     /// The setting, or ALSOMAPS_METAL=1, which turns it on for a run.
     static var drawsWithMetal: Bool {
         ProcessInfo.processInfo.environment["ALSOMAPS_METAL"] == "1"
