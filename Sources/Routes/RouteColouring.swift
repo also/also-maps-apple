@@ -25,7 +25,7 @@ enum RouteColouring: String, CaseIterable, Identifiable {
     /// Each point's value, in the units `label` shows (speed in km/h,
     /// elevation in metres above sea level), or nil where it has none.
     func values(_ route: ImportedRoute) -> [Double?] {
-        route.points.map { point in
+        route.points.map { point -> Double? in
             switch self {
             case .speed: point.speed.map { $0 * 3.6 }
             case .elevation: point.elevation

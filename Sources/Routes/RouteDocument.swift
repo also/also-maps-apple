@@ -95,6 +95,9 @@ enum RouteImport {
 /// extension whose namespace is undeclared or bound to another prefix (ns3:
 /// is common) still reads. Namespace processing stays off for that reason:
 /// with it on, an undeclared prefix is an error.
+/// UNVERIFIED: whether XMLParser also accepts an undeclared prefix with
+/// namespace processing off (libxml2 reports it as a namespace error, not
+/// a well-formedness one). The fixtures declare theirs.
 final class GPXParser: NSObject, XMLParserDelegate {
     static func parse(_ data: Data) -> Result<RouteDocument, RouteImportError> {
         let delegate = GPXParser()

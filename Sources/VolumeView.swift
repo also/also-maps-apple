@@ -125,6 +125,7 @@ struct VolumeView: View {
                 AttributionView()
             }
         }
+        // UNVERIFIED: that a file importer presents from a volumetric window.
         .routeImporter(isPresented: $importingRoute) { model.openRoute($0) }
         .task {
             // Debug: ALSOMAPS_OPEN_SETTINGS=1 opens the Settings window, and

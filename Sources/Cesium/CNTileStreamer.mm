@@ -1404,6 +1404,9 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
     return;
   }
   // One result per input position, in order (sampleSuccess says which hit).
+  // UNVERIFIED: how long a batch of 64 takes cold, how many tiles it loads,
+  // and whether a destroyed tileset ever completes its future (RouteSession
+  // re-sends after a timeout in case it doesn't).
   _tileset->sampleHeightMostDetailed(positions)
       .thenInMainThread([completion, count](SampleHeightResult&& result) {
         NSMutableArray<NSNumber *> *heights = [NSMutableArray arrayWithCapacity:count];

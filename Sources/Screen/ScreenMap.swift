@@ -82,7 +82,7 @@ final class ScreenMap {
                                                                      fieldOfView: Self.fieldOfView, aspect: 1),
                                   settings: settings)
         navigation = flight.activate(navigation)
-        routes.sampleSurfaceHeights = { [weak streaming] coordinates, completion in
+        routes.sampleSurfaceHeights = { [weak streaming = self.streaming] coordinates, completion in
             streaming?.sampleSurfaceHeights(at: coordinates, completion) ?? false
         }
     }

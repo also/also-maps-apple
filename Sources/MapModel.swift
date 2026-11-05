@@ -207,7 +207,7 @@ final class MapModel {
         streaming.tilesRoot.addChild(tileBoundsOverlay.root)
         root.addChild(tracks.overlay.root)
         root.addChild(routes.overlay.root)
-        routes.sampleSurfaceHeights = { [weak streaming] coordinates, completion in
+        routes.sampleSurfaceHeights = { [weak streaming = self.streaming] coordinates, completion in
             streaming?.sampleSurfaceHeights(at: coordinates, completion) ?? false
         }
         // Indirect only (look + pinch). Allowing direct input meant hands that
@@ -497,8 +497,8 @@ final class MapModel {
         }
         let dt = Double(deltaTime)
         applyInput(deltaTime: dt)
-        if let chased = routes.update(deltaTime: dt) {
-            advanceRouteReplay(chased)
+        if let chase = routes.update(deltaTime: dt) {
+            advanceRouteReplay(chase)
         } else if tracks.isPlaying {
             advancePlayback(deltaTime: dt)
         } else if settlesPitch, manipulation == nil {

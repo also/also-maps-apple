@@ -75,6 +75,12 @@ The pin button next to the mode picker jumps to a saved place: its position, zoo
 
 The remote config can replace these defaults; see below.
 
+## Imported routes (experimental)
+
+Off by default. Turn on **Imported routes** in Settings › General (visionOS, iPhone, Mac), or set `ALSOMAPS_ROUTES=1` for a run. A **Route** menu appears next to Places. **Open Route…** reads a GPX file (tracks, segments and routes, with `ele`, `time`, and Garmin heart rate and cadence) or a GeoJSON LineString or MultiLineString, and frames the camera on it. The route is drawn as a tube over the map, coloured by **speed**, **elevation**, **heart rate** or **cadence**, with a legend by the attribution. **Height** puts it **on the ground** (draped on the map's surface, sampled while the app runs and never saved) or **as recorded** (the file's heights, moved from sea level to the ellipsoid with a coarse EGM96 geoid). **Replay** plays it at 10× to 120× with the camera chasing the moving point from behind and above. In Immersive the chase camera is your eye. Routes aren't drawn with Metal, and tvOS doesn't have them.
+
+`ALSOMAPS_ROUTE=<file>` opens a route at launch (a relative path is in the app's Documents folder). `ALSOMAPS_ROUTE_REPLAY=30` replays it, and `ALSOMAPS_ROUTE_COLOUR`, `ALSOMAPS_ROUTE_HEIGHT`, `ALSOMAPS_ROUTE_DRAPE_SAMPLES`, `ALSOMAPS_CHASE_DISTANCE` and `ALSOMAPS_CHASE_TURNS` tune it. Two synthetic San Francisco demos are in `Tests/Routes/Fixtures/`. See [notes/imported-routes.md](notes/imported-routes.md).
+
 ## Remote config
 
 Every platform reads `https://maps.also.dev/config/v1.json`, a static file published from also-maps-site, on launch, on returning to the foreground and every 15 minutes while active (every minute while blocked). `Sources/Config/` holds the file's model and rules (`AppConfig`), its fetching and saved copy (`AppConfigStore`) and how the app applies it (`AppGate`).

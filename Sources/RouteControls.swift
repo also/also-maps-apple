@@ -15,6 +15,9 @@ struct RouteMenu: View {
     var setReplaying: (Bool) -> Void
 
     /// GPX (declared as XML, which some apps type it as), GeoJSON and JSON.
+    /// UNVERIFIED: that a dynamic type made from an extension lets the
+    /// importer pick .gpx and .geojson files on each platform; .xml and
+    /// .json are there in case it doesn't.
     static let contentTypes: [UTType] = [
         UTType(filenameExtension: "gpx", conformingTo: .xml),
         UTType(filenameExtension: "geojson", conformingTo: .json),
