@@ -115,7 +115,7 @@ struct MapViewState: Codable {
             throw ParseError.notAViewState
         }
         guard let version = object["version"] as? Int else {
-            throw object["radius"] != nil || object["flyScale"] != nil
+            throw object["radius"] != nil
                 ? ParseError.unsupportedVersion : ParseError.notAViewState
         }
         guard version == currentVersion else { throw ParseError.unsupportedVersion }

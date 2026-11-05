@@ -65,7 +65,7 @@ struct VolumeView: View {
                 }
                 .toggleStyle(.button)
                 .labelStyle(.iconOnly)
-                .help("Fly the latest track in real time")
+                .help("Play the latest track in real time")
                 .disabled(model.isRecordingTrack || model.latestTrack == nil)
                 if let track = model.latestTrack {
                     ShareLink(item: track) {
