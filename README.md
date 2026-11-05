@@ -149,6 +149,7 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 
 **Immersion** (visionOS): **Full immersion**, **Human scale (test)**, and
 - **Limit reach** (Immersive only): by default Immersive streams everything you could see, all around you out to the horizon (plus ~200 km for mountains beyond it), measured from where your eye is in the world, so a tilted globe shows its whole visible face. Turn this on to stream only **Reach** around you instead: 5× to 100× your height above the ground (the same multiple of your eye height above the floor).
+- **World in miniature** (Immersive only, experimental, off by default): the volume shows a small copy of the world around you, 2 to 60 km across, with you, your heading, where you're looking and what's streaming. Pinch-tap it to jump there, drag it to slide along, pinch it with both hands to zoom it. It streams its own tiles, which is another Google map session each time it appears. `ALSOMAPS_MINIATURE=1` turns it on for a run. See [notes/world-in-miniature.md](notes/world-in-miniature.md).
 
 **Detail** (visionOS): cesium-native's screen-space error thresholds, for tiles inside and outside the LOD camera's view. Most of an expanded region is outside that view, so Outer detail controls how sharp the far map is and how many tiles it costs. On iPhone and the Mac, detail is set from the window's pixels instead.
 
