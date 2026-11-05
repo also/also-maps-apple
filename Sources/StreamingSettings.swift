@@ -90,4 +90,17 @@ enum ViewPreferences {
         ProcessInfo.processInfo.environment["ALSOMAPS_METAL"] == "1"
             || UserDefaults.standard.bool(forKey: drawsWithMetalKey)
     }
+
+    /// UserDefaults key: offer imported routes (a spike): open a GPX or
+    /// GeoJSON file, draw it over the map coloured by speed, elevation or
+    /// heart rate, and replay it with a chase camera. Off by default.
+    static let importsRoutesKey = "ImportsRoutes"
+
+    /// The setting, or ALSOMAPS_ROUTES=1 or ALSOMAPS_ROUTE=<file>, which
+    /// turn it on for a run.
+    static var importsRoutes: Bool {
+        let env = ProcessInfo.processInfo.environment
+        return env["ALSOMAPS_ROUTES"] == "1" || env["ALSOMAPS_ROUTE"].map { !$0.isEmpty } == true
+            || UserDefaults.standard.bool(forKey: importsRoutesKey)
+    }
 }

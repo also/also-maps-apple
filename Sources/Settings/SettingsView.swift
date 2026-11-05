@@ -13,6 +13,7 @@ struct SettingsView: View {
 
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
     @AppStorage(ViewPreferences.drawsWithMetalKey) private var drawsWithMetal = false
+    @AppStorage(ViewPreferences.importsRoutesKey) private var importsRoutes = false
     #if os(iOS)
     /// On iPhone the list comes first; nothing picked shows General on iPad.
     @State private var category: Category?
@@ -137,6 +138,12 @@ struct SettingsView: View {
                 Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
                 #endif
             }
+
+            Section {
+                Toggle("Imported routes (experimental)", isOn: $importsRoutes)
+            } footer: {
+                Text("Adds a Route menu: open a GPX or GeoJSON file to see it over the map, coloured by speed, elevation or heart rate, and replay it with the camera chasing along. Not drawn with Metal.")
+            }
             #endif
 
             #if os(visionOS)
@@ -240,7 +247,7 @@ struct SettingsView: View {
                 }
                 .disabled(settings == defaults)
             } footer: {
-                Text("Returns every setting except Show stats, Draw with Metal and your keys to how the app ships.")
+                Text("Returns every setting except Show stats, Draw with Metal, Imported routes and your keys to how the app ships.")
             }
         }
         .formStyle(.grouped)
