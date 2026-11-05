@@ -31,15 +31,20 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// Sampler states by glTF sampler, shared between tiles.
     private var samplers: [SIMD4<Int>: MTLSamplerState] = [:]
     private let samplersLock = NSLock()
-    /// Pipelines by colour and depth format and kind (tiles, or the
-    /// depth-only sky pass), made on first use.
-    private var pipelines: [SIMD3<UInt>: MTLRenderPipelineState] = [:]
+    /// Pipelines by colour format, depth format, kind (tiles, or the
+    /// depth-only sky pass) and sample count. The common ones are made in
+    /// `init`; others on first use.
+    private var pipelines: [SIMD4<UInt>: MTLRenderPipelineState] = [:]
     private let pipelinesLock = NSLock()
     /// A/B switch for device profiling; only draw submission changes.
     private let cullsOffscreen = ProcessInfo.processInfo.environment["ALSOMAPS_METAL_CULLING"] != "0"
 
     /// The sky, as in ScreenMapView, as an sRGB target's clear colour (linear).
     static let skyColour = MTLClearColor(red: pow(0.55, 2.2), green: pow(0.7, 2.2), blue: pow(0.85, 2.2), alpha: 1)
+
+    /// Samples per pixel for the Mac/iOS map view: 4 where the device
+    /// supports it, else 1 (no MSAA). The visionOS compositor path stays at 1.
+    let mapSampleCount: Int
 
     enum MetalError: Error { case noDevice, setup }
 
@@ -57,6 +62,12 @@ final class MetalTileRenderer: @unchecked Sendable {
         else { throw MetalError.setup }
         self.queue = queue
         self.depthState = depthState
+        mapSampleCount = device.supportsTextureSampleCount(4) ? 4 : 1
+        // Pre-warm the formats MetalMapView uses, so the first frame doesn't
+        // compile on the render thread. Other formats still build on demand.
+        for count in Set([1, mapSampleCount]) {
+            _ = pipeline(colour: .bgra8Unorm_srgb, depth: .depth32Float, sampleCount: count)
+        }
     }
 
     // MARK: Tiles
@@ -141,7 +152,10 @@ final class MetalTileRenderer: @unchecked Sendable {
         samplersLock.lock()
         defer { samplersLock.unlock() }
         if let sampler = samplers[key] { return sampler }
-        let sampler = device.makeSamplerState(descriptor: TileUploader.samplerDescriptor(for: primitive))
+        // A copy for the Metal path only: RealityKit's sampler is unchanged.
+        let descriptor = TileUploader.samplerDescriptor(for: primitive)
+        if descriptor.minFilter == .linear, descriptor.magFilter == .linear { descriptor.maxAnisotropy = 4 }
+        let sampler = device.makeSamplerState(descriptor: descriptor)
         samplers[key] = sampler
         return sampler
     }
@@ -182,8 +196,8 @@ final class MetalTileRenderer: @unchecked Sendable {
     }
 
     private func pipeline(colour: MTLPixelFormat, depth: MTLPixelFormat,
-                          skyDepth: Bool = false) -> MTLRenderPipelineState? {
-        let key = SIMD3(colour.rawValue, depth.rawValue, skyDepth ? 1 : 0)
+                          skyDepth: Bool = false, sampleCount: Int = 1) -> MTLRenderPipelineState? {
+        let key = SIMD4(colour.rawValue, depth.rawValue, skyDepth ? 1 : 0, UInt(sampleCount))
         pipelinesLock.lock()
         defer { pipelinesLock.unlock() }
         if let pipeline = pipelines[key] { return pipeline }
@@ -198,6 +212,7 @@ final class MetalTileRenderer: @unchecked Sendable {
         }
         descriptor.colorAttachments[0].pixelFormat = colour
         descriptor.depthAttachmentPixelFormat = depth
+        descriptor.rasterSampleCount = sampleCount
         do {
             let pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
             pipelines[key] = pipeline
@@ -212,13 +227,13 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// frame → scene) and `viewProjection` (scene → clip, reverse Z).
     @discardableResult
     func encode(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
-                viewProjection: simd_float4x4, root: simd_float4x4,
+                sampleCount: Int = 1, viewProjection: simd_float4x4, root: simd_float4x4,
                 tiles: [(tile: CNTileMesh, placement: simd_float4x4)]) -> MetalDrawStatistics {
         let signposter = Signposts.frame
         let interval = signposter.beginInterval("MetalEncode", id: signposter.makeSignpostID())
         defer { signposter.endInterval("MetalEncode", interval) }
         var statistics = MetalDrawStatistics()
-        guard let pipeline = pipeline(colour: colour, depth: depth) else { return statistics }
+        guard let pipeline = pipeline(colour: colour, depth: depth, sampleCount: sampleCount) else { return statistics }
         encoder.setRenderPipelineState(pipeline)
         encoder.setDepthStencilState(depthState)
         encoder.setCullMode(.none)
@@ -272,8 +287,10 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// to `skyDepth`, leaving colour alone. Tiles farther than that keep
     /// their colour and only have their depth raised, so nothing is hidden.
     /// Only a compositor needs it: a window shows the cleared sky as is.
-    func encodeSkyDepth(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat) {
-        guard let pipeline = pipeline(colour: colour, depth: depth, skyDepth: true) else { return }
+    func encodeSkyDepth(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
+                        sampleCount: Int = 1) {
+        guard let pipeline = pipeline(colour: colour, depth: depth, skyDepth: true,
+                                      sampleCount: sampleCount) else { return }
         encoder.setRenderPipelineState(pipeline)
         encoder.setDepthStencilState(depthState)
         var depth = Self.skyDepth
