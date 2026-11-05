@@ -137,17 +137,6 @@ struct SettingsView: View {
             }
             #endif
 
-            #if os(visionOS)
-            Section {
-                Picker("Turn and zoom around", selection: $settings.keyboardTurnPivot) {
-                    Text("Map centre").tag(StreamingSettings.TurnPivot.center)
-                    Text("Where you are").tag(StreamingSettings.TurnPivot.viewer)
-                }
-            } footer: {
-                Text("Where you are keeps the ground beneath you fixed, so zooming is moving straight up or down and turning is turning on the spot.")
-            }
-            #endif
-
             // Google Maps Platform Terms §3.2.2(a): the app's terms must say
             // it includes Google Maps content, under Google's terms and privacy policy.
             Section {
