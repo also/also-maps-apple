@@ -13,6 +13,7 @@ struct SettingsView: View {
 
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
     @AppStorage(ViewPreferences.drawsWithMetalKey) private var drawsWithMetal = false
+    @AppStorage(ViewPreferences.photosInPlaceKey) private var photosInPlace = false
     #if os(iOS)
     /// On iPhone the list comes first; nothing picked shows General on iPad.
     @State private var category: Category?
@@ -135,6 +136,18 @@ struct SettingsView: View {
                 Text("Draws the immersive map with the app's own Metal renderer instead of RealityKit, always in full immersion, with real depth. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
                 #else
                 Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
+                #endif
+            }
+            #endif
+
+            #if os(visionOS) || os(macOS)
+            Section {
+                Toggle("Photos in place", isOn: $photosInPlace)
+            } footer: {
+                #if os(visionOS)
+                Text("Adds Photos buttons by the volume's controls: pick photos to see them on the map where they were taken, and go to one to stand where it was taken in Immersive, with the photo framed over the world. Photos stay on this device and are forgotten when the app quits. Not drawn with Metal.")
+                #else
+                Text("Adds a Photos menu over the map: pick photos to see them where they were taken, and go to one to stand where it was taken, with the photo over the view. Photos stay on this Mac and are forgotten when the app quits. Not drawn with Metal.")
                 #endif
             }
             #endif
