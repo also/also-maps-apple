@@ -916,7 +916,9 @@ final class MapModel {
     /// while tiles are held.
     func dragMiniature(from start: SIMD3<Float>, to current: SIMD3<Float>) {
         // The played track has the camera; a two-handed pinch zooms instead.
-        guard miniature.isShown, !tracks.isPlaying, miniatureZoom == nil else { return }
+        // A cancelled pinch never ends, so only a recent one counts.
+        let zooming = miniatureZoom.map { Date().timeIntervalSince($0.lastUpdate) < 0.3 } ?? false
+        guard miniature.isShown, !tracks.isPlaying, !zooming else { return }
         if miniatureDrag?.start != start {
             endManipulation()
             miniatureDrag = MiniatureDrag(start: start, state: navigation)
