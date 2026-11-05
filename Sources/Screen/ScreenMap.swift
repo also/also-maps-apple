@@ -7,7 +7,7 @@ import SwiftUI
 /// the same as on visionOS; only the presentation (`ScreenView`) differs.
 @MainActor
 @Observable
-final class ScreenMap {
+final class ScreenMap: GuestHost {
     let streaming: TileStreaming
     /// What Settings edits, saved between launches. Streaming gets these
     /// with detail set for this screen's pixels instead.
@@ -41,6 +41,9 @@ final class ScreenMap {
     /// Bumped per ground sample so a slow, older result can't win.
     @ObservationIgnored private var groundSampleGeneration = 0
     @ObservationIgnored private let cameraEntity = Entity()
+    /// Holds a guest place's tiles root in the scene, so a guest can come
+    /// and go after the scene is made.
+    @ObservationIgnored private let guestHolder = Entity()
     @ObservationIgnored private var subscription: EventSubscription?
     @ObservationIgnored private var viewportSize = SIMD2<Double>(1, 1)
     @ObservationIgnored private var touch = TouchState()
@@ -82,9 +85,14 @@ final class ScreenMap {
         content.add(streaming.tilesRoot)
         content.add(tracks.overlay.root)
         content.add(cameraEntity)
+        content.add(guestHolder)
         applyView()
         streaming.start()
         sampleGround(around: startGround.centre, radius: startGround.radius, liftsCamera: startGround.lifts)
+        // ALSOMAPS_GUEST_PLACE (and _MODE, _HEADING, _RADIUS) shows a guest.
+        if let request = GuestPlace.environmentRequest() {
+            showGuest(request.place, mode: request.mode, heading: request.heading, radius: request.radius)
+        }
         subscription = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             MainActor.assumeIsolated {
                 self?.tick(deltaTime: Float(event.deltaTime))
@@ -114,6 +122,17 @@ final class ScreenMap {
         settings.detail = StaticView.detail(pixels: 16, windowHeight: viewportSize.y)
         settings.outerDetail = StaticView.detail(pixels: 64, windowHeight: viewportSize.y)
         streaming.settings = settings
+        guest?.streaming.settings = settings
+    }
+
+    /// Builds tiles for another renderer (MetalTileRenderer) instead of
+    /// RealityKit entities, for the map's tiles and a guest's alike.
+    var customTileHandler: CNTileLoadHandler? {
+        get { streaming.customTileHandler }
+        set {
+            streaming.customTileHandler = newValue
+            guest?.streaming.customTileHandler = newValue
+        }
     }
 
     // MARK: Places
@@ -126,6 +145,8 @@ final class ScreenMap {
         let camera = ScreenView.framePlace(place, fieldOfView: Self.fieldOfView)
         navigation = flight.activate(NavigationState(camera: camera))
         cameraGround.reset(to: 0)
+        // The guest comes along, beside or over the new place.
+        guest?.rehost(centre: place.coordinate, radius: place.radius)
         // Framed on the ellipsoid; lift it by the ground there once known.
         sampleGround(around: place.coordinate, radius: place.radius, liftsCamera: true)
     }
@@ -178,6 +199,7 @@ final class ScreenMap {
         tracks.record(navigation.camera)
         applyView()
         streaming.update(deltaTime: deltaTime)
+        guest?.update(deltaTime: deltaTime, host: streaming, held: false)
         countFrame(deltaTime)
     }
 
@@ -229,6 +251,7 @@ final class ScreenMap {
                                                       fieldOfView: Self.fieldOfView, aspect: viewport.aspect)
         let georeference = ScreenView.georeference(camera: camera)
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
+        guest?.apply(georeference: georeference, hostInputs: streaming.inputs, held: false)
         let altitude = max(camera.height - cameraGround.value, Self.minimumAltitude)
         tracks.overlay.update(georeference: georeference,
                               worldRadius: TrackOverlay.screenRadiusPerAltitude * altitude)
@@ -238,6 +261,52 @@ final class ScreenMap {
                                                                fieldOfViewInDegrees: Float(Self.fieldOfView * 180 / .pi)))
         cameraEntity.orientation = simd_quatf(vector: SIMD4<Float>(ScreenView.cameraOrientation(camera: camera).vector))
         cameraEntity.position = .zero
+    }
+
+    // MARK: Guest place
+
+    /// A second place shown beside or over the map (Settings › Two places),
+    /// or nil. See GuestPlace.
+    private(set) var guest: GuestPlace?
+
+    /// Shows `place` as the guest, replacing any other, around the ground
+    /// at the middle of the view now.
+    func showGuest(_ place: Place, mode: GuestMode, heading: Double = 0, radius: Double? = nil) {
+        hideGuest()
+        let host = guestHostArea()
+        let guest = GuestPlace(place: place, mode: mode, heading: heading, radius: radius,
+                               hostCentre: host.centre, hostRadius: host.radius, settings: streaming.settings,
+                               customTileHandler: streaming.customTileHandler)
+        guestHolder.addChild(guest.streaming.tilesRoot)
+        self.guest = guest
+        guest.start()
+        applyView()
+    }
+
+    func hideGuest() {
+        guest?.streaming.tilesRoot.removeFromParent()
+        guest = nil
+    }
+
+    func setGuestMode(_ mode: GuestMode) {
+        guest?.setMode(mode)
+        applyView()
+    }
+
+    func turnGuest(by angle: Double) {
+        guest?.turn(by: angle)
+        applyView()
+    }
+
+    /// The ground at the middle of the view, and the half-width the view
+    /// shows there; looking at the sky, the ground beneath the camera.
+    private func guestHostArea() -> (centre: GeoCoordinate, radius: Double) {
+        let camera = navigation.camera
+        guard let point = groundPoint(under: viewport.centre) else {
+            return (camera.coordinate, max(context.altitude(of: camera), 500))
+        }
+        let radius = simd_distance(point, camera.position) * tan(Self.fieldOfView / 2)
+        return (Geodesy.geodetic(point).coordinate, radius)
     }
 
     // MARK: Touch
@@ -459,7 +528,7 @@ struct ScreenMapView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            AttributionBar(streaming: map.streaming, creditLineLimit: creditLineLimit)
+            AttributionBar(streaming: map.streaming, guest: map.guest?.streaming, creditLineLimit: creditLineLimit)
                 .padding(8)
         }
     }
@@ -471,6 +540,10 @@ struct ScreenMapView: View {
             if showsStats {
                 Text("\(stats.renderedTiles) tiles · \(stats.entities) entities · \(Int(map.streaming.loadProgress))% · \(map.framesPerSecond) fps")
                 Text(stats.requestsSummary)
+                if let guest = map.guest {
+                    let guestStats = guest.streaming.stats
+                    Text("Guest \(guest.place.name): \(guestStats.renderedTiles) tiles · \(Int(guest.streaming.loadProgress))% · \(guestStats.requestsSummary)")
+                }
                 Text(String(format: "%.5f, %.5f · %.0f m · heading %.0f° · pitch %.0f°",
                             camera.latitude, camera.longitude, camera.height,
                             camera.heading * 180 / .pi, camera.pitch * 180 / .pi))

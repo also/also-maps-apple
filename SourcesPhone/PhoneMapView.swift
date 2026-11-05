@@ -8,6 +8,7 @@ struct PhoneMapView: View {
     @State private var selection = initialPlace
     @State private var showsPlaces = false
     @State private var showsSettings = false
+    @AppStorage(ViewPreferences.guestPlacesKey) private var guestPlacesSetting = false
     @Environment(\.scenePhase) private var scenePhase
 
     private static var initialPlace: Place? {
@@ -60,6 +61,7 @@ struct PhoneMapView: View {
                 if phase != .active { map.tracks.flush() }
             }
             .onDisappear { map.tracks.flush() }
+            .hidesGuestWhenSwitchedOff(map)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
                     trackControls
@@ -67,6 +69,10 @@ struct PhoneMapView: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button("Settings", systemImage: "gearshape") {
                         showsSettings = true
+                    }
+                    // Settings › Two places, or ALSOMAPS_GUEST_PLACE for a run.
+                    if guestPlacesSetting || ViewPreferences.offersGuestPlaces {
+                        GuestMenu(host: map)
                     }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true

@@ -24,7 +24,7 @@ struct MetalOptionMapView: View {
         ScreenMapView(map: map, creditLineLimit: creditLineLimit,
                       sceneOverride: metal.map { AnyView(MetalMapView(map: map, renderer: $0)) })
             .onChange(of: metal != nil, initial: true) { _, drawsWithMetal in
-                map.streaming.customTileHandler = drawsWithMetal ? metal?.handler : nil
+                map.customTileHandler = drawsWithMetal ? metal?.handler : nil
             }
     }
 }

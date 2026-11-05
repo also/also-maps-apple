@@ -37,6 +37,7 @@ struct MacMapView: View {
     let settings: StreamingSettings
     @State private var map: ScreenMap
     @FocusState private var focused: Bool
+    @AppStorage(ViewPreferences.guestPlacesKey) private var guestPlacesSetting = false
 
     init(start: StaticView, settings: StreamingSettings) {
         self.settings = settings
@@ -56,14 +57,23 @@ struct MacMapView: View {
             .onKeyPress(phases: .all) { _ in .handled }
             .onAppear { focused = true }
             .onChange(of: settings) { _, settings in map.settings = settings }
+            .hidesGuestWhenSwitchedOff(map)
             .overlay(alignment: .topTrailing) {
-                Menu("Places", systemImage: "mappin.and.ellipse") {
-                    ForEach(PlaceLibrary.all) { place in
-                        Button(place.name) { map.go(to: place) }
+                HStack {
+                    // Settings › Two places, or ALSOMAPS_GUEST_PLACE for a run.
+                    if guestPlacesSetting || ViewPreferences.offersGuestPlaces {
+                        GuestMenu(host: map)
+                            .menuStyle(.button)
+                            .fixedSize()
                     }
+                    Menu("Places", systemImage: "mappin.and.ellipse") {
+                        ForEach(PlaceLibrary.all) { place in
+                            Button(place.name) { map.go(to: place) }
+                        }
+                    }
+                    .menuStyle(.button)
+                    .fixedSize()
                 }
-                .menuStyle(.button)
-                .fixedSize()
                 .padding(8)
             }
     }

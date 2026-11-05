@@ -147,7 +147,16 @@ struct StaticMapView: View {
 /// white variant, so it sits on a dark backing.
 struct AttributionBar: View {
     let streaming: TileStreaming
+    /// A guest place's streamer, whose credits show too.
+    var guest: TileStreaming?
     var creditLineLimit: Int? = 1
+
+    private var credits: [TileStreaming.Credit] {
+        guard let guest else { return streaming.credits }
+        // Each once, the map's first.
+        var seen = Set<TileStreaming.Credit>()
+        return (streaming.credits + guest.credits).filter { seen.insert($0).inserted }
+    }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -159,7 +168,7 @@ struct AttributionBar: View {
                     Image("GoogleMapsLogo")
                         .accessibilityLabel("Google Maps")
                 }
-                Text(streaming.credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
+                Text(credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption)
                     .lineLimit(creditLineLimit)
             }
