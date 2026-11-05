@@ -13,6 +13,7 @@ struct SettingsView: View {
 
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
     @AppStorage(ViewPreferences.drawsWithMetalKey) private var drawsWithMetal = false
+    @AppStorage(ViewPreferences.recordingModeKey) private var recordingMode = false
     #if os(iOS)
     /// On iPhone the list comes first; nothing picked shows General on iPad.
     @State private var category: Category?
@@ -230,6 +231,18 @@ struct SettingsView: View {
                 Text("Streaming")
             }
 
+            // Google's terms allow videos of the map only to promote the app,
+            // marked as such and with the attribution showing.
+            Section {
+                Toggle("Recording mode", isOn: $recordingMode)
+            } footer: {
+                #if os(visionOS)
+                Text("For screen recordings that promote the app. The attribution adds \"\(ViewPreferences.promotionalLine)\", as Google's terms require. In Immersive, the Google Maps logo and credits stay low in front of you wherever you look, instead of at the map's near edge, so every frame shows them (not when drawing with Metal).")
+                #else
+                Text("For screen recordings that promote the app. The attribution adds \"\(ViewPreferences.promotionalLine)\", as Google's terms require.")
+                #endif
+            }
+
             #if os(visionOS)
             debugging
             #endif
@@ -240,7 +253,7 @@ struct SettingsView: View {
                 }
                 .disabled(settings == defaults)
             } footer: {
-                Text("Returns every setting except Show stats, Draw with Metal and your keys to how the app ships.")
+                Text("Returns every setting except Show stats, Draw with Metal, Recording mode and your keys to how the app ships.")
             }
         }
         .formStyle(.grouped)
