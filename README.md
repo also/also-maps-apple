@@ -206,7 +206,7 @@ overrides apply to both; saved places use their own radius, while
 `ALSOMAPS_RADIUS` overrides the area for an explicit camera preset.
 The LOD camera tracks the actual view aspect ratio.
 
-The project uses the released `CesiumNative` package version `0.64.0-2`,
+The project uses the released `CesiumNative` package version `0.66.0-1`,
 which contains arm64 macOS and device/simulator slices for iOS, visionOS and
 tvOS. No sibling framework checkout is required.
 

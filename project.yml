@@ -28,7 +28,7 @@ packages:
   # cesium-native, prebuilt: https://github.com/also/cesium-native-xcframework
   CesiumNative:
     url: https://github.com/also/cesium-native-xcframework
-    exactVersion: 0.64.0-2
+    exactVersion: 0.66.0-1
 settingGroups:
   # Compiling against cesium-native: its headers, and the targets that include
   # CNTileStreamer.mm.
