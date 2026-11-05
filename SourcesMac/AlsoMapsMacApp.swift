@@ -36,6 +36,7 @@ struct AlsoMapsMacApp: App {
 struct MacMapView: View {
     let settings: StreamingSettings
     @State private var map: ScreenMap
+    @State private var showsRemoteControl = false
     @FocusState private var focused: Bool
 
     init(start: StaticView, settings: StreamingSettings) {
@@ -57,13 +58,27 @@ struct MacMapView: View {
             .onAppear { focused = true }
             .onChange(of: settings) { _, settings in map.settings = settings }
             .overlay(alignment: .topTrailing) {
-                Menu("Places", systemImage: "mappin.and.ellipse") {
-                    ForEach(PlaceLibrary.all) { place in
-                        Button(place.name) { map.go(to: place) }
+                HStack(spacing: 8) {
+                    Button {
+                        showsRemoteControl.toggle()
+                    } label: {
+                        Label("Remote Control", systemImage: map.control.host.clients.isEmpty
+                              ? "antenna.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right.circle.fill")
+                            .labelStyle(.iconOnly)
                     }
+                    .help("Let an iPhone, the CLI or an agent control this map")
+                    .popover(isPresented: $showsRemoteControl, arrowEdge: .bottom) {
+                        RemoteControlPanel(host: map.control.host)
+                            .frame(width: 380, height: 480)
+                    }
+                    Menu("Places", systemImage: "mappin.and.ellipse") {
+                        ForEach(PlaceLibrary.all) { place in
+                            Button(place.name) { map.go(to: place) }
+                        }
+                    }
+                    .menuStyle(.button)
+                    .fixedSize()
                 }
-                .menuStyle(.button)
-                .fixedSize()
                 .padding(8)
             }
     }

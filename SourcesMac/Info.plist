@@ -28,6 +28,12 @@
 	<false/>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.navigation</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_alsomaps-rc._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Let an iPhone, the CLI or an agent on this network control the map.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Also Maps listens while you hold the talk button, so you can fly by voice.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

@@ -47,6 +47,12 @@ To test without a key, tick the `ALSOMAPS_*` variables in the scheme. They strea
 xcodebuild -scheme 'Also Maps Core Tests' -destination 'platform=macOS' test
 ```
 
+`AlsoMapsRemoteTests` tests remote control's protocol and connections, over real TLS on loopback and Bonjour. It opens local network listeners, so allow local network access if asked:
+
+```
+xcodebuild -scheme AlsoMapsRemoteTests -destination 'platform=macOS' test
+```
+
 ## Controls
 
 - **Pan:** look at the map, pinch and drag. Gestures are indirect only (look and pinch), so open hands over the map do nothing.
@@ -189,6 +195,8 @@ Where things land when unsandboxed:
 - **HTTP cache**: `~/Library/Caches/dev.also.maps/tiles/`. Delete it for a cold run. See [docs/tile-caching.md](docs/tile-caching.md).
 - **Defaults**: `~/Library/Preferences/dev.also.maps.plist`.
 
+To drive the running app rather than only watch it, launch it with `ALSOMAPS_CONTROL=1` and use `alsomaps-control` (see "Remote control" below). The Debug build writes its port and pairing code to `~/Library/Application Support/AlsoMaps/control.json`, so the CLI connects without a code.
+
 Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](docs/profiling.md). Tile caching, the request counters in the Tuning stats, and how to measure them are in [docs/tile-caching.md](docs/tile-caching.md).
 
 ## Known gaps
@@ -242,9 +250,15 @@ with textured San Francisco tiles, the Places control and wrapped attribution
 visible in portrait. Touch-driven place selection, rotation and physical-device
 performance still need manual verification.
 
-## iPhone controller for Vision Pro
+## Remote control
 
-Tap the controller button on iPhone to control the visionOS map over local or
-peer-to-peer Wi-Fi. On Vision Pro, open **iPhone Controller** in the map controls,
-enable pairing, and enter its code on the phone. See
-[setup, transport details, and testing](docs/iphone-controller.md).
+The Mac and Vision Pro apps can be flown from elsewhere on the local network: by the iPhone as a joystick, by the `alsomaps-control` CLI, or by an agent through its MCP server. Turn on **Remote Control** (the antenna button on the Mac, beside Places; the iPhone-and-waves button in the volume's toolbar on visionOS), and give clients the 6-digit code it shows. On the Mac, Debug builds also accept `ALSOMAPS_CONTROL=1`.
+
+```
+xcodebuild -scheme alsomaps-control -configuration Debug -derivedDataPath build build
+build/Build/Products/Debug/alsomaps-control state
+build/Build/Products/Debug/alsomaps-control send --wait '{"climb":{"meters":300}}'
+claude mcp add alsomaps -- "$PWD/build/Build/Products/Debug/alsomaps-control" mcp
+```
+
+The design, protocol, methods, events and MCP tools are in [docs/remote-control.md](docs/remote-control.md). The command JSON is in [docs/commands.md](docs/commands.md). The iPhone joystick is described in [docs/iphone-controller.md](docs/iphone-controller.md).

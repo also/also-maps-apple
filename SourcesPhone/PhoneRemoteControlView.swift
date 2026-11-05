@@ -1,10 +1,13 @@
 import Network
 import SwiftUI
 
-/// A controller-only screen: the headset owns the map and its camera.
+/// A controller-only screen: the other device (Vision Pro or a Mac) owns
+/// the map and its camera.
 struct PhoneRemoteControlView: View {
-    @State private var remote = RemoteControlSession(role: .controller)
-    @State private var selectedPeer: NWBrowser.Result?
+    @State private var browser = ControlBrowser()
+    @State private var remote = ControlClient(name: UIDevice.current.name, kind: "phone", wantsEvents: false,
+                                              sendsInput: true)
+    @State private var selectedPeer: ControlBrowser.Peer?
     @State private var code = ""
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -17,47 +20,57 @@ struct PhoneRemoteControlView: View {
                 } else {
                     Form {
                         Section {
-                            Text(remote.status)
-                            Text("On Vision Pro, open iPhone Controller and enable pairing. Keep both apps active with Wi-Fi enabled.")
+                            Text(remote.isConnecting ? remote.status : browser.status)
+                            if !remote.isConnecting, remote.status != "Not connected" {
+                                Text(remote.status).foregroundStyle(.secondary)
+                            }
+                            Text("On Vision Pro or the Mac, open Remote Control and turn on Allow Remote Control. Keep both apps active with Wi-Fi on.")
                                 .foregroundStyle(.secondary)
                         }
-                        Section("Nearby headsets") {
-                            if remote.peers.isEmpty {
+                        Section("Nearby") {
+                            if browser.peers.isEmpty {
                                 Text("Looking for Also Maps…").foregroundStyle(.secondary)
                             }
-                            ForEach(remote.peers, id: \.self) { peer in
+                            ForEach(browser.peers) { peer in
                                 Button {
                                     selectedPeer = peer
+                                    if let saved = ControlCodeBook.code(for: peer.name) { code = saved }
                                 } label: {
                                     HStack {
-                                        Text(RemoteControlSession.name(of: peer))
+                                        VStack(alignment: .leading) {
+                                            Text(peer.name)
+                                            if let platform = peer.platform {
+                                                Text(platform).font(.caption).foregroundStyle(.secondary)
+                                            }
+                                        }
                                         Spacer()
                                         if selectedPeer == peer { Image(systemName: "checkmark") }
                                     }
                                 }
                             }
                         }
-                        Section("Pairing code from Vision Pro") {
+                        Section("Pairing code") {
                             TextField("6-digit code", text: $code)
                                 .keyboardType(.numberPad)
                                 .textContentType(.oneTimeCode)
                             Button("Connect") {
-                                if let selectedPeer { remote.connect(to: selectedPeer, code: code) }
+                                if let selectedPeer { remote.connect(to: selectedPeer.endpoint, code: code) }
                             }
-                            .disabled(selectedPeer == nil || code.filter { $0.isASCII && $0.isNumber }.count != 6 || remote.isConnecting)
+                            .disabled(selectedPeer == nil || !ControlTransport.isValidCode(code.filter { $0.isASCII && $0.isNumber })
+                                      || remote.isConnecting)
                             Button("Search Again") {
                                 selectedPeer = nil
-                                remote.browse()
+                                browser.start()
                             }
                         }
                     }
                 }
             }
-            .navigationTitle("Vision Pro Controller")
+            .navigationTitle("Remote Controller")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { remote.stop(); dismiss() }
+                    Button("Done") { stop(); dismiss() }
                 }
                 if remote.isConnected {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -66,16 +79,32 @@ struct PhoneRemoteControlView: View {
                 }
             }
         }
-        .task { remote.browse() }
-        .onDisappear { remote.stop() }
+        .task { browser.start() }
+        .onDisappear { stop() }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active {
-                remote.stop()
-            } else if !remote.isEnabled {
-                selectedPeer = nil
-                remote.browse()
+            switch phase {
+            case .background:
+                // Connections don't survive the background.
+                stop()
+            case .active:
+                if !browser.isBrowsing { browser.start() }
+            default:
+                // Inactive (Control Center, a notification) keeps the
+                // connection; only the sticks are let go.
+                remote.controls = RemoteControlState()
             }
         }
+        .onChange(of: remote.host) { _, host in
+            // Remember a code that worked, for next time.
+            if let host, let selectedPeer, host.name == selectedPeer.name {
+                ControlCodeBook.remember(code.filter { $0.isASCII && $0.isNumber }, for: selectedPeer.name)
+            }
+        }
+    }
+
+    private func stop() {
+        remote.disconnect()
+        browser.stop()
     }
 
     private var controller: some View {
@@ -83,7 +112,7 @@ struct PhoneRemoteControlView: View {
             let diameter = min(132.0, max(84.0, (geometry.size.width - 120) / 2))
             let compact = geometry.size.height < 350
             VStack(spacing: compact ? 8 : 20) {
-                Label("Connected to Vision Pro", systemImage: "checkmark.circle.fill")
+                Label("Connected to \(remote.host?.name ?? "the map")", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                 if !compact {
                     Text("Left stick moves. Right stick turns and climbs. The centre slider zooms.")
@@ -126,7 +155,7 @@ struct PhoneRemoteControlView: View {
     }
 
     private func action(_ title: String, icon: String, _ action: MapInput.Action) -> some View {
-        Button { remote.sendAction(action) } label: {
+        Button { remote.sendAction(action.rawValue) } label: {
             VStack {
                 Image(systemName: icon)
                 Text(title).font(.caption)

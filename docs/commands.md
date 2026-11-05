@@ -59,6 +59,8 @@ Add `TEST_RUNNER_ALSOMAPS_MODEL_MODE=guided` to compare modes. `ALSOMAPS_VOICE="
 - **Device:** this needs Apple Intelligence, so an eligible device with it turned on. The panel says why when it's unavailable.
 - **Search:** a search result's region can be large. "Ronda" frames the whole municipality, about 28 km across.
 
-## External control (not built)
+## External control
 
-An MCP server, or the iPhone remote, would send `MapCommand` JSON, have the app's `MapCommandRunner` run it, and return the `MapCommandResult`. Its tools would mirror `MapTools`, but with amounts in SI units, since an agent can convert units itself. The transport isn't decided: a local socket or Bonjour service for MCP, and whatever the remote branch uses.
+Remote control sends this JSON from outside the app: the `alsomaps-control` CLI, its MCP server for agents, or anything speaking the protocol. The method `command.run` takes `{"command": <MapCommand>, "wait": "started" | "finished"}`. The app runs it through its own `MapCommandRunner`, the one voice uses, and answers with the result and the camera state. Commands from voice and from clients are also sent as `command` events. See [remote-control.md](remote-control.md).
+
+The MCP tools (`Sources/Remote/ControlTools.swift`) mirror `MapTools`, but in SI units, since an agent can convert units itself. They build this JSON by hand because the CLI doesn't link the map. `ControlToolsTests` checks that each one decodes to the intended `MapCommand`.

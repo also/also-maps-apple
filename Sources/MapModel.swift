@@ -12,8 +12,6 @@ import UIKit
 @MainActor
 @Observable
 final class MapModel {
-    let remoteControl = RemoteControlSession(role: .host)
-
     /// Volume extents in metres (width, height, depth).
     nonisolated static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
 
@@ -182,6 +180,9 @@ final class MapModel {
     private var heldActions: Set<MapInput.Action> = []
     /// Voice control, driving this map through commands.
     @ObservationIgnored private(set) lazy var voice = VoiceControl(target: self)
+    /// Remote control: the iPhone joystick, the CLI and agents (MCP).
+    @ObservationIgnored private(set) lazy var control = MapControl(map: self, platform: "visionOS",
+                                                                   voice: self.voice.runner)
     /// A commanded climb, turn or move, eased over a moment.
     @ObservationIgnored private var motion: CommandMotion?
     /// The last place jumped to, for cycling.
@@ -499,6 +500,7 @@ final class MapModel {
         let dt = Double(deltaTime)
         applyInput(deltaTime: dt)
         applyMotion(deltaTime: dt)
+        control.tick()
         if tracks.isPlaying {
             advancePlayback(deltaTime: dt)
         } else if settlesPitch, manipulation == nil {
@@ -539,8 +541,8 @@ final class MapModel {
         }
 
         var input = MapInput.current()
-        input.merge(remoteControl.input)
-        for action in remoteControl.takeActions() { perform(action) }
+        input.merge(control.host.input)
+        for action in control.host.takeActions() { perform(action) }
 
         // Buttons act once, on the frame they go down.
         for action in input.held.subtracting(heldActions) {
@@ -1032,4 +1034,10 @@ extension MapModel: MapCommandTarget {
 
     var commandCamera: CameraPose { navigation.camera }
     var commandAltitude: Double { context.altitude(of: navigation.camera) }
+}
+
+extension MapModel: ControllableMap {
+    var isRunningCommandMotion: Bool { motion != nil }
+    var tileLoadProgress: Double { Double(streaming.loadProgress) }
+    var controlMode: String { presentation.id }
 }

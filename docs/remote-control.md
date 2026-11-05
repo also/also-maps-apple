@@ -1,25 +1,19 @@
-# Remote control: design and hand-off
+# Remote control
 
-This is the design for controlling a running Also Maps app from outside it. Agents (over MCP), people (from a CLI) and the iPhone joystick are the clients. It was written on 2026-11-05 to hand to an agent that can build and run the apps. Nothing here is built yet. The owner's decisions are marked **(owner)**. Everything else is a proposal, so change it if building shows it's wrong, and say so in the PR.
+Remote control lets clients control a running Also Maps app from outside it. Agents connect over MCP, people use a CLI, and the iPhone works as a joystick. The owner's decisions are marked **(owner)**. The rest is how it's built, and can change.
 
-## Goals
+**Status (2026-11-05): written but never compiled or run.** It was written in a session that couldn't build Swift. The first job is to build every target, run `AlsoMapsRemoteTests` and `Also Maps Core Tests`, and work through "Checking it" below. Record what you find in `notes/remote-control.md`.
 
-- **(owner)** An agent on the Mac, or anywhere on the same local network, can send the map commands that voice already uses, and get results and events back. It's for debugging, and for letting an agent fly the user around to look at things or show data (GeoJSON and the like, later). Over time, most app features should be controllable this way.
-- **(owner)** The same thing is available from the Mac app and from a CLI.
-- **(owner)** Local network only. Keep it simple.
-- **(owner)** One protocol for both commands and the iPhone joystick.
-- **(owner)** The MCP server holds a persistent connection so it can receive events. That means it inherits the iPhone connection's robustness problems (PR 20's random disconnects), and the connection has to be made reliable for both uses.
-- **(owner)** The first targets are the Mac app and Vision Pro. Develop and test on the Mac first, because the cycles are faster, then validate on the headset.
-- **(owner)** The headless renderer (PR 37) should eventually take the same command set. Its existing CLI stays.
+## Goals (owner)
+
+- An agent on the Mac, or anywhere on the same local network, can send the map the commands voice uses, and get results and events back. It's for debugging, and for an agent to fly the user around to look at things or show data (GeoJSON and the like, later). Over time, most app features should be controllable this way.
+- It's available from the Mac app and from a CLI.
+- It works on the local network only, and stays simple.
+- One protocol carries both commands and the iPhone joystick.
+- The MCP server keeps a persistent connection so it can receive events. That means it inherits the iPhone connection's robustness problems, and the connection has to be reliable for both uses.
+- The first targets are the Mac and Vision Pro. Test on the Mac first, then validate on the headset.
+- The headless renderer (PR 37) should later accept the same command set. Its own CLI stays.
 - tvOS is left out (AGENTS.md).
-
-## What already exists
-
-- **PR 20 (`feature/iphone-remote`), `Sources/Remote/`.** visionOS hosts an `NWListener` that advertises `_alsomaps-rc._tcp` over Bonjour, with peer-to-peer enabled. The phone browses for it and connects over TLS 1.2 with a pre-shared key (PSK) derived by HKDF from a 6-digit code shown on the headset. Frames are length-prefixed JSON, at most 4 KB. The phone sends joystick snapshots at about 60 Hz, with one acknowledgement outstanding at a time, and sends button actions as separate messages. Limits: one connection at a time; the host is visionOS only; the code changes every time hosting is enabled.
-- **PR 35 (`voice-control`), `Sources/Commands/`.** `MapCommand` is a Codable command set in SI units, and `MapCommandRunner` resolves names and returns `MapCommandResult`. `ScreenMap` (Mac, iPhone) and `MapModel` (visionOS) implement `MapCommandTarget`. The JSON shape is in `docs/commands.md`, which already names MCP and the iPhone remote as the intended next clients.
-- **PR 37 (`stereo-video-capture`).** Offscreen Metal CLIs. Not needed for the first version.
-
-Base the work on PR 20 and PR 35 together: a branch from `main` with both merged in. PR 35 currently conflicts with `main`, so resolve that first.
 
 ## Shape
 
@@ -29,81 +23,108 @@ Base the work on PR 20 and PR 35 together: a branch from `main` with both merged
  iPhone joystick ───────────────────────────┘                          └─▶ Vision Pro app (host)
 ```
 
-- **The apps are hosts. Clients connect to them.** PR 20 already works this way on the headset, it lets one client reach several devices, and it keeps the apps simple. The Mac app gains a host. visionOS keeps its own, generalised. The iPhone stays a client only, for now.
-- **MCP lives in the CLI, not the apps.** `alsomaps-control` is a macOS command-line target. Its `mcp` subcommand is a stdio MCP server, and its other subcommands are for people and scripts. The apps only speak the control protocol below.
-- **The client library is shared.** The phone and the CLI use one Swift client (discovery, pairing, request/response, events) built from `Sources/Remote/`.
+The apps are hosts, and clients connect to them. MCP lives in the CLI, and the apps speak only the protocol below.
+
+| File | What |
+|---|---|
+| `Sources/Remote/ControlProtocol.swift` | The message envelope, framing, `ControlHello`, the joystick snapshot, and `ControlLocalInfo` (the Debug Mac app's `control.json`). |
+| `Sources/Remote/ControlConnection.swift` | `ControlTransport`: the service type, TLS-PSK from the code, and timings. `ControlConnection`: one framed connection with pings and silence detection, used by both ends. |
+| `Sources/Remote/ControlHost.swift` | The app's end: the listener, up to 4 clients, merged sticks, queued presses, requests answered in order through a handler, and events. |
+| `Sources/Remote/ControlClient.swift` | `ControlBrowser` (Bonjour), and `ControlClient`: requests, events, streaming the sticks, and reconnecting. `ControlCodeBook` remembers codes that worked. |
+| `Sources/Remote/MapControl.swift` | One map's host plus its methods and events. `ScreenMap` (Mac, iPhone) and `MapModel` (visionOS) implement `ControllableMap`, merge `host.input` and `takeActions()`, and call `tick()` each frame. |
+| `Sources/Remote/RemoteControlPanel.swift` | The on/off switch, code and client list. Shown in a popover on the Mac and a window on visionOS. |
+| `Sources/Remote/ControlTools.swift` | The MCP tools and the requests they become. Foundation-only. |
+| `SourcesCLI/` | `alsomaps-control`: `Connector` (local file or Bonjour, and codes), `MCPServer`, and the subcommands. |
+| `SourcesPhone/PhoneRemoteControlView.swift` | The iPhone joystick. See [iphone-controller.md](iphone-controller.md). |
+
+The CLI target links only the client half (`JSONValue`, `ControlProtocol`, `ControlConnection`, `ControlClient`, `ControlTools`), not the map.
 
 ## Protocol (version 2)
 
-Keep PR 20's transport: TCP with Nagle off, TLS-PSK from the code, 4-byte big-endian length prefix, JSON body. Replace the message set with an envelope that has a type field:
+Messages go over TCP with Nagle off and keepalive on, with TLS 1.2 PSK from the pairing code. Each frame is a 4-byte big-endian length followed by a JSON body. Every message is a `ControlMessage` with `type` and `v: 2`, and carries only the fields its type uses. A peer speaking another version is disconnected with a message saying so.
 
-| `type` | Direction | Purpose |
+| `type` | Direction | Fields |
 |---|---|---|
-| `hello` | both | First message. The client sends a name, its kind (`phone`, `cli`, `mcp`), the protocol version and the capabilities it wants (`input`, `commands`, `events`). The host replies with its device name, platform, version and supported methods. |
-| `ping` / `pong` | both | Liveness only. Send about once a second, and drop a connection after about 5 s of silence. |
-| `input` | client → host | A joystick snapshot (`RemoteControlState`, as now), acknowledged for backpressure as now. |
-| `action` | client → host | A button press (`MapInput.Action`), as now. |
-| `request` | client → host | `{id, method, params}`. |
-| `response` | host → client | `{id, ok, result}` or `{id, ok: false, error}`. |
-| `event` | host → client | `{name, data}`, sent only to clients that asked for `events`. |
+| `hello` | both, first | `hello`. A client sends `{name, kind, wants}`, where `kind` is `phone`, `cli` or `mcp` and `wants` can include `"events"`. The host replies `{name, kind: "host", platform, methods, events}`. |
+| `ping` | both | Sent when nothing else has been sent for 1 s. |
+| `input`, `inputAck` | client → host, host → client | `input`: a stick snapshot. Each snapshot is acknowledged. |
+| `action` | client → host | `action`: a `MapInput.Action` raw value. Unknown values are ignored. |
+| `request`, `response` | client → host, host → client | `id`, `method`, `params`. The response has `id`, `ok`, and `result` or `error`. |
+| `event` | host → client | `event`, `data`. Sent only to clients that asked for `events`. |
 
-**Liveness and input staleness are separate.** This is the main robustness change. Today the host disconnects after 1 s without input, and the phone disconnects after 500 ms without an acknowledgement. That would kill an idle MCP connection at once, and it's the leading suspect for PR 20's random disconnects (**Inferred**, not confirmed). In version 2:
+**Liveness is separate from input.** A connection ends only after about 6 s with nothing received, on a network or TLS error, on a malformed frame, or after 10 s without completing the handshake. Stale input (250 ms without a snapshot) zeroes that client's sticks and keeps the connection. A client whose code has worked once reconnects with backoff (0.5 s, doubling to 8 s) until it's told to disconnect. Requests still waiting when a connection drops fail, and aren't resent, since they may have run.
 
-- Stale input (250 ms without a snapshot) zeroes the joystick and never disconnects.
-- Late acknowledgements make the phone skip snapshots, not drop the connection.
-- Only ping silence, or a real network or TLS failure, ends a connection.
-- The client reconnects automatically with backoff, using the code it already paired with. Record in `notes/` what the disconnects actually were.
+**Limits.** A client's frames are at most 64 KB, and a host's at most 16 MB (room for a screenshot later). Each client can have at most 64 requests queued. A host holds at most 32 queued presses.
 
-**Several clients.** The host accepts a few connections at once (a cap of about 4): for example, the MCP server and the phone together. Joystick input comes from the most recent sender. Commands from any client queue in order.
+**Requests** from one client are answered one at a time, in the order sent, so "climb, then turn" happens in that order. Different clients' requests can interleave.
 
-**Frame size.** Keep a small limit for `input`, `action` and `ping`. Allow larger frames for `response` (about 8 MB) so a screenshot can come back later.
+### Methods
 
-**Methods (first version):**
+| Method | Params | Result |
+|---|---|---|
+| `command.run` | `{command: MapCommand, wait?: "started" \| "finished"}` | `{command, summary, ok, detail, source, state}`. With `"finished"`, it answers when the eased motion ends (up to 30 s). A `goTo` is a jump, so it finishes at once. |
+| `state.get` | — | `{platform, mode, camera: {latitude, longitude, heightMeters, headingDegrees, pitchDegrees}, altitudeMeters, moving, tiles: {progress, settled}}` |
+| `places.list` | — | `[{id, name, latitude, longitude, radiusMeters, headingDegrees}]` |
+| `tiles.waitSettled` | `{timeoutSeconds?}` (default 30, 0.5–300) | `state`, plus `settled` and `waitedSeconds`. It waits 0.3 s first, then for 3 readings in a row at 100% with no motion. |
+| `action.perform` | `{action}` | `{ok}`. The same as a button press: `previousPlace`, `nextPlace`, `faceNorth` or `toggleFly`. |
 
-- `command.run`: params are a `MapCommand` and an optional `wait` (`"started"` by default, or `"finished"`, which returns once the eased motion ends). Returns `MapCommandResult`.
-- `state.get`: returns the camera pose (latitude, longitude, height, heading, pitch), the height above ground, whether tiles are still loading, and the platform or mode (Mac window, visionOS volume or immersive).
-- `places.list`: returns the saved places.
-- `tiles.waitSettled`: returns when loading goes idle, or at a timeout. Agents need this before they judge what's on screen.
+### Events
 
-**Events (first version):** `camera` (throttled to a few Hz), `motion.finished`, `tiles.settled`, and `command` (any command run on this host, including voice and other clients, so the agent sees what the user did).
+`camera` (at most twice a second, when the camera has moved), `motion.finished`, `tiles.settled` (each time loading reaches 100%), and `command` (every command run on this map, from voice or any client, with its `source`). Events are only worked out while someone is connected.
 
-**Later:** `screenshot` (a PNG of the map, essential for an agent to look at things), layer and GeoJSON loading as those features arrive, and voice requests as text.
+## Pairing and finding a device
 
-## Pairing
-
-- **Phase 1.** Use PR 20's 6-digit code with PSK. The code stays the same for as long as hosting is enabled, so a persistent MCP server can reconnect without the user typing it again. Debug Mac builds run unsandboxed, so they also write the host's name, port and code to `~/Library/Application Support/AlsoMaps/control.json`. That lets a CLI on the same Mac connect with no human step. Release builds don't write the file.
-- **Phase 2.** After the first pairing with a code, the host issues a per-client random key. The client keeps it in its Keychain and uses it as the PSK identity and secret from then on, so later connections are silent. The host lists paired clients and can forget them.
-- Use the real device name in the Bonjour service name, not `Also Maps 1234`. Put the platform and protocol version in the TXT record.
+- The host advertises `_alsomaps-rc._tcp` as "Also Maps on <device name>", with `platform` and `v` in the TXT record. visionOS and iOS report a generic device name unless the app has the device-name entitlement.
+- The code is 6 digits, kept in `UserDefaults` until **New Code** is pressed, which disconnects everyone. The listener reuses its last port when that port is free. Together, these let a client reconnect after either end restarts.
+- Whether remote control is on is also kept. `ALSOMAPS_CONTROL=1` turns it on at launch, and `=0` keeps it off.
+- Debug Mac builds write `{name, port, code, platform, pid}` to `~/Library/Application Support/AlsoMaps/control.json` (mode 0600). They remove it when remote control is turned off. The CLI's `local` target reads this file, checks that the pid is alive, and connects to `127.0.0.1:port` with no code.
+- Clients remember codes that worked, by device name (`ControlCodeBook`, in `UserDefaults`).
+- **Security:** the PSK comes from 6 digits, and nothing limits how many guesses an attacker on the network can make. That's acceptable for local-network debugging and not much more. Per-client keys are the next step (see below).
 
 ## CLI
 
-`alsomaps-control` (a macOS tool target in `project.yml`):
+```
+alsomaps-control list [--seconds 2]
+alsomaps-control state [--to <device>] [--code <code>]
+alsomaps-control send [--wait] '<MapCommand JSON>'
+alsomaps-control call <method> ['<params JSON>']
+alsomaps-control watch
+alsomaps-control mcp [--to <device>] [--code <code>]
+```
 
-- `list`: hosts found on Bonjour, with name, platform and version.
-- `send <host> '<MapCommand JSON>' [--wait]`: prints the result.
-- `state <host>`: prints the camera and tile state.
-- `watch <host>`: prints events.
-- `mcp`: the stdio MCP server.
+`--to` defaults to `local` if the Debug Mac app is running, or else the only Also Maps on the network. The code comes from `--code`, the code book or `ALSOMAPS_CONTROL_CODE`. Output is JSON on stdout. Logs go to stderr.
 
-Host selection takes a name or `local`, where `local` means the file written by Debug Mac builds.
+## MCP
 
-**MCP tools:** `list_devices`, `connect` (device, plus a code if needed), `go_to`, `climb`, `set_altitude`, `turn`, `face`, `move`, `pitch`, `get_state`, `list_places`, `wait_until_settled`, `recent_events`, and later `screenshot`. Amounts are in SI units, and tool descriptions take their wording from `docs/commands.md`. Many MCP clients ignore server notifications, so expose events through `recent_events` and through motion tools that wait until finished by default, as well as notifications. Use the official MCP Swift SDK if it builds cleanly through XcodeGen and SPM. Otherwise hand-write the small part of JSON-RPC over stdio that's needed.
+`alsomaps-control mcp` is a hand-written MCP server using newline-delimited JSON-RPC 2.0 over stdio. It accepts protocol versions 2025-06-18, 2025-03-26 and 2024-11-05, and offers tools only. The official Swift SDK wasn't used because it couldn't be built or tried here. Switching to it is an option if it builds cleanly through XcodeGen.
 
-## In the apps
+**Tools:** `list_devices`, `connect`, `go_to`, `climb`, `set_altitude`, `turn`, `face`, `move`, `pitch`, `run_command` (raw MapCommand JSON), `get_state`, `list_places`, `wait_until_settled`, `perform_action`, `recent_events`, and `call_method` (any host method, for ones newer than the tools). Motion tools wait for the motion to finish by default (`wait: false` returns at once). Map tools connect to `local` by themselves the first time. Many MCP clients ignore server notifications, so events are kept (the last 500) for `recent_events`, which takes `after: <sequence>`.
 
-- Split `RemoteControlSession` into a `ControlHost` and a `ControlClient`. The host feeds `input` and `action` into the existing `MapInput` merge, and sends `command.run` to the same `MapCommandRunner` that voice uses.
-- The Mac `ScreenMap` gets a host. visionOS keeps its own.
-- The host UI (generalised from `RemoteControlHostView`, and added to the Mac) offers **Allow remote control**, and shows the code, the connected clients and their kinds, and recent external commands. External commands also appear in the voice panel's trace.
+Register it with Claude Code:
 
-## Phases and how to check each
+```
+claude mcp add alsomaps -- /path/to/alsomaps-control mcp
+```
 
-1. **Protocol version 2 and a robust session.** Envelope, ping, separating liveness from input, several clients, reconnect. Move the phone joystick onto it. Extend `Tests/Remote` with loopback tests: an idle connection survives 30 s or more; stale input zeroes the joystick without disconnecting; two clients at once; reconnect after the host restarts.
-2. **Mac host plus the `send`, `state` and `watch` CLI.** Check end to end against the Debug Mac app: run each command, check the result and the camera state, and see events arrive.
-3. **MCP.** Register `alsomaps-control mcp` with Claude Code on the Mac, and fly the Mac app by asking ("go to the Eiffel Tower, climb 500 m, face north").
-4. **Vision Pro.** The same CLI and MCP against the headset over Wi-Fi, and the phone joystick for a long session. Record what disconnected, and why, in `notes/`.
-5. **Later.** Pairing keys, `screenshot`, the offscreen renderer as a command target, and new methods as app features land.
+## Checking it
 
-## Open questions
+None of this has been done yet.
 
-- Should the iPhone also host, so an agent can drive the phone's map? It's cheap once the Mac host exists, but it isn't asked for yet.
-- `screenshot` on visionOS: the volume and immersive views may need a separate offscreen render rather than a capture of what's shown.
+1. **Build:** `xcodegen generate`, then the Mac, iOS, visionOS and tvOS apps, and `alsomaps-control`.
+2. **Tests:** run `AlsoMapsRemoteTests` (the loopback and Bonjour tests take about 30 s) and `Also Maps Core Tests` (`ControlToolsTests`).
+3. **Mac, end to end:** launch the Debug app with `ALSOMAPS_CONTROL=1`, then:
+   - Check `alsomaps-control state`.
+   - Run `send --wait` with each command shape in docs/commands.md, and check the camera moves and the result is right.
+   - Leave `watch` open while flying with the keyboard and with voice, and check the events.
+   - Turn Remote Control off and on, then quit and relaunch the app, and check that `watch` reconnects by itself.
+4. **MCP:** register it with Claude Code, then fly the Mac app by asking ("go to the Eiffel Tower, climb 500 m, face north, wait until it's loaded"). Check `recent_events` shows the moves.
+5. **Vision Pro:** run the CLI and MCP against the headset over Wi-Fi. Use the iPhone joystick for a long session, together with an agent connected. Record any disconnects, with the reason the status gives, in `notes/remote-control.md`.
+
+## Not done yet
+
+- **`screenshot`:** essential for an agent to look at things. On the Mac it can capture the window. On visionOS the volume and immersive views may need an offscreen render.
+- **Per-client pairing keys:** after pairing with the code once, the host would issue a random key that the client keeps in its Keychain, so later connections are silent and the code can be short-lived. The host's panel would list and forget paired clients.
+- External commands don't appear in the voice panel's trace. They're in the remote control panel's "Recent Requests", and they're sent as `command` events.
+- The iPhone can host (`ScreenMap` has a `MapControl`) but has no UI to turn it on.
+- The offscreen renderer (PR 37) as a command target.
+- New methods as app features land: layers, GeoJSON, tracks, settings.

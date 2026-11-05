@@ -177,6 +177,7 @@ targets:
           - Places
           - Commands
           - Voice
+          - Remote
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
     dependencies:
@@ -196,6 +197,10 @@ targets:
         NSMicrophoneUsageDescription: Also Maps listens while you hold the talk button, so you can fly by voice.
         NSSpeechRecognitionUsageDescription: Also Maps recognizes speech on this device to turn what you say into map commands.
         LSApplicationCategoryType: public.app-category.navigation
+        # Remote control (Sources/Remote): Bonjour and the local control connection.
+        NSLocalNetworkUsageDescription: Let an iPhone, the CLI or an agent on this network control the map.
+        NSBonjourServices:
+          - _alsomaps-rc._tcp
     settings:
       groups: [CesiumBridge, AppName]
       base:
@@ -237,6 +242,9 @@ targets:
       - path: Sources/Voice/VoicePlan.swift
       - path: Sources/Voice/CommandInterpreter.swift
       - path: Sources/Voice/MapTools.swift
+      # The MCP tools' commands must decode as MapCommand.
+      - path: Sources/Remote/JSONValue.swift
+      - path: Sources/Remote/ControlTools.swift
       - path: Tests/Commands
       - path: Sources/Config/AppConfig.swift
       - path: Sources/Config/AppConfigStore.swift
@@ -254,15 +262,19 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps.CoreTests
 
-  # Networking tests run separately from the platform-neutral navigation core.
+  # Networking tests run separately from the platform-neutral navigation core:
+  # real TLS connections over loopback and Bonjour.
   AlsoMapsRemoteTests:
     type: bundle.unit-test
     platform: macOS
     sources:
       - path: Sources/Navigation
       - path: Sources/MapInput.swift
-      - path: Sources/Remote/RemoteControlProtocol.swift
-      - path: Sources/Remote/RemoteControlSession.swift
+      - path: Sources/Remote/JSONValue.swift
+      - path: Sources/Remote/ControlProtocol.swift
+      - path: Sources/Remote/ControlConnection.swift
+      - path: Sources/Remote/ControlHost.swift
+      - path: Sources/Remote/ControlClient.swift
       - path: Tests/Remote
     scheme:
       testTargets: [AlsoMapsRemoteTests]
@@ -271,6 +283,26 @@ targets:
         SWIFT_VERSION: "5.0"
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps.RemoteTests
+
+  # Remote control from the command line, and an MCP server for agents
+  # (docs/remote-control.md). Only the client half of Sources/Remote: no map.
+  alsomaps-control:
+    type: tool
+    platform: macOS
+    scheme: {}
+    sources:
+      - path: SourcesCLI
+      - path: Sources/Remote/JSONValue.swift
+      - path: Sources/Remote/ControlProtocol.swift
+      - path: Sources/Remote/ControlConnection.swift
+      - path: Sources/Remote/ControlClient.swift
+      - path: Sources/Remote/ControlTools.swift
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps.control
+        # Plain tools aren't sandboxed; Bonjour and loopback need no entitlement.
+        ENABLE_HARDENED_RUNTIME: YES
 
   # Static map on Apple TV, sharing the Mac scene and streaming pipeline.
   Also Maps tvOS:
@@ -337,8 +369,7 @@ targets:
           - Screen
           - Settings
           - MapInput.swift
-          - Remote/RemoteControlProtocol.swift
-          - Remote/RemoteControlSession.swift
+          - Remote
           - Tracks
           - TrackSession.swift
           - TrackOverlay.swift

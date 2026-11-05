@@ -66,7 +66,7 @@ struct PhoneMapView: View {
                     trackControls
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button("Control Vision Pro", systemImage: "gamecontroller") {
+                    Button("Control Vision Pro or a Mac", systemImage: "gamecontroller") {
                         map.touchInput = MapInput()
                         showsRemote = true
                     }

@@ -34,9 +34,14 @@ struct AlsoMapsApp: App {
         .defaultLaunchBehavior(.presented)
         .onChange(of: scenePhase, initial: true) { _, phase in
             soundtrack.setActive(phase == .active && !isBlocked)
-            if phase != .active {
-                model.flushTrack()
-                model.remoteControl.stop()
+            if phase != .active { model.flushTrack() }
+            // Network connections don't survive the background; come back
+            // with the same code. Only the background: stopping on .inactive
+            // too, as the first version did, may explain its disconnects.
+            switch phase {
+            case .active: model.control.host.resume()
+            case .background: model.control.host.suspend()
+            default: break
             }
         }
         .onChange(of: isBlocked) { _, blocked in

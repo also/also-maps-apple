@@ -37,6 +37,9 @@ final class ScreenMap {
     let tracks = TrackSession()
     /// Voice control, driving this map through commands.
     @ObservationIgnored private(set) lazy var voice = VoiceControl(target: self)
+    /// Remote control: the iPhone joystick, the CLI and agents (MCP).
+    @ObservationIgnored private(set) lazy var control = MapControl(map: self, platform: Self.platformName,
+                                                                   voice: self.voice.runner)
     /// A commanded climb, turn or move, eased over a moment.
     @ObservationIgnored private var motion: CommandMotion?
 
@@ -94,6 +97,8 @@ final class ScreenMap {
         streaming.start()
         sampleGround(around: startGround.centre, radius: startGround.radius, liftsCamera: startGround.lifts)
         voice.runFromEnvironment()
+        // Starts listening now if remote control was left on.
+        _ = control
         subscription = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             MainActor.assumeIsolated {
                 self?.tick(deltaTime: Float(event.deltaTime))
@@ -186,6 +191,7 @@ final class ScreenMap {
         applyInput(deltaTime: dt)
         applyGlide(deltaTime: dt)
         applyMotion(deltaTime: dt)
+        control.tick()
         cameraGround.update(camera: navigation.camera, rendered: streaming.renderedHeightRanges(), deltaTime: dt)
         tracks.record(navigation.camera)
         applyView()
@@ -201,6 +207,8 @@ final class ScreenMap {
 
         var input = ignoresKeyboard ? MapInput.gamepad() : MapInput.current()
         input.merge(touchInput)
+        input.merge(control.host.input)
+        for action in control.host.takeActions() { perform(action) }
         // Buttons act once, on the frame they go down.
         for action in input.held.subtracting(heldActions) {
             perform(action)
@@ -456,6 +464,20 @@ extension ScreenMap: MapCommandTarget {
 
     var commandCamera: CameraPose { navigation.camera }
     var commandAltitude: Double { context.altitude(of: navigation.camera, floor: Self.minimumAltitude) }
+}
+
+extension ScreenMap: ControllableMap {
+    var isRunningCommandMotion: Bool { motion != nil }
+    var tileLoadProgress: Double { Double(streaming.loadProgress) }
+    var controlMode: String { "window" }
+
+    static var platformName: String {
+        #if os(macOS)
+        "macOS"
+        #else
+        "iOS"
+        #endif
+    }
 }
 
 /// The map in a window: the scene, its attribution, and input hints and

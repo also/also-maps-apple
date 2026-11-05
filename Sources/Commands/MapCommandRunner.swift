@@ -7,12 +7,20 @@ import MapKit
 @MainActor
 final class MapCommandRunner {
     weak var target: MapCommandTarget?
+    /// Told about every command run, for remote control's `command` event.
+    var didRun: (@MainActor (MapCommandResult) -> Void)?
 
     init(target: MapCommandTarget? = nil) {
         self.target = target
     }
 
     func run(_ command: MapCommand) async -> MapCommandResult {
+        let result = await perform(command)
+        didRun?(result)
+        return result
+    }
+
+    private func perform(_ command: MapCommand) async -> MapCommandResult {
         guard let target else { return MapCommandResult(command: command, ok: false, detail: "No map") }
         switch command {
         case let .goTo(destination):
