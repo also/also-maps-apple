@@ -61,6 +61,16 @@ struct ImmersiveMapView: View {
             }
             headTracker.stop()
         }
+        .task(id: model.showsMiniature) {
+            // The world in miniature draws where you're looking, so while
+            // it's on, follow the head. UNVERIFIED: this runs a second
+            // ARKitSession beside the one measuring the eye, if both start
+            // together; that one stops once it has its measurement.
+            guard model.showsMiniature else { return }
+            let follower = HeadTracker()
+            await follower.follow { model.headInImmersive = $0 }
+            model.headInImmersive = nil
+        }
         .onDisappear {
             headTracker.stop()
             model.immersiveSpaceDidClose()

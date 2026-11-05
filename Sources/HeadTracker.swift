@@ -34,6 +34,29 @@ final class HeadTracker {
         return nil
     }
 
+    /// Runs world tracking and calls `update` with the headset's pose in
+    /// the immersive space (originFromAnchorTransform) every `interval`
+    /// while it's tracked, until the task is cancelled; then stops. Use a
+    /// fresh tracker for this, not one that's been stopped.
+    func follow(every interval: Duration = .milliseconds(50), _ update: (simd_float4x4) -> Void) async {
+        guard WorldTrackingProvider.isSupported else { return }
+        do {
+            try await session.run([worldTracking])
+        } catch {
+            #if DEBUG
+            print("[AlsoMaps] world tracking failed: \(error.localizedDescription)")
+            #endif
+            return
+        }
+        while !Task.isCancelled {
+            if let anchor = worldTracking.queryDeviceAnchor(atTimestamp: CACurrentMediaTime()), anchor.isTracked {
+                update(anchor.originFromAnchorTransform)
+            }
+            try? await Task.sleep(for: interval)
+        }
+        session.stop()
+    }
+
     func stop() {
         session.stop()
     }

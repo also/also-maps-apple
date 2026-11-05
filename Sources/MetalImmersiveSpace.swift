@@ -145,6 +145,8 @@ final class MetalImmersiveRenderer {
         originFromDevice.columns.3.y += 1.6
         #endif
         if anchor != nil { log.anchored += 1 }
+        // The world in miniature draws where you're looking.
+        if anchor != nil, model.showsMiniature { model.headInImmersive = originFromDevice }
         // Measured once, like ImmersiveMapView's: the eye the map is placed
         // around. Implausible heights (tracking glitches) keep the assumed eye.
         // A second copy, and it diverges: it takes the first pose without
