@@ -111,6 +111,13 @@ back to Normal.
   view's own axes. They're now on a world-fixed cube of directions.
 - **Observed (owner):** Blueprint was noisy; its 100/500 m ground grid is
   gone, leaving the triangle wireframe. The faint sky graph paper stays.
+- **Observed (owner, visionOS):** with the world-fixed screen the dots no
+  longer turn with the head, but they still slide and shimmer and don't
+  feel fixed. **Inferred:** a screen at infinity can't stay on near
+  surfaces as the head moves, stereo puts the dots behind the scene, and
+  each dot's size follows whatever pixel is under it. Making the dots feel
+  fixed means printing them on surfaces, sized by distance in steps. Halftone
+  is kept as it is, to demo the post-process path and this limit.
 
 ### 2026-11-04: looks on macOS
 
