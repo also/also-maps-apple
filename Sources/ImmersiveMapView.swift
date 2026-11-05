@@ -6,7 +6,13 @@ import SwiftUI
 /// from the model's current presentation; the volume stays open as the control
 /// panel.
 struct ImmersiveMapView: View {
-    static let spaceID = "map"
+    static let realityKitSpaceID = "map"
+    /// The immersive space to open: this one, or MetalImmersiveContent's if
+    /// Settings says to draw with Metal.
+    static func spaceID(for model: MapModel) -> String {
+        model.drawsImmersiveWithMetal && MetalTileRenderer.shared != nil
+            ? MetalImmersiveContent.spaceID : realityKitSpaceID
+    }
     private static let attributionID = "attribution"
 
     @Environment(MapModel.self) private var model
@@ -48,6 +54,8 @@ struct ImmersiveMapView: View {
         .task {
             // Measured once, on entry: the eye the map is placed around.
             // Implausible heights (tracking glitches) keep the assumed eye.
+            // MetalImmersiveRenderer measures it separately, differently
+            // (notes/metal-renderer.md, "Eye height").
             if let head = await headTracker.headPosition(), (0.5...2.5).contains(head.y) {
                 model.measuredEye = SIMD3<Double>(head)
             }

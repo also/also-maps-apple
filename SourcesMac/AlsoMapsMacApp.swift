@@ -44,7 +44,7 @@ struct MacMapView: View {
     }
 
     var body: some View {
-        ScreenMapView(map: map)
+        MetalOptionMapView(map: map)
             // Over the map, under the controls, the same size as the scene.
             .overlay {
                 PointerSurface(map: map)

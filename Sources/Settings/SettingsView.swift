@@ -12,6 +12,7 @@ struct SettingsView: View {
     var onDone: (() -> Void)?
 
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
+    @AppStorage(ViewPreferences.drawsWithMetalKey) private var drawsWithMetal = false
     #if os(iOS)
     /// On iPhone the list comes first; nothing picked shows General on iPad.
     @State private var category: Category?
@@ -126,6 +127,18 @@ struct SettingsView: View {
                 Text("Tiles drawn, load progress and requests, shown over the map.")
             }
 
+            #if !os(tvOS)
+            Section {
+                Toggle("Draw with Metal", isOn: $drawsWithMetal)
+            } footer: {
+                #if os(visionOS)
+                Text("Draws the immersive map with the app's own Metal renderer instead of RealityKit, always in full immersion, with real depth. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
+                #else
+                Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
+                #endif
+            }
+            #endif
+
             #if os(visionOS)
             Section {
                 Picker("Turn and zoom around", selection: $settings.keyboardTurnPivot) {
@@ -227,7 +240,7 @@ struct SettingsView: View {
                 }
                 .disabled(settings == defaults)
             } footer: {
-                Text("Returns every setting except Show stats and your keys to how the app ships.")
+                Text("Returns every setting except Show stats, Draw with Metal and your keys to how the app ships.")
             }
         }
         .formStyle(.grouped)

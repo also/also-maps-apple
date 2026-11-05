@@ -29,6 +29,8 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 
    Run on the Apple Vision Pro simulator or a device running visionOS 26 or later.
 
+   On a Vision Pro, run the **Also Maps visionOS (Optimised)** scheme unless you're debugging. It's the Debug build (the key from `Config/Secrets.xcconfig`, `DEBUG` code and logging) compiled with optimisation, and without Metal API validation or GPU frame capture. The unoptimised Debug build misses frame deadlines on the device. The debugger still attaches, but stepping through optimised code is less reliable.
+
 **Optional Cesium ion token:** to use the Cesium ion tile sources, add `CESIUM_ION_TOKEN` to `Config/Secrets.xcconfig`. Create the token with only the `assets:read` scope, restricted to the assets the app uses (1, Cesium World Terrain, and 96188, Cesium OSM Buildings).
 
 **cesium-native** comes prebuilt as a Swift package ([also/cesium-native-xcframework](https://github.com/also/cesium-native-xcframework)); Xcode downloads it on first build. To work on it locally, build it there (see its README), symlink the result next to its `Package.swift`, and change `CesiumNative` under `packages:` in `project.yml` to `path: ../cesium-native-xcframework`.

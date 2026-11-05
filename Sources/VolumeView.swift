@@ -6,6 +6,7 @@ struct VolumeView: View {
     static let windowID = "volume"
 
     @Environment(MapModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(Soundtrack.self) private var soundtrack
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
@@ -19,74 +20,96 @@ struct VolumeView: View {
         // visionOS turns controller input into look-and-pinch events by
         // default; route it to the Game Controller framework for MapInput.
         .handlesGameControllerEvents(matching: .gamepad)
+        // With the map in an immersive space the volume is only the control
+        // panel; its baseplate would outline an empty box.
+        .volumeBaseplateVisibility(model.presentation.host == .volume ? .automatic : .hidden)
         .onAppear { model.volumeIsOpen = true }
         .onDisappear { model.volumeDidClose() }
-        .ornament(attachmentAnchor: .scene(.bottomFront)) {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    presentationPicker
-                    Toggle(isOn: Binding(get: { model.tilesHeld },
-                                         set: { model.setTilesHeld($0) })) {
-                        Label("Fly", systemImage: "airplane")
-                    }
-                    .toggleStyle(.button)
-                    .labelStyle(.iconOnly)
-                    .help("Hold tiles: fly through what's loaded without requesting more")
-                    Toggle(isOn: Binding(get: { model.isRecordingTrack },
-                                         set: { $0 ? model.startTrack() : model.stopTrack() })) {
-                        Label(model.isRecordingTrack ? "Stop Recording" : "Record Track",
-                              systemImage: model.isRecordingTrack ? "stop.circle.fill" : "record.circle")
-                    }
-                    .toggleStyle(.button)
-                    .labelStyle(.iconOnly)
-                    .help("Record the camera's track to a file in Files")
-                    .disabled(model.isPlayingTrack)
-                    Toggle(isOn: Binding(get: { model.showsTrack }, set: { model.showsTrack = $0 })) {
-                        Label(model.showsTrack ? "Hide Track" : "Show Track",
-                              systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                    }
-                    .toggleStyle(.button)
-                    .labelStyle(.iconOnly)
-                    .help("Draw the track being recorded, or the latest one")
-                    Toggle(isOn: Binding(get: { model.isPlayingTrack },
-                                         set: { $0 ? model.startPlayback() : model.stopPlayback() })) {
-                        Label(model.isPlayingTrack ? "Stop Playback" : "Play Track",
-                              systemImage: model.isPlayingTrack ? "stop.fill" : "play.fill")
-                    }
-                    .toggleStyle(.button)
-                    .labelStyle(.iconOnly)
-                    .help("Fly the latest track in real time")
-                    .disabled(model.isRecordingTrack || model.latestTrack == nil)
-                    if let track = model.latestTrack {
-                        ShareLink(item: track) {
-                            Label("Share Track", systemImage: "square.and.arrow.up")
-                        }
-                        .labelStyle(.iconOnly)
-                        .help("Share \(track.deletingPathExtension().lastPathComponent)")
-                    }
-                    Menu("Places", systemImage: "mappin.and.ellipse") {
-                        ForEach(PlaceLibrary.all) { place in
-                            Button(place.name) { model.go(to: place) }
-                        }
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("Go to a place")
-                    Button("Settings", systemImage: "gearshape") {
-                        openWindow(id: SettingsView.windowID)
+        // Closing the window doesn't make it disappear, it sends its scene
+        // to the background; coming back (Show Controls) makes it active.
+        .onChange(of: scenePhase) { _, phase in
+            model.volumeIsOpen = phase != .background
+            // The Metal space has no Show Controls panel, so closing the
+            // volume leaves Immersive too.
+            if phase == .background, model.metalImmersiveIsOpen {
+                Task { await dismissImmersiveSpace() }
+            }
+        }
+        // The controls as the system's bottom toolbar, which visionOS
+        // places clear of the window bar and close button.
+        .toolbar {
+            ToolbarItemGroup(placement: .bottomOrnament) {
+                presentationPicker
+                Toggle(isOn: Binding(get: { model.tilesHeld },
+                                     set: { model.setTilesHeld($0) })) {
+                    Label("Fly", systemImage: "airplane")
+                }
+                .toggleStyle(.button)
+                .labelStyle(.iconOnly)
+                .help("Hold tiles: fly through what's loaded without requesting more")
+                Toggle(isOn: Binding(get: { model.isRecordingTrack },
+                                     set: { $0 ? model.startTrack() : model.stopTrack() })) {
+                    Label(model.isRecordingTrack ? "Stop Recording" : "Record Track",
+                          systemImage: model.isRecordingTrack ? "stop.circle.fill" : "record.circle")
+                }
+                .toggleStyle(.button)
+                .labelStyle(.iconOnly)
+                .help("Record the camera's track to a file in Files")
+                .disabled(model.isPlayingTrack)
+                Toggle(isOn: Binding(get: { model.showsTrack }, set: { model.showsTrack = $0 })) {
+                    Label(model.showsTrack ? "Hide Track" : "Show Track",
+                          systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                }
+                .toggleStyle(.button)
+                .labelStyle(.iconOnly)
+                .help("Draw the track being recorded, or the latest one")
+                Toggle(isOn: Binding(get: { model.isPlayingTrack },
+                                     set: { $0 ? model.startPlayback() : model.stopPlayback() })) {
+                    Label(model.isPlayingTrack ? "Stop Playback" : "Play Track",
+                          systemImage: model.isPlayingTrack ? "stop.fill" : "play.fill")
+                }
+                .toggleStyle(.button)
+                .labelStyle(.iconOnly)
+                .help("Fly the latest track in real time")
+                .disabled(model.isRecordingTrack || model.latestTrack == nil)
+                if let track = model.latestTrack {
+                    ShareLink(item: track) {
+                        Label("Share Track", systemImage: "square.and.arrow.up")
                     }
                     .labelStyle(.iconOnly)
-                    .help("Settings")
-                    if soundtrack.isAvailable {
-                        Button(soundtrack.isMuted ? "Unmute Soundtrack" : "Mute Soundtrack",
-                               systemImage: soundtrack.isMuted ? "speaker.slash" : "speaker.wave.2") {
-                            soundtrack.isMuted.toggle()
-                        }
-                        .labelStyle(.iconOnly)
+                    .help("Share \(track.deletingPathExtension().lastPathComponent)")
+                }
+                Menu("Places", systemImage: "mappin.and.ellipse") {
+                    ForEach(PlaceLibrary.all) { place in
+                        Button(place.name) { model.go(to: place) }
                     }
                 }
-                if model.presentation.host == .volume {
-                    AttributionView()
+                .labelStyle(.iconOnly)
+                .help("Go to a place")
+                Button("Settings", systemImage: "gearshape") {
+                    openWindow(id: SettingsView.windowID)
                 }
+                .labelStyle(.iconOnly)
+                .help("Settings")
+                if soundtrack.isAvailable {
+                    Button(soundtrack.isMuted ? "Unmute Soundtrack" : "Mute Soundtrack",
+                           systemImage: soundtrack.isMuted ? "speaker.slash" : "speaker.wave.2") {
+                        soundtrack.isMuted.toggle()
+                    }
+                    .labelStyle(.iconOnly)
+                }
+            }
+        }
+        // The attribution on a back edge of the volume, away from the window
+        // controls below its front, which the system keeps a readable size
+        // as the window moves away (so a gap under the toolbar can't clear
+        // them): above the map in volume mode, and at the back of the empty
+        // volume in the Metal immersive space. The RealityKit immersive space
+        // shows its own.
+        .ornament(attachmentAnchor: .scene(model.presentation.host == .volume ? .topBack : .bottomBack),
+                  contentAlignment: .bottom) {
+            if model.presentation.host == .volume || model.metalImmersiveIsOpen {
+                AttributionView()
             }
         }
         .task {
@@ -145,8 +168,6 @@ struct VolumeView: View {
         }
         .pickerStyle(.segmented)
         .frame(width: 420)
-        .padding(6)
-        .glassBackgroundEffect()
     }
 
     private func present(_ presentation: MapPresentation) async {
@@ -162,7 +183,7 @@ struct VolumeView: View {
                         dismiss: DismissImmersiveSpaceAction) async {
         switch (model.presentation.host, presentation.host) {
         case (.volume, .immersive):
-            guard case .opened = await open(id: ImmersiveMapView.spaceID) else { return }
+            guard case .opened = await open(id: ImmersiveMapView.spaceID(for: model)) else { return }
         case (.immersive, .volume):
             await dismiss()
         default:
@@ -247,6 +268,8 @@ struct AttributionView: View {
     @Environment(MapModel.self) private var model
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
 
+    /// The attribution, how loading is going, why nothing loads (a missing
+    /// or refused key), and the stats if Settings shows them. No hints.
     var body: some View {
         VStack(spacing: 4) {
             if let message = model.streaming.statusMessage {
@@ -255,19 +278,6 @@ struct AttributionView: View {
                 ProgressView(value: Double(model.streaming.loadProgress), total: 100)
                     .frame(width: 200)
             }
-            if model.tilesHeld {
-                Text("Tiles held · view requests frozen")
-                    .font(.caption)
-            }
-            if model.isRecordingTrack {
-                Text("Recording track")
-                    .font(.caption)
-            }
-            if model.isPlayingTrack {
-                Text("Playing track · \(Self.minutes(model.playbackElapsed)) / \(Self.minutes(model.playbackDuration))")
-                    .font(.caption)
-                    .monospacedDigit()
-            }
             if showsStats {
                 let stats = model.streaming.stats
                 VStack(spacing: 2) {
@@ -275,16 +285,6 @@ struct AttributionView: View {
                     Text(stats.requestsSummary)
                 }
                 .font(.caption.monospacedDigit())
-            }
-            if model.keyboardConnected {
-                Text(MapInput.keyboardHint)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            if model.controllerName != nil {
-                Text(MapInput.controllerHint)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
                 if model.streaming.showsGoogleLogo {
@@ -308,10 +308,5 @@ struct AttributionView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .glassBackgroundEffect()
-    }
-
-    /// "m:ss".
-    private static func minutes(_ seconds: Int) -> String {
-        String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }

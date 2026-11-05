@@ -74,6 +74,10 @@ final class MapModel {
     /// Immersive modes hide passthrough and the system environment: only the
     /// map is shown. Applies live to an open immersive space.
     var fullImmersion = false
+    /// The immersive mode is drawn by the app's Metal renderer
+    /// (MetalImmersiveContent) instead of RealityKit, per Settings. Read when
+    /// the immersive space opens.
+    var drawsImmersiveWithMetal: Bool { ViewPreferences.drawsWithMetal }
 
     // MARK: Navigation state
 
@@ -224,6 +228,38 @@ final class MapModel {
         }
         reparentRoot()
         start()
+    }
+
+    /// The Metal immersive space opened: tiles are built for it until it
+    /// closes. Streaming restarts each way; tiles come back from the cache.
+    func metalImmersiveDidOpen(_ metal: MetalTileRenderer) {
+        streaming.customTileHandler = metal.handler
+        metalImmersiveIsOpen = true
+    }
+
+    func metalImmersiveDidClose() {
+        metalImmersiveIsOpen = false
+        streaming.customTileHandler = nil
+        immersiveSpaceDidClose()
+    }
+
+    /// The open immersive space is the Metal one, which can't show SwiftUI
+    /// in the scene: the volume keeps the attribution, and there's no Show
+    /// Controls panel to fall back on if it's closed.
+    private(set) var metalImmersiveIsOpen = false
+
+    /// The Metal immersive space drives the frame loop itself instead of a
+    /// RealityView: one tick per frame it draws.
+    func metalImmersiveTick(deltaTime: Float) {
+        start()
+        guard presentation.host == .immersive else { return }
+        tick(deltaTime: deltaTime)
+    }
+
+    /// Anchor frame → the immersive space's origin: where the tiles go, for a
+    /// renderer outside RealityKit.
+    var tilesInImmersiveSpace: simd_float4x4 {
+        placementRoot.transform.matrix * root.transform.matrix * streaming.tilesRoot.transform.matrix
     }
 
     /// The volume went away (closed, or replaced by a blocking notice). It no

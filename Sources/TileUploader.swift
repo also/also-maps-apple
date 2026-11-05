@@ -136,11 +136,15 @@ final class TileUploader: @unchecked Sendable {
         return descriptor
     }
 
-    /// The glTF's sampler. Wrap modes matter: Google's tiles ask for
-    /// clamp-to-edge, and RealityKit's default repeats, which blends each
-    /// tile's edge texels with the opposite edge into dark seams. Unspecified
-    /// filters are trilinear.
     private static func sampler(for primitive: CNPrimitive) -> MaterialParameters.Texture.Sampler {
+        .init(samplerDescriptor(for: primitive))
+    }
+
+    /// The glTF's sampler, for RealityKit and the Metal renderer. Wrap modes
+    /// matter: Google's tiles ask for clamp-to-edge, and RealityKit's default
+    /// repeats, which blends each tile's edge texels with the opposite edge
+    /// into dark seams. Unspecified filters are trilinear.
+    static func samplerDescriptor(for primitive: CNPrimitive) -> MTLSamplerDescriptor {
         func address(_ wrap: Int) -> MTLSamplerAddressMode {
             return switch wrap {
             case 33071: .clampToEdge
@@ -160,7 +164,7 @@ final class TileUploader: @unchecked Sendable {
         case 9986: (descriptor.minFilter, descriptor.mipFilter) = (.nearest, .linear)
         default: (descriptor.minFilter, descriptor.mipFilter) = (.linear, .linear)
         }
-        return .init(descriptor)
+        return descriptor
     }
 
     private static func image(for primitive: CNPrimitive) -> CGImage? {

@@ -32,7 +32,7 @@ struct PhoneMapView: View {
 
     var body: some View {
         NavigationStack {
-            ScreenMapView(map: map, creditLineLimit: nil)
+            MetalOptionMapView(map: map, creditLineLimit: nil)
                 // Over the map, under the sticks, the same size as the scene.
                 .overlay {
                     TouchSurface(map: map)
