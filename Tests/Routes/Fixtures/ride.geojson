@@ -1,0 +1,28 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Ride",
+        "coordinateProperties": {
+          "times": ["2026-10-30T08:00:00Z", "2026-10-30T08:00:10Z", "2026-10-30T08:00:20.250Z"],
+          "heart": [100, 110, 120]
+        }
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-122.39, 37.79, -20.5], [-122.389, 37.791], [-122.388, 37.792, -19]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "coordTimes": [["2026-10-30T09:00:00Z", "2026-10-30T09:00:05Z"], ["2026-10-30T09:10:00Z", "2026-10-30T09:10:05Z"]] },
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [[[8.0, 46.0], [8.001, 46.001]], [[8.01, 46.01], [8.011, 46.011]]]
+      }
+    },
+    { "type": "Feature", "properties": {}, "geometry": { "type": "Point", "coordinates": [0, 0] } }
+  ]
+}

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-written: a Garmin-style GPX 1.1 track with the TrackPointExtension. -->
+<gpx creator="Garmin Connect" version="1.1"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
+  <metadata>
+    <name>Morning Run</name>
+    <time>2026-10-30T07:00:00Z</time>
+  </metadata>
+  <wpt lat="37.8000" lon="-122.4000"><ele>99</ele><name>Not part of the route</name></wpt>
+  <trk>
+    <name>Embarcadero loop</name>
+    <type>running</type>
+    <trkseg>
+      <trkpt lat="37.7955000" lon="-122.3937000">
+        <ele>4.2</ele>
+        <time>2026-10-30T07:00:00Z</time>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:hr>120</gpxtpx:hr>
+            <gpxtpx:cad>80</gpxtpx:cad>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="37.7956000" lon="-122.3936000">
+        <ele>4.6</ele>
+        <time>2026-10-30T07:00:05.500Z</time>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:hr>131</gpxtpx:hr>
+            <gpxtpx:cad>84</gpxtpx:cad>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="37.7957000" lon="-122.3935000">
+        <ele>5.0</ele>
+        <time>2026-10-30T00:00:10-07:00</time>
+      </trkpt>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="37.7960000" lon="-122.3930000"><ele>6</ele><time>2026-10-30T07:01:00Z</time></trkpt>
+      <trkpt lat="91" lon="0"><ele>6</ele></trkpt>
+      <trkpt lat="37.7961000" lon="-122.3929000"><time>2026-10-30T07:01:04Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

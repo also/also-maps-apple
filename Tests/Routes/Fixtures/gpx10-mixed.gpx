@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-written: GPX 1.0 with a name at the top level, the Garmin
+     extension under the ns3: prefix Garmin Connect uses, Strava-style bare
+     heartrate and cadence, and a route. -->
+<gpx version="1.0" creator="hand" xmlns:ns3="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
+  <name>Two kinds of line</name>
+  <trk>
+    <trkseg>
+      <trkpt lat="46.5" lon="7.9"><ele>2000</ele><extensions><ns3:TrackPointExtension><ns3:hr>150</ns3:hr></ns3:TrackPointExtension></extensions></trkpt>
+      <trkpt lat="46.501" lon="7.901"><ele>2010</ele><extensions><heartrate>152</heartrate><cadence>60</cadence></extensions></trkpt>
+    </trkseg>
+  </trk>
+  <rte>
+    <name>Planned</name>
+    <rtept lat="46.6" lon="8.0"/>
+    <rtept lat="46.61" lon="8.01"/>
+  </rte>
+</gpx>

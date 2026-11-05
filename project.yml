@@ -228,6 +228,11 @@ targets:
       - path: Tests/Static
       - path: Sources/Tracks
       - path: Tests/Navigation
+      # Imported routes: parsing, heights, colouring and the chase camera.
+      - path: Sources/Routes
+      # The fixtures are read from the source tree, not the bundle.
+      - path: Tests/Routes
+        excludes: ["Fixtures/*"]
     scheme:
       testTargets: ["Also Maps Core Tests"]
     settings:
