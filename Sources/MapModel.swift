@@ -50,6 +50,7 @@ final class MapModel {
             guard presentation != oldValue else { return }
             stopPlayback()
             endManipulation()
+            leavePhoto()
             // In the volume each host's level map has its own pitch; the
             // assist re-targets. Immersive hosts ignore pitch.
             settlesPitch = pitchFollowsAltitude && !usesEyeLevel
@@ -135,8 +136,10 @@ final class MapModel {
         if usesEyeLevel {
             let ground = effectiveEnvelope
             let weight = pitchFollowsAltitude ? EyeLevelModel.tiltWeight(altitude: camera.height - ground) : 0
+            // Standing in a photo is at human scale too, so its frame and the
+            // world line up at true size as well as angle.
             return EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground, tiltWeight: weight,
-                                         fixedScale: humanScale ? 1 : nil)
+                                         fixedScale: humanScale || standsInPhoto ? 1 : nil)
         }
         return AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
                                      envelopeHeight: effectiveEnvelope)
@@ -205,12 +208,22 @@ final class MapModel {
         root.addChild(streaming.tilesRoot)
         streaming.tilesRoot.addChild(tileBoundsOverlay.root)
         root.addChild(tracks.overlay.root)
+        root.addChild(photos.overlay.root)
+        photos.overlay.isEnabled = false
         // Indirect only (look + pinch). Allowing direct input meant hands that
         // were merely inside the map's area counted as touching it and
         // dragged the map with no pinch at all.
         gestureTarget.components.set(InputTargetComponent(allowedInputTypes: .indirect))
         root.addChild(gestureTarget)
         layOutGestureTarget()
+
+        photos.host = self
+        let streaming = self.streaming
+        photos.sampleGround = { coordinate, completion in
+            guard streaming.isStreaming else { return false }
+            streaming.sampleGroundHeight(around: coordinate, radius: PhotoPose.groundSampleRadius, completion)
+            return true
+        }
     }
 
     /// Called from each host's RealityView. Adds that host's anchor, routes
@@ -350,6 +363,7 @@ final class MapModel {
         if tilesHeld { setTilesHeld(false) }
         stopPlayback()
         endManipulation()
+        leavePhoto()
         // Framed level for this host already.
         settlesPitch = false
         placeAwaitsGround = true
@@ -413,6 +427,8 @@ final class MapModel {
     private func beginOrContinue(_ kind: GestureKind, at start: SIMD3<Float>) -> Bool {
         // The played track has the camera; gestures are ignored.
         guard !tracks.isPlaying else { return false }
+        // Grabbing the map steps out of a photo, like flying does.
+        if manipulation == nil { leavePhoto() }
         if let existing = manipulation?.starts[kind], existing != start { endManipulation() }
         if manipulation == nil {
             guard let framing else { return false }
@@ -511,6 +527,7 @@ final class MapModel {
         if let framing {
             tracks.overlay.update(georeference: framing.georeference,
                                   worldRadius: TrackOverlay.roomRadius / framing.georeference.scale)
+            updatePhotos(framing, deltaTime: dt)
         }
         streaming.update(deltaTime: deltaTime)
         tileBoundsOverlay.update(inputs: streaming.inputs, scale: streaming.tilesRoot.transform.scale.x,
@@ -548,6 +565,8 @@ final class MapModel {
             return
         }
         wasMoving = true
+        // Flying steps out of a photo: the frame only lines up from its pose.
+        leavePhoto()
         steer(with: ControlInput(move: input.move, turn: input.turn, climb: input.altitude,
                                  dolly: input.zoom, fast: input.fast),
               deltaTime: deltaTime)
@@ -625,7 +644,8 @@ final class MapModel {
 
     private var context: NavigationContext {
         NavigationContext(cameraGround: cameraGround.value,
-                          minimumAltitude: humanScale && usesEyeLevel ? 1.6 : Self.minimumAltitude,
+                          minimumAltitude: humanScale && usesEyeLevel ? 1.6
+                              : standsInPhoto ? 1 : Self.minimumAltitude,
                           maximumAltitude: Self.maximumAltitude)
     }
 
@@ -858,6 +878,7 @@ final class MapModel {
         guard let first = tracks.startPlayback() else { return }
         if tilesHeld { setTilesHeld(false) }
         endManipulation()
+        leavePhoto()
         // Nothing but the track moves the camera: no pitch easing, and no
         // ground sample lifting a place's framing.
         settlesPitch = false
@@ -912,6 +933,7 @@ final class MapModel {
         if tilesHeld { setTilesHeld(false) }
         stopPlayback()
         endManipulation()
+        leavePhoto()
         settings = state.settings
         groundSampleGeneration += 1  // Drop any sample in flight.
         placeAwaitsGround = false
@@ -932,6 +954,55 @@ final class MapModel {
         #if DEBUG
         print("[AlsoMaps] restored view state: \(captureState().json())")
         #endif
+    }
+
+    // MARK: Photos in place
+
+    /// The user's photos, their markers and the frame of the one stood in
+    /// (notes/photos-in-place.md). Session only: nothing is saved.
+    let photos = PhotoSession()
+
+    /// Settings' Photos in place (or ALSOMAPS_PHOTOS=1), applied by the
+    /// volume. Off: no markers, no frame, and any photo is left.
+    var photosEnabled = false {
+        didSet {
+            guard photosEnabled != oldValue else { return }
+            photos.overlay.isEnabled = photosEnabled
+            if !photosEnabled { leavePhoto() }
+        }
+    }
+
+    /// Whether the camera is standing in a photo, with its frame shown.
+    private var standsInPhoto: Bool { photos.activeID != nil }
+
+    /// A marker's width in the room at magnification 1 (the volume),
+    /// metres; the immersive space's are ten times that, like its map.
+    private static let photoMarkerWidth = 0.05
+    /// How far ahead of the eye the frame hangs, metres. Close enough that
+    /// the ground at the bottom of a portrait photo is still behind it (it
+    /// meets the ground about 2.4 m ahead), far enough to focus on easily.
+    private static let photoFrameDistance = 1.5
+    @ObservationIgnored private var photoGroundTimer = 0.0
+
+    private func updatePhotos(_ framing: AdaptiveModel.Framing, deltaTime: Double) {
+        guard photosEnabled else { return }
+        // Grounds that failed (tiles not loaded there yet) are tried again.
+        photoGroundTimer += deltaTime
+        if photoGroundTimer >= 2 {
+            photoGroundTimer = 0
+            photos.requestGrounds()
+        }
+        let georeference = framing.georeference
+        let width = Self.photoMarkerWidth * presentation.magnification / georeference.scale
+        photos.overlay.updateMarkers(photos.photos, hiding: photos.activeID, georeference: georeference,
+                                     width: { _ in width })
+        // The Metal immersive space doesn't draw RealityKit content.
+        if let photo = photos.active, presentation.host == .immersive, !metalImmersiveIsOpen {
+            photos.overlay.showFrame(photo, camera: navigation.camera, georeference: georeference,
+                                     distance: Self.photoFrameDistance, opacity: photos.frameOpacity)
+        } else {
+            photos.overlay.hideFrame()
+        }
     }
 
     // MARK: Debug markers
@@ -981,5 +1052,76 @@ final class MapModel {
             post.scale = [0.006 * size, height, 0.006 * size]
             post.position = SIMD3<Float>(georeference.map(point)) + [0, height / 2, 0]
         }
+    }
+}
+
+extension MapModel: PhotoSessionHost {
+    /// In the immersive space: a camera jump to where the photo was taken,
+    /// at eye height, looking its way, at human scale, with the photo framed
+    /// ahead. The volume can't put you in it, so there it frames the spot
+    /// like a place (the volume's Photos menu opens Immersive first).
+    func standInPhoto(_ id: PlacedPhoto.ID) {
+        guard photosEnabled, let photo = photos.photo(id), let coordinate = photo.coordinate else { return }
+        guard presentation.host == .immersive else {
+            go(to: Place(id: "photo-\(id)", name: photo.name,
+                         latitude: coordinate.latitude, longitude: coordinate.longitude,
+                         radius: 150, heading: photo.heading * 180 / .pi))
+            return
+        }
+        // Without a ground sample or a recorded altitude, stand on the
+        // ellipsoid until the sample arrives and lifts the camera.
+        let camera = photo.camera ?? CameraPose(latitude: coordinate.latitude, longitude: coordinate.longitude,
+                                                height: PhotoPose.eyeAboveGround, heading: photo.heading,
+                                                pitch: photo.adjustment.pitch)
+        if tilesHeld { setTilesHeld(false) }
+        stopPlayback()
+        endManipulation()
+        settlesPitch = false
+        placeAwaitsGround = false
+        currentPlaceID = nil
+        let ground = photo.ground ?? camera.height - PhotoPose.eyeAboveGround
+        rayHeight.reset(to: ground)
+        envelopeHeight.reset(to: ground)
+        cameraGround.reset(to: ground)
+        framing = nil
+        photos.setActive(id)
+        navigation = flight.activate(NavigationState(camera: camera))
+        // A camera jump: the track starts a new segment.
+        tracks.markJump()
+        applyView()
+        requestGroundSample()
+        photos.requestGrounds()
+        #if DEBUG
+        print("[AlsoMaps] standing in photo \(photo.name): \(String(format: "%.6f, %.6f", camera.latitude, camera.longitude)), eye \(Int(camera.height)) m, heading \(String(format: "%.1f", camera.heading * 180 / .pi))°")
+        #endif
+    }
+
+    /// Back to flying: the frame goes, and the camera rises to the usual
+    /// minimum height above the ground (a jump, from 1.6 m to 55 m).
+    func leavePhoto() {
+        guard standsInPhoto else { return }
+        photos.setActive(nil)
+        photos.overlay.hideFrame()
+        navigation.camera.height = context.clampHeight(navigation.camera.height)
+        tracks.markJump()
+        applyView()
+    }
+
+    /// The nudges changed, or the ground under the photo arrived.
+    func activePhotoAdjusted() {
+        guard let photo = photos.active, presentation.host == .immersive, let camera = photo.camera else { return }
+        if let ground = photo.ground {
+            cameraGround.reset(to: ground)
+        }
+        var state = navigation
+        state.camera = camera
+        if state.headingLink == .linked { state.movementHeading = camera.heading }
+        navigation = state
+        applyView()
+    }
+
+    var photoSearchCentre: GeoCoordinate {
+        guard let framing, presentation.host == .volume else { return navigation.camera.coordinate }
+        return Geodesy.geodetic(framing.georeferencePoint).coordinate
     }
 }

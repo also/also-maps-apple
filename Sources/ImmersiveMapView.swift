@@ -14,6 +14,7 @@ struct ImmersiveMapView: View {
             ? MetalImmersiveContent.spaceID : realityKitSpaceID
     }
     private static let attributionID = "attribution"
+    private static let photoControlsID = "photoControls"
 
     @Environment(MapModel.self) private var model
     @Environment(\.openWindow) private var openWindow
@@ -24,6 +25,11 @@ struct ImmersiveMapView: View {
             model.attach(content, host: .immersive)
             if let attribution = attachments.entity(for: Self.attributionID) {
                 content.add(attribution)
+            }
+            // Hangs under the frame of the photo you're standing in, and is
+            // shown and hidden with it (PhotoOverlay).
+            if let controls = attachments.entity(for: Self.photoControlsID) {
+                model.photos.overlay.attachControls(controls)
             }
         } update: { _, attachments in
             // Keep the attribution at the map's near edge, a little above the
@@ -45,6 +51,9 @@ struct ImmersiveMapView: View {
                     AttributionView()
                 }
                 .environment(model)
+            }
+            Attachment(id: Self.photoControlsID) {
+                PhotoViewerControls(session: model.photos)
             }
         }
         .mapGestures(model)

@@ -11,6 +11,12 @@ struct VolumeView: View {
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(ViewPreferences.photosInPlaceKey) private var photosInPlace = false
+
+    /// The setting, or ALSOMAPS_PHOTOS=1 for this run.
+    private var showsPhotos: Bool {
+        photosInPlace || ProcessInfo.processInfo.environment["ALSOMAPS_PHOTOS"] == "1"
+    }
 
     var body: some View {
         RealityView { content in
@@ -24,6 +30,7 @@ struct VolumeView: View {
         // panel; its baseplate would outline an empty box.
         .volumeBaseplateVisibility(model.presentation.host == .volume ? .automatic : .hidden)
         .onAppear { model.volumeIsOpen = true }
+        .onChange(of: showsPhotos, initial: true) { _, shows in model.photosEnabled = shows }
         .onDisappear { model.volumeDidClose() }
         // Closing the window doesn't make it disappear, it sends its scene
         // to the background; coming back (Show Controls) makes it active.
@@ -86,6 +93,18 @@ struct VolumeView: View {
                 }
                 .labelStyle(.iconOnly)
                 .help("Go to a place")
+                if showsPhotos {
+                    AddPhotosButton(session: model.photos)
+                        .labelStyle(.iconOnly)
+                    // Standing in a photo needs the immersive space, so
+                    // going to one opens it first.
+                    PhotosMenu(session: model.photos) {
+                        if model.presentation.host != .immersive {
+                            await present(.immersive)
+                        }
+                    }
+                    .labelStyle(.iconOnly)
+                }
                 Button("Settings", systemImage: "gearshape") {
                     openWindow(id: SettingsView.windowID)
                 }

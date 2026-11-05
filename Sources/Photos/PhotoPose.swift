@@ -22,6 +22,10 @@ enum PhotoPose {
     /// and it's often tens of metres off besides. Only a photo clearly taken
     /// from high up (a tower, a hill the tiles don't show, a drone) clears it.
     static let elevatedThreshold = 120.0
+    /// The ground sample's radius around a photo, metres: the lowest of a
+    /// 3 × 3 grid out to 0.8 of it, so a photo taken beside a building
+    /// stands on the street rather than its roof.
+    static let groundSampleRadius = 3.0
 
     enum EyeSource: Equatable {
         /// The sampled ground plus `eyeAboveGround`.

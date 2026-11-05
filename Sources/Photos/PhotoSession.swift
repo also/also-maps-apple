@@ -68,7 +68,7 @@ final class PhotoSession {
     /// Asks the tiles for the ground at a point (lowest of a few samples a
     /// metre or two apart), calling back on the main thread. Returns false
     /// if there's nothing to ask yet (no key, not streaming).
-    @ObservationIgnored var sampleGround: ((GeoCoordinate, @escaping @Sendable (Double) -> Void) -> Bool)?
+    @ObservationIgnored var sampleGround: (@MainActor (GeoCoordinate, @escaping @Sendable (Double) -> Void) -> Bool)?
     /// The markers and the frame; the host adds the root to its scene.
     @ObservationIgnored let overlay = PhotoOverlay()
 
