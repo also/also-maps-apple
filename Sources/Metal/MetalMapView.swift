@@ -82,6 +82,7 @@ struct MetalMapView {
                                 tiles: map.streaming.drawnTiles)
                 encoder.endEncoding()
                 commands.present(drawable)
+                drawLog.observe(commands)
                 commands.commit()
                 drawLog.record(statistics)
             }

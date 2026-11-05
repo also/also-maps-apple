@@ -12,7 +12,8 @@ import simd
 /// Used when Settings › General › Draw with Metal is on
 /// (ViewPreferences.drawsWithMetal): for the map window on macOS and iOS
 /// (MetalMapView), and for the immersive mode on visionOS
-/// (MetalImmersiveContent). Tracks and tile bounds aren't drawn.
+/// (MetalImmersiveContent). Tracks aren't drawn; tile bounds only with
+/// ALSOMAPS_METAL_DEBUG=bounds.
 final class MetalTileRenderer: @unchecked Sendable {
     /// Made on first use; nil if Metal isn't available.
     static let shared: MetalTileRenderer? = {
@@ -28,6 +29,8 @@ final class MetalTileRenderer: @unchecked Sendable {
     private let queue: MTLCommandQueue
     private let library: MTLLibrary
     private let depthState: MTLDepthStencilState
+    /// Debug boxes and the credits quad (MetalOverlays.swift).
+    let overlays: MetalOverlayRenderer?
     /// Sampler states by glTF sampler, shared between tiles.
     private var samplers: [SIMD4<Int>: MTLSamplerState] = [:]
     private let samplersLock = NSLock()
@@ -57,6 +60,7 @@ final class MetalTileRenderer: @unchecked Sendable {
         else { throw MetalError.setup }
         self.queue = queue
         self.depthState = depthState
+        overlays = MetalOverlayRenderer(device: device)
     }
 
     // MARK: Tiles
@@ -223,6 +227,8 @@ final class MetalTileRenderer: @unchecked Sendable {
         encoder.setDepthStencilState(depthState)
         encoder.setCullMode(.none)
         let rootViewProjection = viewProjection * root
+        let drawsBounds = MetalOverlayRenderer.drawsBounds && overlays != nil
+        var boxes: [MetalOverlayRenderer.Box] = []
         for (tile, placement) in tiles {
             guard let gpu = tile.renderObject as? Tile else { continue }
             statistics.tiles += 1
@@ -232,11 +238,21 @@ final class MetalTileRenderer: @unchecked Sendable {
             let frustum = cullsOffscreen ? MetalFrustum(clipFromLocal: modelViewProjection) : nil
             if frustum?.intersects(gpu.bounds) == false { continue }
             let model = root * placement
+            if drawsBounds, let bounds = gpu.bounds {
+                boxes.append(.init(bounds: bounds, modelViewProjection: modelViewProjection,
+                                   colour: MetalOverlayRenderer.colour(forDiagonal: simd_length(bounds.maximum - bounds.minimum),
+                                                                       alpha: 1)))
+            }
             var drewTile = false
             for part in gpu.parts {
                 // A tile may straddle the frustum while some of its parts
                 // are wholly outside. Single-part tiles were tested above.
                 if gpu.parts.count > 1, frustum?.intersects(part.bounds) == false { continue }
+                if drawsBounds, gpu.parts.count > 1, let bounds = part.bounds {
+                    boxes.append(.init(bounds: bounds, modelViewProjection: modelViewProjection,
+                                       colour: MetalOverlayRenderer.colour(forDiagonal: simd_length(bounds.maximum - bounds.minimum),
+                                                                           alpha: 0.35)))
+                }
                 if !drewTile {
                     statistics.submittedTiles += 1
                     drewTile = true
@@ -259,6 +275,7 @@ final class MetalTileRenderer: @unchecked Sendable {
                                               indexBuffer: part.indices, indexBufferOffset: 0)
             }
         }
+        if !boxes.isEmpty { overlays?.encodeBoxes(encoder, colour: colour, depth: depth, boxes: boxes) }
         return statistics
     }
 
