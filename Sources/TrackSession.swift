@@ -32,6 +32,18 @@ final class TrackSession {
     private(set) var playbackDuration = 0
     var isPlaying: Bool { playback != nil }
 
+    /// `ALSOMAPS_TRACK=<path to a track file>` shows that track at launch,
+    /// for checking the drawing where there's no track UI (the Mac).
+    init() {
+        guard let path = ProcessInfo.processInfo.environment["ALSOMAPS_TRACK"], !path.isEmpty else { return }
+        do {
+            overlay.path = try TrackPath(contentsOf: URL(fileURLWithPath: path))
+            showsTrack = true
+        } catch {
+            print("[AlsoMaps] couldn't read track \(path): \(error)")
+        }
+    }
+
     // MARK: Recording
 
     func startRecording() {

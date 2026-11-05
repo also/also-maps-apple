@@ -64,9 +64,20 @@ struct TubeExtruder {
     /// ring's first vertex: two per side, facing out.
     let topology: [UInt32]
 
-    private struct Vertex {
+    /// Position and normal, in the tube's frame. Matches TrackVertex in
+    /// MetalTrackRenderer's shader (two float3s, 32 bytes).
+    struct Vertex {
         var position: SIMD3<Float>
         var normal: SIMD3<Float>
+    }
+
+    /// A tube's triangles on the CPU, for a renderer outside RealityKit.
+    struct Geometry {
+        var vertices: [Vertex] = []
+        var indices: [UInt32] = []
+        /// Of the tube's centres; empty if there are no triangles.
+        var bounds = BoundingBox.empty
+        var radius: Float = 0
     }
 
     init(sides: Int) {
@@ -81,56 +92,57 @@ struct TubeExtruder {
         }
     }
 
-    /// Replaces the mesh's contents with a tube of `radius` along each
-    /// polyline (polylines with fewer than two distinct points are skipped).
+    /// A tube of `radius` along each polyline (polylines with fewer than two
+    /// distinct points are skipped).
+    func geometry(polylines: [[SIMD3<Float>]], radius: Float) -> Geometry {
+        let rings = polylines.map { rings(along: $0, radius: radius) }.filter { $0.count > 1 }
+        var geometry = Geometry(radius: radius)
+        geometry.vertices.reserveCapacity(rings.reduce(0) { $0 + $1.count } * shape.count)
+        geometry.indices.reserveCapacity(rings.reduce(0) { $0 + ($1.count - 1) * topology.count })
+        for ring in rings.joined() {
+            for (u, stretch) in zip(shape, ring.offsets) {
+                geometry.vertices.append(Vertex(position: ring.centre + stretch, normal: ring.frame * SIMD3<Float>(u, 0)))
+            }
+            geometry.bounds.formUnion(ring.centre)
+        }
+        var firstVertex: UInt32 = 0
+        for tube in rings {
+            for _ in 0..<(tube.count - 1) {
+                for offset in topology { geometry.indices.append(firstVertex + offset) }
+                firstVertex += UInt32(shape.count)
+            }
+            firstVertex += UInt32(shape.count)  // The tube's last ring.
+        }
+        return geometry
+    }
+
+    /// Replaces the mesh's contents with `geometry`.
     ///
     /// - Returns: A new `LowLevelMesh` if one had to be allocated; callers
     ///   must then make a new `MeshResource` from it. Nil otherwise.
     @MainActor
-    mutating func update(polylines: [[SIMD3<Float>]], radius: Float) throws -> LowLevelMesh? {
-        let rings = polylines.map { rings(along: $0, radius: radius) }.filter { $0.count > 1 }
-        let ringCount = rings.reduce(0) { $0 + $1.count }
-        let indexCount = rings.reduce(0) { $0 + ($1.count - 1) * topology.count }
-        let didReallocate = try reallocateMeshIfNeeded(vertexCount: ringCount * shape.count, indexCount: indexCount)
+    mutating func update(_ geometry: Geometry) throws -> LowLevelMesh? {
+        let indexCount = geometry.indices.count
+        let didReallocate = try reallocateMeshIfNeeded(vertexCount: geometry.vertices.count, indexCount: indexCount)
         guard let lowLevelMesh else { return nil }
 
-        var bounds = BoundingBox.empty
         lowLevelMesh.withUnsafeMutableBytes(bufferIndex: 0) { rawBuffer in
             let vertices = rawBuffer.bindMemory(to: Vertex.self)
-            var v = 0
-            for ring in rings.joined() {
-                for (u, stretch) in zip(shape, ring.offsets) {
-                    let normal = ring.frame * SIMD3<Float>(u, 0)
-                    vertices[v] = Vertex(position: ring.centre + stretch, normal: normal)
-                    v += 1
-                }
-                bounds.formUnion(ring.centre)
-            }
+            _ = vertices.initialize(from: geometry.vertices)
         }
         lowLevelMesh.withUnsafeMutableIndices { rawBuffer in
             let indices = rawBuffer.bindMemory(to: UInt32.self)
-            var i = 0
-            var firstVertex: UInt32 = 0
-            for tube in rings {
-                for _ in 0..<(tube.count - 1) {
-                    for offset in topology {
-                        indices[i] = firstVertex + offset
-                        i += 1
-                    }
-                    firstVertex += UInt32(shape.count)
-                }
-                firstVertex += UInt32(shape.count)  // The tube's last ring.
-            }
+            _ = indices.initialize(from: geometry.indices)
         }
 
         lowLevelMesh.parts.removeAll()
         if indexCount > 0 {
             // Mitred corners reach past the radius; twice it is plenty.
-            let margin = SIMD3<Float>(repeating: 2 * radius)
+            let margin = SIMD3<Float>(repeating: 2 * geometry.radius)
             lowLevelMesh.parts.append(LowLevelMesh.Part(indexOffset: 0, indexCount: indexCount,
                                                         topology: .triangle, materialIndex: 0,
-                                                        bounds: BoundingBox(min: bounds.min - margin,
-                                                                            max: bounds.max + margin)))
+                                                        bounds: BoundingBox(min: geometry.bounds.min - margin,
+                                                                            max: geometry.bounds.max + margin)))
         }
         return didReallocate ? lowLevelMesh : nil
     }

@@ -262,6 +262,11 @@ final class MapModel {
         placementRoot.transform.matrix * root.transform.matrix * streaming.tilesRoot.transform.matrix
     }
 
+    /// The track's frame → the immersive space's origin, as for the tiles.
+    var trackInImmersiveSpace: simd_float4x4 {
+        placementRoot.transform.matrix * root.transform.matrix * tracks.overlay.root.transform.matrix
+    }
+
     /// The volume went away (closed, or replaced by a blocking notice). It no
     /// longer drives streaming; opening it attaches again.
     func volumeDidClose() {

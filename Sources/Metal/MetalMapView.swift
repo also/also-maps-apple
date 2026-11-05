@@ -53,12 +53,14 @@ struct MetalMapView {
         private let map: ScreenMap
         private let renderer: MetalTileRenderer
         private let queue: MTLCommandQueue?
+        private let track: MetalTrackRenderer
         private var drawLog = MetalDrawLog()
 
         init(map: ScreenMap, renderer: MetalTileRenderer) {
             self.map = map
             self.renderer = renderer
             queue = renderer.device.makeCommandQueue()
+            track = MetalTrackRenderer(device: renderer.device)
         }
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
@@ -76,10 +78,15 @@ struct MetalMapView {
                 let projection = MetalProjection.perspective(
                     tangents: [halfHeight * aspect, halfHeight * aspect, halfHeight, halfHeight],
                     near: Float(near), far: Float(far))
+                let viewProjection = projection * map.cameraMatrix.inverse
                 let statistics = renderer.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
-                                viewProjection: projection * map.cameraMatrix.inverse,
+                                viewProjection: viewProjection,
                                 root: map.streaming.tilesRoot.transform.matrix,
                                 tiles: map.streaming.drawnTiles)
+                // The track's root is in the scene, as the tiles' root is.
+                let overlay = map.tracks.overlay
+                track.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
+                             viewProjection: viewProjection, model: overlay.root.transform.matrix, overlay: overlay)
                 encoder.endEncoding()
                 commands.present(drawable)
                 commands.commit()

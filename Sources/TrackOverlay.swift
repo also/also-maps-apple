@@ -11,7 +11,8 @@ import RealityKit
 ///
 /// The entity sits in the map frame at the track's origin, placed each frame
 /// from the georeference composed in double, so the Float vertices stay
-/// small and the tube moves with the tiles.
+/// small and the tube moves with the tiles. A renderer outside RealityKit
+/// (MetalTrackRenderer) draws `geometry` at `root`'s transform instead.
 @MainActor
 final class TrackOverlay {
     let root = Entity()
@@ -37,6 +38,11 @@ final class TrackOverlay {
     /// What the mesh shows: the path's version and the radius step.
     private var drawn: (version: Int, step: Int)?
     private var lastDraw = Date.distantPast
+
+    /// The tube's triangles in `root`'s frame, as last built, and a count
+    /// that changes whenever they do.
+    private(set) var geometry = TubeExtruder.Geometry()
+    private(set) var generation = 0
 
     init() {
         root.addChild(model)
@@ -74,8 +80,10 @@ final class TrackOverlay {
         let radius = pow(Self.scaleStep, Double(step))
         let tolerance = Self.toleranceFraction * radius
         let polylines = path.segments.indices.map { path.points(inSegment: $0, tolerance: tolerance) }
+        geometry = extruder.geometry(polylines: polylines, radius: Float(radius))
+        generation += 1
         do {
-            if let mesh = try extruder.update(polylines: polylines, radius: Float(radius)) {
+            if let mesh = try extruder.update(geometry) {
                 model.model = ModelComponent(mesh: try MeshResource(from: mesh), materials: [Self.material])
             }
         } catch {
@@ -88,6 +96,9 @@ final class TrackOverlay {
         print("[AlsoMaps] track drawn: \(kept) of \(path.pointCount) points in \(polylines.count) segments, radius \(String(format: "%.3g", radius)) m")
         #endif
     }
+
+    /// The tube's colour, as sRGB components.
+    static let colour = SIMD3<Float>(1, 0.584, 0)  // systemOrange
 
     private static let material: Material = {
         var material = PhysicallyBasedMaterial()
