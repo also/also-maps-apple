@@ -31,14 +31,19 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// Sampler states by glTF sampler, shared between tiles.
     private var samplers: [SIMD4<Int>: MTLSamplerState] = [:]
     private let samplersLock = NSLock()
-    /// Pipelines by colour and depth format and kind (tiles, or the
+    /// Pipelines by colour and depth format and kind (tiles, the sky, or the
     /// depth-only sky pass), made on first use.
     private var pipelines: [SIMD3<UInt>: MTLRenderPipelineState] = [:]
     private let pipelinesLock = NSLock()
+    /// The sky, sun and haze. Read and written on the main actor, where both
+    /// frame loops run. Set `.passthrough` for a presentation that shows the
+    /// room instead of a sky.
+    var atmosphere = MetalAtmosphere.fromEnvironment()
     /// A/B switch for device profiling; only draw submission changes.
     private let cullsOffscreen = ProcessInfo.processInfo.environment["ALSOMAPS_METAL_CULLING"] != "0"
 
-    /// The sky, as in ScreenMapView, as an sRGB target's clear colour (linear).
+    /// The flat sky, as in ScreenMapView, as an sRGB target's clear colour
+    /// (linear). What shows where the sky isn't painted (`atmosphere`).
     static let skyColour = MTLClearColor(red: pow(0.55, 2.2), green: pow(0.7, 2.2), blue: pow(0.85, 2.2), alpha: 1)
 
     enum MetalError: Error { case noDevice, setup }
@@ -181,20 +186,28 @@ final class MetalTileRenderer: @unchecked Sendable {
         var flags: UInt32
     }
 
+    private enum PipelineKind: UInt {
+        case tiles, sky, skyDepth
+    }
+
     private func pipeline(colour: MTLPixelFormat, depth: MTLPixelFormat,
-                          skyDepth: Bool = false) -> MTLRenderPipelineState? {
-        let key = SIMD3(colour.rawValue, depth.rawValue, skyDepth ? 1 : 0)
+                          kind: PipelineKind = .tiles) -> MTLRenderPipelineState? {
+        let key = SIMD3(colour.rawValue, depth.rawValue, kind.rawValue)
         pipelinesLock.lock()
         defer { pipelinesLock.unlock() }
         if let pipeline = pipelines[key] { return pipeline }
         let descriptor = MTLRenderPipelineDescriptor()
-        if skyDepth {
-            // Depth only: the colour already there (sky or tiles) stays.
-            descriptor.vertexFunction = library.makeFunction(name: "skyDepthVertex")
-            descriptor.colorAttachments[0].writeMask = []
-        } else {
+        switch kind {
+        case .tiles:
             descriptor.vertexFunction = library.makeFunction(name: "tileVertex")
             descriptor.fragmentFunction = library.makeFunction(name: "tileFragment")
+        case .sky:
+            descriptor.vertexFunction = library.makeFunction(name: "skyVertex")
+            descriptor.fragmentFunction = library.makeFunction(name: "skyFragment")
+        case .skyDepth:
+            // Depth only: the colour already there (clear colour or tiles) stays.
+            descriptor.vertexFunction = library.makeFunction(name: "skyDepthVertex")
+            descriptor.colorAttachments[0].writeMask = []
         }
         descriptor.colorAttachments[0].pixelFormat = colour
         descriptor.depthAttachmentPixelFormat = depth
@@ -209,10 +222,12 @@ final class MetalTileRenderer: @unchecked Sendable {
     }
 
     /// Draws `tiles` (each placed in the anchor's frame) after `root` (anchor
-    /// frame → scene) and `viewProjection` (scene → clip, reverse Z).
+    /// frame → scene) and `viewProjection` (scene → clip, reverse Z). `eye` is
+    /// the camera's position in the scene, for the haze. Follow with `encodeSky`
+    /// in the same encoder.
     @discardableResult
     func encode(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
-                viewProjection: simd_float4x4, root: simd_float4x4,
+                viewProjection: simd_float4x4, root: simd_float4x4, eye: SIMD3<Float>,
                 tiles: [(tile: CNTileMesh, placement: simd_float4x4)]) -> MetalDrawStatistics {
         let signposter = Signposts.frame
         let interval = signposter.beginInterval("MetalEncode", id: signposter.makeSignpostID())
@@ -222,6 +237,9 @@ final class MetalTileRenderer: @unchecked Sendable {
         encoder.setRenderPipelineState(pipeline)
         encoder.setDepthStencilState(depthState)
         encoder.setCullMode(.none)
+        var atmosphereUniforms = atmosphere.uniforms(root: root, eye: eye)
+        encoder.setVertexBytes(&atmosphereUniforms, length: MemoryLayout<MetalAtmosphere.Uniforms>.stride, index: 4)
+        encoder.setFragmentBytes(&atmosphereUniforms, length: MemoryLayout<MetalAtmosphere.Uniforms>.stride, index: 1)
         let rootViewProjection = viewProjection * root
         for (tile, placement) in tiles {
             guard let gpu = tile.renderObject as? Tile else { continue }
@@ -268,16 +286,41 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// sky. With an infinite far plane and 0.1 m near, about 100 km away.
     static let skyDepth: Float = 1e-6
 
-    /// After the tiles, moves every pixel still at the far plane (the sky)
-    /// to `skyDepth`, leaving colour alone. Tiles farther than that keep
-    /// their colour and only have their depth raised, so nothing is hidden.
-    /// Only a compositor needs it: a window shows the cleared sky as is.
-    func encodeSkyDepth(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat) {
-        guard let pipeline = pipeline(colour: colour, depth: depth, skyDepth: true) else { return }
-        encoder.setRenderPipelineState(pipeline)
-        encoder.setDepthStencilState(depthState)
-        var depth = Self.skyDepth
-        encoder.setVertexBytes(&depth, length: MemoryLayout<Float>.size, index: 0)
+    /// After the tiles, fills every pixel still at the far plane with the sky
+    /// and moves it to `skyDepth`, so a compositor keeps it. The depth test
+    /// means only those pixels are shaded. Tiles beyond `skyDepth` (about
+    /// 100 km, in a compositor) are painted over, which the haze has all but
+    /// done anyway.
+    ///
+    /// With the sky off (`atmosphere.paintsSky`), a compositor still gets the
+    /// depth-only pass, which leaves the clear colour and moves the empty
+    /// pixels to `skyDepth` without hiding far tiles, unless the atmosphere
+    /// says to leave them empty (passthrough). A window needs neither and
+    /// passes `compositor: false`.
+    ///
+    /// Same view as the `encode` just before it.
+    func encodeSky(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
+                   viewProjection: simd_float4x4, root: simd_float4x4, eye: SIMD3<Float>,
+                   compositor: Bool) {
+        var depthValue = Self.skyDepth
+        if atmosphere.paintsSky {
+            guard let pipeline = pipeline(colour: colour, depth: depth, kind: .sky) else { return }
+            encoder.setRenderPipelineState(pipeline)
+            encoder.setDepthStencilState(depthState)
+            var uniforms = atmosphere.uniforms(root: root, eye: eye)
+            var anchorFromClip = MetalAtmosphere.anchorFromClip(viewProjection: viewProjection, root: root)
+            encoder.setVertexBytes(&depthValue, length: MemoryLayout<Float>.size, index: 0)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<MetalAtmosphere.Uniforms>.stride, index: 1)
+            encoder.setVertexBytes(&anchorFromClip, length: MemoryLayout<simd_float4x4>.stride, index: 2)
+            encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MetalAtmosphere.Uniforms>.stride, index: 0)
+        } else if compositor && atmosphere.writesSkyDepthWhenUnpainted {
+            guard let pipeline = pipeline(colour: colour, depth: depth, kind: .skyDepth) else { return }
+            encoder.setRenderPipelineState(pipeline)
+            encoder.setDepthStencilState(depthState)
+            encoder.setVertexBytes(&depthValue, length: MemoryLayout<Float>.size, index: 0)
+        } else {
+            return
+        }
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
     }
 
@@ -293,6 +336,8 @@ struct TileUniforms {
     uint flags;
 };
 
+\(MetalAtmosphere.shaderSource)
+
 constant uint kTextured = 1;
 constant uint kLit = 2;
 
@@ -300,6 +345,7 @@ struct TileVertexOut {
     float4 position [[position]];
     float2 uv;
     float3 normal;
+    float3 anchorPosition;  // anchor frame, metres, for the haze
 };
 
 /// Positions are float4 (xyz + padding) offsets from the tile's centre; the
@@ -309,20 +355,25 @@ vertex TileVertexOut tileVertex(uint vid [[vertex_id]],
                                 const device float4 *positions [[buffer(0)]],
                                 const device float2 *texcoords [[buffer(1)]],
                                 const device float4 *normals [[buffer(2)]],
-                                constant TileUniforms &uniforms [[buffer(3)]]) {
+                                constant TileUniforms &uniforms [[buffer(3)]],
+                                constant AtmosphereUniforms &atmosphere [[buffer(4)]]) {
     TileVertexOut out;
     out.position = uniforms.modelViewProjection * float4(positions[vid].xyz, 1);
+    out.anchorPosition = atmosphere.haze.x > 0
+        ? (atmosphere.anchorFromScene * (uniforms.model * float4(positions[vid].xyz, 1))).xyz
+        : float3(0);
     out.uv = (uniforms.flags & kTextured) ? float2(texcoords[vid].x, 1 - texcoords[vid].y) : float2(0);
     out.normal = (uniforms.flags & kLit) ? (uniforms.model * float4(normals[vid].xyz, 0)).xyz : float3(0, 1, 0);
     return out;
 }
 
 /// Unlit photogrammetry (its lighting is baked in), or untextured content
-/// shaded by a light from above.
+/// shaded by a light from above, then faded toward the sky with distance.
 fragment float4 tileFragment(TileVertexOut in [[stage_in]],
                              texture2d<float> texture [[texture(0)]],
                              sampler textureSampler [[sampler(0)]],
-                             constant TileUniforms &uniforms [[buffer(0)]]) {
+                             constant TileUniforms &uniforms [[buffer(0)]],
+                             constant AtmosphereUniforms &atmosphere [[buffer(1)]]) {
     float4 colour = uniforms.baseColor;
     if (uniforms.flags & kTextured) {
         colour *= texture.sample(textureSampler, in.uv);
@@ -331,6 +382,9 @@ fragment float4 tileFragment(TileVertexOut in [[stage_in]],
         float light = max(dot(normalize(in.normal), normalize(float3(0.3, 1, 0.2))), 0.0);
         colour.rgb *= 0.55 + 0.45 * light;
     }
+    if (atmosphere.haze.x > 0) {
+        colour.rgb = applyHaze(colour.rgb, in.anchorPosition, atmosphere);
+    }
     return colour;
 }
 
@@ -338,7 +392,7 @@ struct SkyDepthOut {
     float4 position [[position]];
 };
 
-/// One triangle covering the view, at a fixed depth (encodeSkyDepth).
+/// One triangle covering the view, at a fixed depth (encodeSky).
 vertex SkyDepthOut skyDepthVertex(uint vid [[vertex_id]], constant float &depth [[buffer(0)]]) {
     float2 corner = float2((vid << 1) & 2, vid & 2);
     SkyDepthOut out;

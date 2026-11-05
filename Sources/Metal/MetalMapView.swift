@@ -76,10 +76,15 @@ struct MetalMapView {
                 let projection = MetalProjection.perspective(
                     tangents: [halfHeight * aspect, halfHeight * aspect, halfHeight, halfHeight],
                     near: Float(near), far: Float(far))
+                let viewProjection = projection * map.cameraMatrix.inverse
+                let root = map.streaming.tilesRoot.transform.matrix
+                let eye = SIMD3(map.cameraMatrix.columns.3.x, map.cameraMatrix.columns.3.y, map.cameraMatrix.columns.3.z)
                 let statistics = renderer.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
-                                viewProjection: projection * map.cameraMatrix.inverse,
-                                root: map.streaming.tilesRoot.transform.matrix,
+                                viewProjection: viewProjection, root: root, eye: eye,
                                 tiles: map.streaming.drawnTiles)
+                // The clear colour shows through only where the sky isn't painted.
+                renderer.encodeSky(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
+                                   viewProjection: viewProjection, root: root, eye: eye, compositor: false)
                 encoder.endEncoding()
                 commands.present(drawable)
                 commands.commit()

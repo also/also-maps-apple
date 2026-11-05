@@ -143,6 +143,11 @@ Ordered by value for effort, with the quick wins and the unblockers first.
 
 ### 5. Sky and atmosphere
 
+> **Status (2026-11-05):** a first version is written, not built or tested:
+> gradient, closed-form scattering, sun disc and aerial perspective, with an
+> off switch. See metal-renderer.md, "Sky and haze". Not done: a real sun
+> position (3), a LUT-based sky, the sky as a reflection source.
+
 - **What:** replace the flat clear colour with a full-screen sky pass (the
   depth-only sky pass already draws a full-screen triangle, so the plumbing is
   there): a horizon-to-zenith gradient first, then analytic scattering
