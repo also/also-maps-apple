@@ -15,14 +15,19 @@ struct VolumeView: View {
     var body: some View {
         RealityView { content in
             model.attach(content, host: .volume)
+            // Hidden unless the world in miniature is showing.
+            content.add(model.miniature.root)
         }
         .mapGestures(model)
+        .miniatureGestures(model)
         // visionOS turns controller input into look-and-pinch events by
         // default; route it to the Game Controller framework for MapInput.
         .handlesGameControllerEvents(matching: .gamepad)
         // With the map in an immersive space the volume is only the control
-        // panel; its baseplate would outline an empty box.
-        .volumeBaseplateVisibility(model.presentation.host == .volume ? .automatic : .hidden)
+        // panel, and its baseplate would outline an empty box, unless it's
+        // showing the world in miniature.
+        .volumeBaseplateVisibility(model.presentation.host == .volume || model.miniature.isShown
+                                   ? .automatic : .hidden)
         .onAppear { model.volumeIsOpen = true }
         .onDisappear { model.volumeDidClose() }
         // Closing the window doesn't make it disappear, it sends its scene
@@ -79,6 +84,18 @@ struct VolumeView: View {
                     .labelStyle(.iconOnly)
                     .help("Share \(track.deletingPathExtension().lastPathComponent)")
                 }
+                if model.miniature.isShown {
+                    Button("Zoom Miniature In", systemImage: "plus.magnifyingglass") {
+                        model.miniature.layout.halfWidth /= 1.5
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Show less of the world on the table")
+                    Button("Zoom Miniature Out", systemImage: "minus.magnifyingglass") {
+                        model.miniature.layout.halfWidth *= 1.5
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Show more of the world on the table")
+                }
                 Menu("Places", systemImage: "mappin.and.ellipse") {
                     ForEach(PlaceLibrary.all) { place in
                         Button(place.name) { model.go(to: place) }
@@ -105,10 +122,15 @@ struct VolumeView: View {
         // as the window moves away (so a gap under the toolbar can't clear
         // them): above the map in volume mode, and at the back of the empty
         // volume in the Metal immersive space. The RealityKit immersive space
-        // shows its own.
-        .ornament(attachmentAnchor: .scene(model.presentation.host == .volume ? .topBack : .bottomBack),
+        // shows its own. The world in miniature's tiles are Google's too, so
+        // while it's showing, their attribution sits above the table, along
+        // with the Metal immersive map's.
+        .ornament(attachmentAnchor: .scene(model.presentation.host == .volume || model.miniature.isShown
+                                           ? .topBack : .bottomBack),
                   contentAlignment: .bottom) {
-            if model.presentation.host == .volume || model.metalImmersiveIsOpen {
+            if let miniature = model.miniature.streaming {
+                AttributionView(sources: model.metalImmersiveIsOpen ? [model.streaming, miniature] : [miniature])
+            } else if model.presentation.host == .volume || model.metalImmersiveIsOpen {
                 AttributionView()
             }
         }
@@ -138,6 +160,20 @@ struct VolumeView: View {
             }
             if ProcessInfo.processInfo.environment["ALSOMAPS_HUMAN_SCALE"] == "1" {
                 model.humanScale = true
+            }
+            // ALSOMAPS_MINIATURE=1 turns on the world in miniature (shown in
+            // the volume while Immersive is open), ALSOMAPS_MINIATURE_KM=<n>
+            // makes it n km across, and ALSOMAPS_MINIATURE_NORTH_UP=1 keeps
+            // north up instead of your heading.
+            let env = ProcessInfo.processInfo.environment
+            if env["ALSOMAPS_MINIATURE"] == "1" {
+                model.showsMiniature = true
+            }
+            if let across = env["ALSOMAPS_MINIATURE_KM"].flatMap(Double.init) {
+                model.miniature.layout.halfWidth = across * 500
+            }
+            if env["ALSOMAPS_MINIATURE_NORTH_UP"] == "1" {
+                model.miniature.layout.orientation = .northUp
             }
             if let text = ProcessInfo.processInfo.environment["ALSOMAPS_STATE"] {
                 do {
@@ -220,6 +256,35 @@ extension View {
         modifier(VolumeDepth())
     }
 
+    /// On the world in miniature's table: pinch-tap to go there, drag to
+    /// slide along, two-handed pinch to zoom the table.
+    func miniatureGestures(_ model: MapModel) -> some View {
+        self
+            .simultaneousGesture(
+                SpatialTapGesture()
+                    .targetedToEntity(model.miniature.gestureTarget)
+                    .onEnded { value in
+                        model.jumpFromMiniature(at: value.convert(value.location3D, from: .local, to: .scene))
+                    }
+            )
+            .simultaneousGesture(
+                DragGesture()
+                    .targetedToEntity(model.miniature.gestureTarget)
+                    .onChanged { value in
+                        let start = value.convert(value.startLocation3D, from: .local, to: .scene)
+                        let now = value.convert(value.location3D, from: .local, to: .scene)
+                        model.dragMiniature(from: start, to: now)
+                    }
+                    .onEnded { _ in model.endMiniatureDrag() }
+            )
+            .simultaneousGesture(
+                MagnifyGesture()
+                    .targetedToEntity(model.miniature.gestureTarget)
+                    .onChanged { value in model.magnifyMiniature(by: value.magnification) }
+                    .onEnded { _ in model.endMiniatureMagnify() }
+            )
+    }
+
     /// Drag to pan, two-handed pinch to zoom and twist to turn, on the model's
     /// gesture target, in whichever scene is showing the map.
     func mapGestures(_ model: MapModel) -> some View {
@@ -267,32 +332,45 @@ extension View {
 struct AttributionView: View {
     @Environment(MapModel.self) private var model
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
+    /// The streamers whose tiles are on show; the map's own if nil. With
+    /// more than one (the world in miniature beside the Metal immersive
+    /// map), their credits are merged.
+    var sources: [TileStreaming]? = nil
 
     /// The attribution, how loading is going, why nothing loads (a missing
     /// or refused key), and the stats if Settings shows them. No hints.
     var body: some View {
-        VStack(spacing: 4) {
-            if let message = model.streaming.statusMessage {
+        let sources = self.sources ?? [model.streaming]
+        let progress = sources.map(\.loadProgress).min() ?? 100
+        var credits: [TileStreaming.Credit] = []
+        for credit in sources.flatMap(\.credits) where !credits.contains(credit) {
+            credits.append(credit)
+        }
+        return VStack(spacing: 4) {
+            if let message = sources.lazy.compactMap(\.statusMessage).first {
                 Text(message).font(.callout)
-            } else if model.streaming.loadProgress < 100 {
-                ProgressView(value: Double(model.streaming.loadProgress), total: 100)
+            } else if progress < 100 {
+                ProgressView(value: Double(progress), total: 100)
                     .frame(width: 200)
             }
             if showsStats {
-                let stats = model.streaming.stats
                 VStack(spacing: 2) {
-                    Text("\(stats.renderedTiles) tiles · \(stats.entities) entities · \(Int(model.streaming.loadProgress))%")
-                    Text(stats.requestsSummary)
+                    ForEach(sources.indices, id: \.self) { index in
+                        let source = sources[index]
+                        let stats = source.stats
+                        Text("\(source.name.map { "\($0): " } ?? "")\(stats.renderedTiles) tiles · \(stats.entities) entities · \(Int(source.loadProgress))%")
+                        Text(stats.requestsSummary)
+                    }
                 }
                 .font(.caption.monospacedDigit())
             }
             HStack(spacing: 8) {
-                if model.streaming.showsGoogleLogo {
+                if sources.contains(where: \.showsGoogleLogo) {
                     Image("GoogleMapsLogo")
                         .accessibilityLabel("Google Maps")
                 }
                 // Providers' own logos (e.g. Cesium ion) come in their credits.
-                ForEach(model.streaming.credits.compactMap(\.imageURL), id: \.self) { url in
+                ForEach(credits.compactMap(\.imageURL), id: \.self) { url in
                     AsyncImage(url: url) { image in
                         image.resizable().scaledToFit()
                     } placeholder: {
@@ -300,7 +378,7 @@ struct AttributionView: View {
                     }
                     .frame(height: 18)
                 }
-                Text(model.streaming.credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
+                Text(credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption)
                     .lineLimit(1)
             }
