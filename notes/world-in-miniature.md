@@ -344,4 +344,5 @@ heading):
   square is hundreds of kilometres wide, so it never shows on a 2–60 km table.
 - Commits, in order: shared tile cache; streamer names; `MiniatureLayout` and
   tests; `WorldMiniature`; `MapModel` wiring; the volume; head following;
-  Settings and scheme variables; these notes.
+  Settings and scheme variables; these notes; a fix so a cancelled pinch on
+  the table can't block dragging.
