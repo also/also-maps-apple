@@ -326,7 +326,6 @@ final class MetalTileRenderer: @unchecked Sendable {
         return statistics
     }
 
-
     // MARK: Sun study
 
     /// The clay and sun study's look for a frame (built by SunStudy), in
@@ -426,7 +425,7 @@ final class MetalTileRenderer: @unchecked Sendable {
         }
         // Rebuilt every frame: under 200 dots, and a time-lapse moves them.
         // Too many for setVertexBytes's 4 KB.
-        let sunPath = lighting.sunPath.isEmpty ? nil : lighting.sunPath.withUnsafeBytes { bytes in
+        let sunPath: MTLBuffer? = lighting.sunPath.isEmpty ? nil : lighting.sunPath.withUnsafeBytes { bytes in
             device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
         }
         return PreparedLighting(uniforms: uniforms, shadowMap: shadowMap, sunPath: sunPath,
@@ -641,7 +640,9 @@ static float sunVisibility(depth2d<float> shadowMap, constant LightUniforms &lig
     float sum = 0.0;
     for (int y = -1; y <= 1; y++) {
         for (int x = -1; x <= 1; x++) {
-            sum += shadowMap.sample_compare(compare, uv + float2(x, y) * step, s.z);
+            // An explicit level: this runs in a branch, where implicit
+            // derivatives aren't defined (and the map has one level).
+            sum += shadowMap.sample_compare(compare, uv + float2(x, y) * step, s.z, level(0));
         }
     }
     return sum / 9.0;
@@ -661,7 +662,9 @@ fragment float4 studyFragment(TileVertexOut in [[stage_in]],
                               constant TileUniforms &uniforms [[buffer(0)]],
                               constant LightUniforms &light [[buffer(1)]]) {
     float3 p = in.anchorPosition;
-    float3 n = (uniforms.flags & kLit) ? in.anchorNormal : cross(dfdx(p), dfdy(p));
+    // Derivatives outside any branch, where they're always defined.
+    float3 faceted = cross(dfdx(p), dfdy(p));
+    float3 n = (uniforms.flags & kLit) ? in.anchorNormal : faceted;
     float lengthSquared = dot(n, n);
     n = lengthSquared > 0.0 ? n * rsqrt(lengthSquared) : float3(0, 1, 0);
     if (dot(n, light.eye.xyz - p) < 0.0) {
