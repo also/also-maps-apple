@@ -74,6 +74,17 @@ quality.
 
 ## Log
 
+### 2026-11-04: Point and jump landed short, even behind you
+
+- **Observed (owner, on a device):** the jump was right at human scale but
+  wrong otherwise; pointing at a spot in front could move you backwards.
+- **Inferred (code):** the jump framed the pointed-at spot on the placement
+  point C₀, which is 5.6 m in front of the eye in the room. At human scale
+  that's 5.6 m of world; scaled down it can be kilometres, so any hit
+  nearer than C₀ in the room pulled the camera back. It now lands straight
+  above the hit (`CameraFlight.jump`), keeping height above ground, heading
+  and pitch. Not yet rechecked on a device.
+
 ### 2026-11-04: hand-tracked control schemes (untested on a device)
 
 - **Built:** Settings › Immersion › Hand controls: Point and jump, Grab the

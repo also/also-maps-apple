@@ -242,6 +242,14 @@ struct CameraFlightTests {
         #expect(long.duration > short.duration && long.duration <= 4)
     }
 
+    @Test func jumpLandsAboveTheTargetKeepingHeightAboveGroundAndFacing() throws {
+        let target = GeoCoordinate(latitude: 37.80, longitude: -122.39)
+        let pose = CameraFlight.jump(from: start, to: target, groundHeight: 120, altitude: 500)
+        #expect(pose.latitude == target.latitude && pose.longitude == target.longitude)
+        #expect(pose.height == 620)
+        #expect(pose.heading == start.heading && pose.pitch == start.pitch)
+    }
+
     @Test func headingTurnsTheShortWay() throws {
         var end = start
         end.heading = -3.0

@@ -376,6 +376,18 @@ struct CameraFlight: Equatable {
     var duration: Double
     private(set) var elapsed = 0.0
 
+    /// Where a jump to `target` lands: the camera (on the eye) straight
+    /// above it, `altitude` metres above `groundHeight`, with the heading and
+    /// pitch unchanged, so the world only slides and the pointed-at spot ends
+    /// up under you. (Not on the map's placement point in front of you: that
+    /// is metres away in the room, which can be kilometres of world, so
+    /// pointing nearer than it would move you backwards.)
+    static func jump(from camera: CameraPose, to target: GeoCoordinate, groundHeight: Double,
+                     altitude: Double) -> CameraPose {
+        CameraPose(latitude: target.latitude, longitude: target.longitude, height: groundHeight + altitude,
+                   heading: camera.heading, pitch: camera.pitch)
+    }
+
     /// `altitude` is the start's height above the ground, metres.
     init(from: CameraPose, to: CameraPose, altitude: Double) {
         self.from = from

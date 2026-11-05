@@ -282,19 +282,18 @@ final class MapModel {
     private var cameraFlight: CameraFlight?
 
     /// Flies to `target` (ECEF, on the ground at `groundHeight`): it arrives
-    /// where the map's centre point is, at the same height above the ground
-    /// and heading, so the world only slides. Any other input cancels it.
+    /// straight above it, at the same height above the ground and heading,
+    /// so the world only slides (CameraFlight.jump). Any other input
+    /// cancels it.
     func fly(toGround target: SIMD3<Double>, groundHeight: Double) {
-        guard !tracks.isPlaying, let framing else { return }
+        guard !tracks.isPlaying, framing != nil else { return }
         if tilesHeld { setTilesHeld(false) }
         endManipulation()
         let camera = navigation.camera
         let altitude = max(camera.height - effectiveEnvelope, AdaptiveModel.minimumRange)
         let (coordinate, _) = Geodesy.geodetic(target)
-        var destination = EyeLevelModel.framePlace(centre: coordinate, radius: framing.shownRadius(room),
-                                                   heading: camera.heading, room: room, groundHeight: groundHeight)
-        // The same height above the new ground as now above the old.
-        destination.height = context.clampHeight(groundHeight + altitude)
+        var destination = CameraFlight.jump(from: camera, to: coordinate, groundHeight: groundHeight, altitude: altitude)
+        destination.height = context.clampHeight(destination.height)
         cameraFlight = CameraFlight(from: camera, to: destination, altitude: altitude)
         // The ground there, from the hand's sample; a fresh 3×3 sample
         // replaces it on arrival.
