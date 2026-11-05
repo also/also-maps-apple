@@ -106,7 +106,7 @@ quality.
   a build or a device; nothing here has been seen running.
 - **Inferred (by hand):** the defaults give a zenith near the old flat sky's
   blue and a near-white horizon, from working the formulas through for a 45°
-  sun. Haze at the 0.5 default is about 20% at 5 km at ground level for blue.
+  sun. Haze at the 0.5 default is about 12% at 5 km at ground level for blue.
   Both are arithmetic, not measurements.
 - **To check on a device:** the horizon band (does it still step, does the
   sky meet far tiles without a seam), foveation's edges in the sky, both
