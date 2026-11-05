@@ -166,6 +166,12 @@ typedef struct {
 @property (nonatomic) double maximumScreenSpaceError;
 /// SSE threshold for tiles outside the LOD camera's view. Default 64.
 @property (nonatomic) double culledScreenSpaceError;
+/// Free each tile's decoded glTF image pixels as soon as its CNTileMesh has
+/// been built (their RGBA copy is in the CNPrimitives), instead of when
+/// cesium-native unloads the tile and destroys the model on the update
+/// thread. Only for a renderer that never reads them again (Metal). Default
+/// NO. Safe from any thread; applies to tiles loaded afterwards.
+@property (nonatomic) BOOL releasesDecodedImages;
 /// Concurrent tile requests. Default 20.
 @property (nonatomic) NSInteger maximumSimultaneousTileLoads;
 /// Loaded-tile cache budget in bytes. Default 512 MB.
@@ -183,7 +189,13 @@ typedef struct {
 /// call, or 0: the service may be rejecting or throttling the key.
 - (NSInteger)takeKeyFailureStatus;
 
-/// Runs one selection + load pass. Call once per frame on the main thread.
+/// Runs one selection + load pass. Call once per frame. It, the property
+/// setters above, sampleGroundHeight and the streamer's release must all
+/// happen on one thread at a time (the Tileset isn't thread-safe), and
+/// completions and main-thread tasks run on whichever thread calls this;
+/// TileStreaming calls it from the main thread, or from its selection queue
+/// for the Metal immersive space (ALSOMAPS_METAL_THREADED_SELECT=1).
+/// fetchStats, takeKeyFailureStatus and tileLoadHandler are the exceptions.
 - (CNFrame *)updateWithDeltaTime:(float)deltaTime;
 
 /// Samples the most detailed surface on a 3×3 grid spanning 0.8 × `radius`

@@ -38,6 +38,78 @@ render pass. Unsupported configurations keep the unfoveated dedicated or
 shared layout. Stereo still uses a separate draw loop per eye; vertex
 amplification would be a later change.
 
+### Who calls what, and on which thread
+
+Read from the code, 2026-11-05 (**Observed**: code, nothing run).
+
+**The frame today (visionOS Metal).** `MetalImmersiveRenderer.run` is on the
+main actor. Each frame: `frame.startUpdate()`, then
+`MapModel.metalImmersiveTick` → `tick` (input, `updateGround`, `applyView`,
+which sets `streaming.inputs` and `tilesRoot.transform`) →
+`TileStreaming.update` → `CNTileStreamer updateWithDeltaTime:`, all on the main
+thread; then `await clock.sleep(until: optimalInputTime)`, then `render`, which
+reads `streaming.drawnTiles` and `model.tilesInImmersiveSpace` and encodes both
+eyes. On macOS and iOS `MetalMapView` draws from the same two properties, but
+its `update` is driven by the RealityKit scene's update event
+(`ScreenMap.tick`), so it's only the immersive space that this work touches.
+
+**What the bridge's `update` does**, in order, all inline:
+
+1. Writes the area-of-interest excluder (`radius`, `anchorUp`,
+   `ecefToAnchorEnu`) from the anchor properties.
+2. Turns the LOD camera (anchor frame, RealityKit axes) into an ECEF
+   `ViewState`. A degenerate camera returns the last frame.
+3. `updateViewGroup` (selection), then `loadTiles()`: starts loads and
+   **unloads cached content** until under `maximumCachedBytes`. Unloading
+   destroys the tile's glTF `Model`, including its decoded images, and calls
+   `IPrepareRendererResources::free`, which releases the retained `CNTileMesh`
+   and records its id.
+4. `dispatchMainThreadTasks()`: runs cesium-native's "main thread"
+   continuations: tiles becoming drawable (`prepareInMainThread`), and ground
+   samples' completions. So those run on whichever thread calls `update`.
+5. Places each drawn tile: a double-precision matrix from the tile's
+   centre to the anchor frame **as set at this update**, so a tile's
+   placement is only meaningful with that anchor.
+6. Drains the freed-id list, snapshots credits, computes load progress, and
+   keeps the result as `_lastFrame`.
+
+**What it reads.** The plain `nonatomic` properties (anchor, radius, heading,
+view camera, `reportsTileBounds`), the `Tileset`'s options (written by the
+settings setters straight into `_tileset->getOptions()`), the Tileset itself
+and `_lastFrame`.
+
+**Thread-safety rules of the bridge** (nothing is documented; this is read off
+the code):
+
+- Not safe to use from two threads: every plain property, the option setters,
+  `update`, `sampleGroundHeight`, and the release of the streamer (`dealloc`
+  destroys the Tileset). There is no locking around the Tileset. Today they're
+  all on the main thread, so nothing needed any.
+- Safe from any thread: `fetchStats` and `takeKeyFailureStatus` (atomics),
+  the tile load handler's getter and setter (mutex), the freed list (mutex),
+  and a `CNTileMesh` once built (immutable fields; `primitives` and
+  `renderObject` are atomic).
+- The load handler and its completion run on background threads already, and
+  the completion may be called from any thread.
+- A `CNTileMesh` is retained by cesium-native, and again by anything holding
+  `tilesToRender`. `free` drops cesium's reference only, so a published frame
+  keeps its tiles (and their Metal buffers and textures) alive after
+  cesium-native has unloaded them.
+
+**How camera input arrives.** `TileStreaming.inputs` (a value:
+`StreamingInputs`) is set by `MapModel.applyView` every tick unless tiles are
+held, and its `didSet` copies it into the bridge's properties. Held ("Fly")
+tiles freeze `inputs` (`heldInputs`), so `update` keeps selecting from the
+held view while `tilesRoot` is recomputed every tick from the *current*
+georeference and the held anchor.
+
+**The placement pairing that makes a stale frame safe.** `tilesRoot.transform`
+is `georeference.placement(of: streaming.inputs.anchor)`. A frame's tile
+placements are relative to the anchor it was selected with. Drawing an older
+frame with the current anchor's root would shift every tile by the anchor's
+movement since (the anchor follows the camera). The fix is to pair a frame
+with its own anchor and today's georeference: `tilesInImmersiveSpace(anchoredAt:)`.
+
 ## Measuring
 
 Environment variables:
@@ -48,6 +120,12 @@ Environment variables:
 - `ALSOMAPS_METAL_CULLING=0`: turn culling off, for a baseline. On by default.
 - `ALSOMAPS_METAL_FOVEATION=0`: turn visionOS foveation off, for a baseline.
   On by default where the dedicated layout supports it.
+- `ALSOMAPS_METAL_THREADED_SELECT=1`: experimental, visionOS immersive only.
+  Run cesium-native's selection and unloading on a serial queue instead of in
+  the frame (see "Selection off the main thread" below). Off by default.
+- `ALSOMAPS_METAL_RELEASE_IMAGES=1`: experimental. Free each tile's decoded
+  glTF images on the load thread right after its buffers are built, instead of
+  when cesium-native unloads the tile. Metal only; independent of the above.
 
 The log reports submitted out of considered tiles, draws and triangles,
 summed over the interval. "Considered" is what would be submitted with
@@ -73,6 +151,106 @@ quality, both eyes and compositor depth. The simulator can't show foveation
 quality.
 
 ## Log
+
+### 2026-11-05: selection off the main thread (prototype, not built or run)
+
+Written without a build or a device, by reading the code. **Nothing here has
+been compiled or run.** It is the first step of idea 4 in
+[metal-feature-ideas.md](metal-feature-ideas.md), plus a flagged version of
+its option 2. Both are off by default; with neither flag the frame loop does
+what it did, one extra function call apart.
+
+- **What it does (visionOS Metal immersive only), with
+  `ALSOMAPS_METAL_THREADED_SELECT=1`:**
+  - `TileStreaming` starts a `TileSelectionWorker` for the streamer. Each tick
+    the main thread submits a `Job` (a copy of `inputs`, `settings` and the
+    time step) and returns. The worker's serial queue applies the job to the
+    bridge, runs `update`, and publishes an immutable `Snapshot` (tiles,
+    placements, the anchor they're relative to, credits, load progress).
+  - One update runs and at most one job waits; a newer job replaces the waiting
+    one and their time steps add, so the queue can't back up. If an update takes
+    longer than a frame, the worker simply runs back to back.
+  - The main thread adopts a new snapshot once per tick (credits, progress,
+    `renderedTiles` for `CameraGround`, stats). The frame loop reads the newest
+    published snapshot at render time through `drawnForRender()`, not what the
+    tick adopted, so a job that finishes during the optimal-input wait is
+    drawn that frame.
+  - Everything that touches the Tileset moves to the queue: the bridge's
+    properties and option setters (applied from the job, so each update uses
+    one consistent copy), `sampleGroundHeight` (its completion hops back to the
+    main queue, where `MapModel` asserts it is), and the streamer's release
+    after a restart. `drawnTiles` stays empty in this mode. The tile bounds
+    overlay is off (it's RealityKit's).
+  - Restart (key, tile source, handler change) cancels the worker: the running
+    update finishes and publishes nothing, then the old streamer goes.
+- **Held (Fly) tiles:** nothing special is needed beyond the pairing above.
+  Held `inputs` are just the same job each tick, so loads continue as they do
+  now. The frame loop draws the held snapshot with today's georeference and the
+  held anchor, which is the same composition `applyView` does. Releasing the
+  hold changes the anchor; the first new snapshot arrives a few frames later and
+  the old one keeps drawing correctly until then.
+- **`ALSOMAPS_METAL_RELEASE_IMAGES=1` (option 2):** `prepareInLoadThread` empties
+  every glTF image's `pixelData` right after `buildTileMesh` has copied the RGBA
+  into the `CNPrimitive`s, on the load thread. Unloading then has no big
+  buffers to free inside `loadTiles`. It's independent of the threading flag, so
+  it can be measured alone in the Debug build, where the destructors were 31%
+  of the main thread. The `discardCPUData` call in `MetalTileRenderer.handler`
+  is the Swift half and already ran after upload.
+
+**Risks, in the order I'd check them:**
+
+1. **cesium-native's thread rules are Inferred, not read.** The assumption is
+   that the Tileset has no thread affinity, only a need for one caller at a
+   time, and that "main thread" in `AsyncSystem` just means "whoever calls
+   `dispatchMainThreadTasks`". A serial `DispatchQueue` guarantees one caller
+   at a time but may use a different thread for each block. If cesium-native
+   asserts a thread, uses thread-local state, or the Tileset is created and
+   destroyed on a thread it cares about, a dedicated `Thread` would be the fix.
+   The streamer is also created on the main thread and torn down on whichever
+   thread lets go last; `dealloc` then drains `dispatchMainThreadTasks` on the
+   main queue while `~Tileset` runs elsewhere, which hasn't been thought
+   through.
+2. **Camera lag.** Selection runs on the camera of the tick that submitted the
+   job, and is drawn one or more frames later (the length of an update; optimised
+   ~3 ms mean, Debug up to 200 ms). Placement stays right (the anchor pairing);
+   what lags is detail: a fast zoom or turn can show last frame's LOD for a few
+   frames. Bounded and unmeasured.
+3. **Stale-snapshot popping.** Each snapshot is a complete, self-consistent
+   cesium selection, so mixing can't open holes. But a tile becomes visible
+   only when a job that selected it finishes, so refinement can pop in later than
+   today, and a view that moved can briefly show tiles selected for the old
+   view. Two drawables in one frame (capturing) each call `drawnForRender()`
+   and could use different snapshots.
+4. **Ordering between the camera and the first snapshot.** Until the worker's
+   first job finishes nothing is drawn (as at launch). After a restart the same.
+5. **Stale `renderedHeightRanges`.** `CameraGround` reads the tiles adopted on
+   the last tick, now up to one update behind its own camera.
+6. **Image release and cache accounting (unverified).** If cesium-native sizes a
+   tile from its model both when loaded and when unloaded, emptying the images
+   in between would make the unload subtract less than the load added, so the
+   total drifts upward and the cache evicts too eagerly. If it records the size
+   once, there's no issue. Check `maximumCachedBytes` behaviour over a long
+   run before trusting it. Separately, a texture shared between tiles by
+   external URI would be emptied for the next tile; Google's embedded textures
+   aren't shared.
+7. **Memory.** Snapshots keep tiles alive after cesium-native frees them, so
+   GPU memory can briefly exceed the cache budget by about a frame or two of
+   tiles.
+8. **A busy core.** With updates longer than a frame the worker never idles.
+   `qos: .userInteractive` was chosen so it isn't starved by the load threads.
+9. **Not done:** `MetalMapView` (macOS and iOS) isn't converted; its root comes
+   from `tilesRoot.transform` and would need the same pairing. No unit test:
+   `TileStreaming` isn't in the Core Tests target.
+
+**To measure** (optimised build, per [docs/profiling.md](../docs/profiling.md),
+and a fixed view with a deliberately warm cache per
+[docs/tile-caching.md](../docs/tile-caching.md)): the main-thread `Update` and
+`ImmersiveTick` signposts should fall to near zero; the new `SelectionJob`
+interval is the worker's time and the bridge's own `Select` now runs on its
+queue. Compare `MissedDeadline` and `FrameGap` counts with and without the
+flag, for settled idle, movement and streaming separately. Then the same in the
+Debug build, where unloading was the biggest cost, with and without
+`ALSOMAPS_METAL_RELEASE_IMAGES=1`.
 
 ### 2026-11-04: eye height is measured twice
 

@@ -281,6 +281,10 @@ Ordered by value for effort, with the quick wins and the unblockers first.
   popping.
 - **Files:** `Sources/TileStreaming.swift`, `Sources/MapModel.swift`,
   `Sources/MetalImmersiveSpace.swift`, `Sources/Metal/MetalMapView.swift`.
+- **Prototype (2026-11-05, unbuilt):** option 1 for the visionOS immersive
+  space behind `ALSOMAPS_METAL_THREADED_SELECT=1`, and option 2 behind
+  `ALSOMAPS_METAL_RELEASE_IMAGES=1`; design, thread rules and risks in
+  [metal-renderer.md](metal-renderer.md).
 
 ### 7. Vertex amplification (single-pass stereo)
 

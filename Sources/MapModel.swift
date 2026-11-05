@@ -233,13 +233,20 @@ final class MapModel {
     /// The Metal immersive space opened: tiles are built for it until it
     /// closes. Streaming restarts each way; tiles come back from the cache.
     func metalImmersiveDidOpen(_ metal: MetalTileRenderer) {
+        // Experimental, off unless asked for: selection and unloading on a
+        // queue instead of in the frame (notes/metal-renderer.md). Before the
+        // handler, whose change is what restarts streaming.
+        streaming.runsSelectionOffMain = ProcessInfo.processInfo.environment["ALSOMAPS_METAL_THREADED_SELECT"] == "1"
         streaming.customTileHandler = metal.handler
         metalImmersiveIsOpen = true
     }
 
     func metalImmersiveDidClose() {
         metalImmersiveIsOpen = false
+        // The handler first: its change restarts streaming, and the worker
+        // is dropped with the old streamer.
         streaming.customTileHandler = nil
+        streaming.runsSelectionOffMain = false
         immersiveSpaceDidClose()
     }
 
@@ -260,6 +267,16 @@ final class MapModel {
     /// renderer outside RealityKit.
     var tilesInImmersiveSpace: simd_float4x4 {
         placementRoot.transform.matrix * root.transform.matrix * streaming.tilesRoot.transform.matrix
+    }
+
+    /// The same, for tiles placed relative to `anchor` (a snapshot from the
+    /// streaming worker, which can be a few frames behind the current anchor):
+    /// today's georeference, composed with that anchor as `applyView` does for
+    /// the current one. A nil anchor, or no framing yet, is the current one.
+    func tilesInImmersiveSpace(anchoredAt anchor: StreamingAnchor?) -> simd_float4x4 {
+        guard let anchor, let framing else { return tilesInImmersiveSpace }
+        let tilesRoot = Transform(framing.georeference.placement(of: anchor))
+        return placementRoot.transform.matrix * root.transform.matrix * tilesRoot.matrix
     }
 
     /// The volume went away (closed, or replaced by a blocking notice). It no
