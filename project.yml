@@ -83,6 +83,9 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
+        # Voice control (Sources/Voice): on-device speech recognition.
+        NSMicrophoneUsageDescription: Also Maps listens while you hold the talk button, so you can fly by voice.
+        NSSpeechRecognitionUsageDescription: Also Maps recognizes speech on this device to turn what you say into map commands.
         # Game controllers drive the map (MapInput) rather than system navigation.
         GCSupportsControllerUserInteraction: true
         GCSupportedGameControllers:
@@ -153,6 +156,8 @@ targets:
           - Config
           - Credentials
           - Places
+          - Commands
+          - Voice
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
     dependencies:
@@ -168,6 +173,9 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
+        # Voice control (Sources/Voice): on-device speech recognition.
+        NSMicrophoneUsageDescription: Also Maps listens while you hold the talk button, so you can fly by voice.
+        NSSpeechRecognitionUsageDescription: Also Maps recognizes speech on this device to turn what you say into map commands.
         LSApplicationCategoryType: public.app-category.navigation
     settings:
       groups: [CesiumBridge, AppName]
@@ -203,6 +211,12 @@ targets:
       - path: Sources/TileSource.swift
       - path: Sources/Static/StaticView.swift
       - path: Sources/Places/Place.swift
+      - path: Sources/Commands/MapCommand.swift
+      - path: Sources/Commands/CommandMotion.swift
+      - path: Sources/Voice/VoicePlan.swift
+      - path: Sources/Voice/CommandInterpreter.swift
+      - path: Sources/Voice/MapTools.swift
+      - path: Tests/Commands
       - path: Sources/Config/AppConfig.swift
       - path: Sources/Config/AppConfigStore.swift
       - path: Sources/Credentials/CredentialStore.swift
@@ -296,6 +310,8 @@ targets:
           - Config
           - Credentials
           - Places
+          - Commands
+          - Voice
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
     dependencies:
@@ -317,6 +333,9 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
+        # Voice control (Sources/Voice): on-device speech recognition.
+        NSMicrophoneUsageDescription: Also Maps listens while you hold the talk button, so you can fly by voice.
+        NSSpeechRecognitionUsageDescription: Also Maps recognizes speech on this device to turn what you say into map commands.
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

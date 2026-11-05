@@ -50,8 +50,8 @@ xcodebuild -scheme 'Also Maps Core Tests' -destination 'platform=macOS' test
 - **Pan:** look at the map, pinch and drag. Gestures are indirect only (look and pinch), so open hands over the map do nothing.
 - **Zoom:** pinch with both hands and move them apart or together. The view's half-width ranges from 50 m to 10,000 km, about a hemisphere. Below 50 km the ground is placed by sampling terrain. Above 50 km it's placed by the Earth's curve, so sea level at the view's edges meets the base plane, with no sampling. At hemisphere scale, tiles on the far side of the Earth are skipped.
 - **Turn:** pinch with both hands and twist about the vertical. The map turns around the focus point and can turn while zooming.
-- **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F descend and climb (which is zoom), `=` and `-` zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.
-- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, Y faces north, and X toggles Fly. The ornament shows these hints while a controller is connected. Keyboard and controller input combine, and the turn pivot in Settings applies to both.
+- **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F descend and climb (which is zoom), `=` and `-` zoom, and holding Shift goes three times faster. Hold Space to talk. The ornament shows these hints while a keyboard is connected.
+- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, Y faces north, and X toggles Fly. Hold RB to talk (see [Voice control](#voice-control)). The ornament shows these hints while a controller is connected. Keyboard and controller input combine, and the turn pivot in Settings applies to both.
 
 On a Mac, the map also takes the usual mouse and trackpad controls:
 
@@ -60,6 +60,12 @@ On a Mac, the map also takes the usual mouse and trackpad controls:
 - **Turn and tilt:** right-drag, or hold Option or Control and drag: sideways turns, up and down tilts. A two-finger twist on a trackpad turns, and Shift-scroll tilts.
 
 `ALSOMAPS_HEADING`, in degrees clockwise from north, sets the starting direction.
+
+## Voice control
+
+Hold the mic button, Space, or RB on a controller while you speak, or tap it to listen until you pause. Then say what you want: "go to the Eiffel Tower", "ascend 1000 feet", "turn left 45 degrees", "fly forward 2 kilometers", "face north", "go to 500 feet". Speech is recognised on device, and the Apple Intelligence model turns it into map commands, so voice control needs a device with Apple Intelligence turned on. Places are your saved places by name, or anything Apple Maps search finds. Climbs, turns and moves ease over a moment, and the controls take over at once.
+
+The voice panel, top right on the Mac and iPhone and beside the volume on visionOS, opens into a trace of each request. It shows the recognised speech, the tool calls the model made, the commands they became and what happened, with timings. You can also type a request there. See [docs/commands.md](docs/commands.md), which also covers the command format meant for external control.
 
 ## Fly
 

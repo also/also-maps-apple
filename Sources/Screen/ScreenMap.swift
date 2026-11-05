@@ -27,10 +27,16 @@ final class ScreenMap {
     /// Input from on-screen controls (iOS joysticks), merged with the
     /// keyboard and controller each frame.
     @ObservationIgnored var touchInput = MapInput()
+    /// While typing into a field over the map, keys aren't controls.
+    @ObservationIgnored var ignoresKeyboard = false
     /// Recording, drawing and playing back camera tracks, shared with
     /// visionOS. While a track plays it has the camera, and movement input
     /// is ignored; going to a place stops it.
     let tracks = TrackSession()
+    /// Voice control, driving this map through commands.
+    @ObservationIgnored private(set) lazy var voice = VoiceControl(target: self)
+    /// A commanded climb, turn or move, eased over a moment.
+    @ObservationIgnored private var motion: CommandMotion?
 
     @ObservationIgnored private var flight = ModelFlightStyle()
     @ObservationIgnored private var cameraGround = CameraGround()
@@ -85,6 +91,7 @@ final class ScreenMap {
         applyView()
         streaming.start()
         sampleGround(around: startGround.centre, radius: startGround.radius, liftsCamera: startGround.lifts)
+        voice.runFromEnvironment()
         subscription = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             MainActor.assumeIsolated {
                 self?.tick(deltaTime: Float(event.deltaTime))
@@ -112,6 +119,7 @@ final class ScreenMap {
 
     func go(to place: Place) {
         touch = TouchState()
+        motion = nil
         tracks.stopPlayback()
         tracks.markJump()
         currentPlaceID = place.id
@@ -166,6 +174,7 @@ final class ScreenMap {
         }
         applyInput(deltaTime: dt)
         applyGlide(deltaTime: dt)
+        applyMotion(deltaTime: dt)
         cameraGround.update(camera: navigation.camera, rendered: streaming.renderedHeightRanges(), deltaTime: dt)
         tracks.record(navigation.camera)
         applyView()
@@ -179,15 +188,18 @@ final class ScreenMap {
         let controller = MapInput.controller?.vendorName ?? (MapInput.controller == nil ? nil : "Controller")
         if controllerName != controller { controllerName = controller }
 
-        var input = MapInput.current()
+        var input = ignoresKeyboard ? MapInput.gamepad() : MapInput.current()
         input.merge(touchInput)
         // Buttons act once, on the frame they go down.
         for action in input.held.subtracting(heldActions) {
             perform(action)
         }
+        if heldActions.contains(.talk), !input.held.contains(.talk) { voice.release() }
         heldActions = input.held
 
         guard input.isMoving, !tracks.isPlaying else { return }
+        // Taking the controls cancels a commanded motion.
+        motion = nil
         flight.dollySurfaceHeight = cameraGround.value
         navigation = flight.step(navigation, input: input.controlInput, deltaTime: deltaTime, context: context)
     }
@@ -201,6 +213,8 @@ final class ScreenMap {
             go(to: PlaceLibrary.place(in: places, stepping: -1, from: currentPlaceID))
         case .faceNorth where !tracks.isPlaying:
             navigation = NavigationOperations.faceNorth(navigation)
+        case .talk:
+            voice.press()
         default:
             break
         }
@@ -405,6 +419,12 @@ final class ScreenMap {
         }
     }
 
+    private func applyMotion(deltaTime: Double) {
+        guard var motion, !tracks.isPlaying else { return }
+        navigation = motion.step(navigation, deltaTime: deltaTime, context: context)
+        self.motion = motion.isFinished ? nil : motion
+    }
+
     private func countFrame(_ deltaTime: Float) {
         frameCount += 1
         frameElapsed += deltaTime
@@ -414,6 +434,17 @@ final class ScreenMap {
             frameElapsed = 0
         }
     }
+}
+
+extension ScreenMap: MapCommandTarget {
+    func begin(_ motion: CommandMotion) {
+        guard !tracks.isPlaying else { return }
+        touch = TouchState()
+        self.motion = motion
+    }
+
+    var commandCamera: CameraPose { navigation.camera }
+    var commandAltitude: Double { context.altitude(of: navigation.camera, floor: Self.minimumAltitude) }
 }
 
 /// The map in a window: the scene, its attribution, and input hints and
@@ -448,7 +479,20 @@ struct ScreenMapView: View {
             AttributionBar(streaming: map.streaming, creditLineLimit: creditLineLimit)
                 .padding(8)
         }
+        .overlay(alignment: voicePanelAlignment) {
+            VoicePanel(voice: map.voice) { map.ignoresKeyboard = $0 }
+                .padding(voicePanelInsets)
+        }
     }
+
+    /// Clear of the Places menu on the Mac, and of the sticks on iPhone.
+    #if os(macOS)
+    private let voicePanelAlignment = Alignment.topTrailing
+    private let voicePanelInsets = EdgeInsets(top: 48, leading: 8, bottom: 8, trailing: 8)
+    #else
+    private let voicePanelAlignment = Alignment.topTrailing
+    private let voicePanelInsets = EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
+    #endif
 
     private var status: some View {
         let camera = map.navigation.camera

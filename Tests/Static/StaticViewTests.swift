@@ -22,7 +22,9 @@ struct StaticViewTests {
         #expect(depth > Double(view.near) && depth < Double(view.far))
         #expect(abs(simd_length(camera.direction) - 1) < 1e-12)
         #expect(abs(simd_length(camera.up) - 1) < 1e-12)
-        #expect(camera.aspect == viewport.width / viewport.height)
+        // Explicit: with FoundationModels in this module, a mixed Double ==
+        // CGFloat picks an overload that compares unequal.
+        #expect(camera.aspect == Double(viewport.width / viewport.height))
         #expect(view.inputs.anchor.coordinate == place.coordinate)
         #expect(view.settings == settings)
         #expect(view.samplesGround)

@@ -28,5 +28,9 @@
 	<false/>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.navigation</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Also Maps listens while you hold the talk button, so you can fly by voice.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Also Maps recognizes speech on this device to turn what you say into map commands.</string>
 </dict>
 </plist>

@@ -21,6 +21,10 @@ struct VolumeView: View {
         .handlesGameControllerEvents(matching: .gamepad)
         .onAppear { model.volumeIsOpen = true }
         .onDisappear { model.volumeDidClose() }
+        .ornament(attachmentAnchor: .scene(.trailingFront), contentAlignment: .leading) {
+            VoicePanel(voice: model.voice)
+                .glassBackgroundEffect()
+        }
         .ornament(attachmentAnchor: .scene(.bottomFront)) {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
