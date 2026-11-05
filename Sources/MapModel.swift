@@ -50,6 +50,7 @@ final class MapModel {
             guard presentation != oldValue else { return }
             stopPlayback()
             endManipulation()
+            cameraFlight = nil
             // In the volume each host's level map has its own pitch; the
             // assist re-targets. Immersive hosts ignore pitch.
             settlesPitch = pitchFollowsAltitude && !usesEyeLevel
@@ -262,6 +263,74 @@ final class MapModel {
         placementRoot.transform.matrix * root.transform.matrix * streaming.tilesRoot.transform.matrix
     }
 
+    // MARK: Hand controls (Metal immersive)
+
+    /// ECEF → the immersive space, and the ground the map is placed on
+    /// (metres above the ellipsoid): what a hand ray is cast against. Nil
+    /// before the first framing.
+    var immersivePlacement: (roomFromECEF: Similarity, groundHeight: Double)? {
+        guard let framing else { return nil }
+        return (roomPlacement.similarity.after(framing.georeference.similarity), effectiveEnvelope)
+    }
+
+    /// The room placement's rotation, room → map frame, for steering.
+    var mapFromRoom: simd_quatf {
+        simd_quatf(vector: SIMD4<Float>(roomPlacement.similarity.inverse.rotation.vector))
+    }
+
+    /// A camera flight in progress (CameraFlight), from a hand control.
+    private var cameraFlight: CameraFlight?
+
+    /// Flies to `target` (ECEF, on the ground at `groundHeight`): it arrives
+    /// where the map's centre point is, at the same height above the ground
+    /// and heading, so the world only slides. Any other input cancels it.
+    func fly(toGround target: SIMD3<Double>, groundHeight: Double) {
+        guard !tracks.isPlaying, let framing else { return }
+        if tilesHeld { setTilesHeld(false) }
+        endManipulation()
+        let camera = navigation.camera
+        let altitude = max(camera.height - effectiveEnvelope, AdaptiveModel.minimumRange)
+        let (coordinate, _) = Geodesy.geodetic(target)
+        var destination = EyeLevelModel.framePlace(centre: coordinate, radius: framing.shownRadius(room),
+                                                   heading: camera.heading, room: room, groundHeight: groundHeight)
+        // The same height above the new ground as now above the old.
+        destination.height = context.clampHeight(groundHeight + altitude)
+        cameraFlight = CameraFlight(from: camera, to: destination, altitude: altitude)
+        // The ground there, from the hand's sample; a fresh 3×3 sample
+        // replaces it on arrival.
+        rayHeight.aim(at: groundHeight)
+        envelopeHeight.aim(at: groundHeight)
+        placeAwaitsGround = false
+    }
+
+    private func advanceCameraFlight(deltaTime: Double) {
+        guard var flight = cameraFlight else { return }
+        var state = navigation
+        state.camera = flight.advance(by: deltaTime)
+        if state.headingLink == .linked { state.movementHeading = state.camera.heading }
+        navigation = state
+        cameraFlight = flight.isFinished ? nil : flight
+        if flight.isFinished { requestGroundSample() }
+    }
+
+    /// Steers from a hand control, as a controller would for one frame.
+    func steerByHand(_ input: ControlInput, deltaTime: Double) {
+        guard !tracks.isPlaying, streaming.isStreaming else { return }
+        cameraFlight = nil
+        handSteers = true
+        steer(with: input, deltaTime: deltaTime)
+    }
+
+    private var handSteers = false
+
+    /// The hand stopped steering: re-sample the ground, as when a stick
+    /// is released.
+    func endHandSteering() {
+        guard handSteers else { return }
+        handSteers = false
+        requestGroundSample()
+    }
+
     /// The volume went away (closed, or replaced by a blocking notice). It no
     /// longer drives streaming; opening it attaches again.
     func volumeDidClose() {
@@ -350,6 +419,7 @@ final class MapModel {
         if tilesHeld { setTilesHeld(false) }
         stopPlayback()
         endManipulation()
+        cameraFlight = nil
         // Framed level for this host already.
         settlesPitch = false
         placeAwaitsGround = true
@@ -413,6 +483,7 @@ final class MapModel {
     private func beginOrContinue(_ kind: GestureKind, at start: SIMD3<Float>) -> Bool {
         // The played track has the camera; gestures are ignored.
         guard !tracks.isPlaying else { return false }
+        cameraFlight = nil
         if let existing = manipulation?.starts[kind], existing != start { endManipulation() }
         if manipulation == nil {
             guard let framing else { return false }
@@ -493,6 +564,8 @@ final class MapModel {
         applyInput(deltaTime: dt)
         if tracks.isPlaying {
             advancePlayback(deltaTime: dt)
+        } else if cameraFlight != nil {
+            advanceCameraFlight(deltaTime: dt)
         } else if settlesPitch, manipulation == nil {
             // Until the pitch reaches the new host's target: a new scene's
             // first frames can have almost no time step, so a small step
@@ -548,6 +621,7 @@ final class MapModel {
             return
         }
         wasMoving = true
+        cameraFlight = nil
         steer(with: ControlInput(move: input.move, turn: input.turn, climb: input.altitude,
                                  dolly: input.zoom, fast: input.fast),
               deltaTime: deltaTime)
@@ -858,6 +932,7 @@ final class MapModel {
         guard let first = tracks.startPlayback() else { return }
         if tilesHeld { setTilesHeld(false) }
         endManipulation()
+        cameraFlight = nil
         // Nothing but the track moves the camera: no pitch easing, and no
         // ground sample lifting a place's framing.
         settlesPitch = false
@@ -912,6 +987,7 @@ final class MapModel {
         if tilesHeld { setTilesHeld(false) }
         stopPlayback()
         endManipulation()
+        cameraFlight = nil
         settings = state.settings
         groundSampleGeneration += 1  // Drop any sample in flight.
         placeAwaitsGround = false
