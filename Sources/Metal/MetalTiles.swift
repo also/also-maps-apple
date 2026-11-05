@@ -173,14 +173,6 @@ final class MetalTileRenderer: @unchecked Sendable {
 
     // MARK: Drawing
 
-    /// Must match TileUniforms in `shaderSource`.
-    private struct Uniforms {
-        var modelViewProjection: simd_float4x4
-        var model: simd_float4x4
-        var baseColor: SIMD4<Float>
-        var flags: UInt32
-    }
-
     private func pipeline(colour: MTLPixelFormat, depth: MTLPixelFormat,
                           skyDepth: Bool = false) -> MTLRenderPipelineState? {
         let key = SIMD3(colour.rawValue, depth.rawValue, skyDepth ? 1 : 0)
@@ -210,9 +202,11 @@ final class MetalTileRenderer: @unchecked Sendable {
 
     /// Draws `tiles` (each placed in the anchor's frame) after `root` (anchor
     /// frame → scene) and `viewProjection` (scene → clip, reverse Z).
+    /// `frame` is bound once for the call; its defaults leave the look unchanged.
     @discardableResult
     func encode(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
                 viewProjection: simd_float4x4, root: simd_float4x4,
+                frame: MetalFrameState = MetalFrameState(),
                 tiles: [(tile: CNTileMesh, placement: simd_float4x4)]) -> MetalDrawStatistics {
         let signposter = Signposts.frame
         let interval = signposter.beginInterval("MetalEncode", id: signposter.makeSignpostID())
@@ -222,6 +216,14 @@ final class MetalTileRenderer: @unchecked Sendable {
         encoder.setRenderPipelineState(pipeline)
         encoder.setDepthStencilState(depthState)
         encoder.setCullMode(.none)
+        var frameUniforms = MetalFrameUniforms(
+            viewProjection: viewProjection,
+            cameraPositionAndTime: SIMD4(frame.cameraPosition, frame.time),
+            sunDirection: SIMD4(frame.sunDirection, 0),
+            sunColour: SIMD4(frame.sunColour, 0),
+            exposure: frame.exposure, toneCurve: frame.toneCurve.rawValue)
+        encoder.setVertexBytes(&frameUniforms, length: MemoryLayout<MetalFrameUniforms>.stride, index: 4)
+        encoder.setFragmentBytes(&frameUniforms, length: MemoryLayout<MetalFrameUniforms>.stride, index: 1)
         let rootViewProjection = viewProjection * root
         for (tile, placement) in tiles {
             guard let gpu = tile.renderObject as? Tile else { continue }
@@ -246,13 +248,13 @@ final class MetalTileRenderer: @unchecked Sendable {
                 var flags: UInt32 = 0
                 if part.texcoords != nil, part.texture != nil { flags |= 1 }
                 if part.normals != nil { flags |= 2 }
-                var uniforms = Uniforms(modelViewProjection: modelViewProjection, model: model,
+                var uniforms = MetalTileUniforms(modelViewProjection: modelViewProjection, model: model,
                                         baseColor: part.baseColor, flags: flags)
                 encoder.setVertexBuffer(part.positions, offset: 0, index: 0)
                 encoder.setVertexBuffer(part.texcoords ?? part.positions, offset: 0, index: 1)
                 encoder.setVertexBuffer(part.normals ?? part.positions, offset: 0, index: 2)
-                encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 3)
-                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+                encoder.setVertexBytes(&uniforms, length: MemoryLayout<MetalTileUniforms>.stride, index: 3)
+                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MetalTileUniforms>.stride, index: 0)
                 encoder.setFragmentTexture(part.texture, index: 0)
                 encoder.setFragmentSamplerState(part.sampler, index: 0)
                 encoder.drawIndexedPrimitives(type: .triangle, indexCount: part.indexCount, indexType: .uint32,
@@ -285,13 +287,37 @@ final class MetalTileRenderer: @unchecked Sendable {
 #include <metal_stdlib>
 using namespace metal;
 
-// Must match MetalTileRenderer.Uniforms.
+// Must match MetalFrameUniforms (bound once per encode call).
+struct FrameUniforms {
+    float4x4 viewProjection;
+    float4 cameraPositionAndTime;
+    float4 sunDirection;
+    float4 sunColour;
+    float exposure;
+    uint toneCurve;
+    uint2 padding;
+};
+
+// Must match MetalTileUniforms (bound per part).
 struct TileUniforms {
     float4x4 modelViewProjection;
     float4x4 model;
     float4 baseColor;
     uint flags;
+    uint padding0;
+    uint padding1;
+    uint padding2;
 };
+
+static_assert(sizeof(FrameUniforms) == 128, "FrameUniforms layout");
+static_assert(sizeof(TileUniforms) == 160, "TileUniforms layout");
+
+constant uint kToneFilmic = 1;
+
+/// Narkowicz's fit of the ACES filmic curve.
+float3 filmic(float3 x) {
+    return saturate((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14));
+}
 
 constant uint kTextured = 1;
 constant uint kLit = 2;
@@ -322,14 +348,20 @@ vertex TileVertexOut tileVertex(uint vid [[vertex_id]],
 fragment float4 tileFragment(TileVertexOut in [[stage_in]],
                              texture2d<float> texture [[texture(0)]],
                              sampler textureSampler [[sampler(0)]],
-                             constant TileUniforms &uniforms [[buffer(0)]]) {
+                             constant TileUniforms &uniforms [[buffer(0)]],
+                             constant FrameUniforms &frame [[buffer(1)]]) {
     float4 colour = uniforms.baseColor;
     if (uniforms.flags & kTextured) {
         colour *= texture.sample(textureSampler, in.uv);
     }
     if (uniforms.flags & kLit) {
-        float light = max(dot(normalize(in.normal), normalize(float3(0.3, 1, 0.2))), 0.0);
+        float light = max(dot(normalize(in.normal), normalize(frame.sunDirection.xyz)), 0.0);
         colour.rgb *= 0.55 + 0.45 * light;
+    }
+    // Both are identity at the defaults (exposure 1, curve 0).
+    colour.rgb *= frame.exposure;
+    if (frame.toneCurve == kToneFilmic) {
+        colour.rgb = filmic(colour.rgb);
     }
     return colour;
 }
