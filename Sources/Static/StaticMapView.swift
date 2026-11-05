@@ -144,13 +144,18 @@ struct StaticMapView: View {
 
 /// Google's terms require the Google Maps logo and the data attribution for
 /// the tiles on screen to be visible alongside them. The logo is Google's
-/// white variant, so it sits on a dark backing.
+/// white variant, so it sits on a dark backing. In recording mode,
+/// `ViewPreferences.promotionalLine` goes under the credits.
 struct AttributionBar: View {
     let streaming: TileStreaming
     var creditLineLimit: Int? = 1
 
+    @AppStorage(ViewPreferences.recordingModeKey) private var recordingMode = false
+    /// An em of the caption text.
+    @ScaledMetric(relativeTo: .caption) private var em: CGFloat = 12
+
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: em / 2) {
             if let message = streaming.statusMessage {
                 Text(message).font(.callout)
             }
@@ -163,10 +168,21 @@ struct AttributionBar: View {
                     .font(.caption)
                     .lineLimit(creditLineLimit)
             }
+            if recordingMode {
+                // One line, so the address never breaks.
+                Text(ViewPreferences.promotionalLine)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.black.opacity(0.6), in: .capsule)
+        // An em above and below and two at the sides. The corners keep one
+        // radius, half the height of one line (the 18 pt logo) and its
+        // padding, so a single line is a capsule and several lines (credits
+        // wrap on iPhone) don't curve in over the text.
+        .padding(.vertical, em)
+        .padding(.horizontal, 2 * em)
+        .background(.black.opacity(0.6), in: .rect(cornerRadius: 9 + em))
     }
 }

@@ -84,6 +84,23 @@ enum ViewPreferences {
     /// UserDefaults key: draw tiles with the app's Metal renderer instead of
     /// RealityKit (the map window on a screen, the immersive mode on visionOS).
     static let drawsWithMetalKey = "DrawsWithMetal"
+    /// UserDefaults key: recording mode, for screen recordings that promote
+    /// the app. Every attribution adds `promotionalLine`, and the RealityKit
+    /// immersive mode keeps the logo and credits in front of you instead of
+    /// at the map's near edge, so every frame shows them.
+    static let recordingModeKey = "RecordingMode"
+
+    /// Google's terms allow videos of the map only to promote the app, and
+    /// ask that they say so. Recording mode shows this with the attribution.
+    static let promotionalLine = [
+        "for promotional purposes only",
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String,
+        siteURL.absoluteString,
+    ].compactMap(\.self).joined(separator: " · ")
+
+    /// The app's website, named in `promotionalLine`.
+    static let siteURL = URL(string: "https://maps.also.dev/")!
 
     /// The setting, or ALSOMAPS_METAL=1, which turns it on for a run.
     static var drawsWithMetal: Bool {

@@ -127,11 +127,11 @@ Whoever owns the Google Maps Platform key a build uses must follow the [Google M
 - **Terms notice**: the app's terms must say it includes Google Maps features and content. They must also say that use is subject to the [Google Maps/Google Earth Additional Terms of Service](https://maps.google.com/help/terms_maps/) and the [Google Privacy Policy](https://policies.google.com/privacy) (§3.2.2(a)). For this app, that's the [Terms of Use](https://maps.also.dev/terms/), linked from General in Settings. If you distribute your own build, point `SettingsView.termsURL` at your own terms.
 - **Attribution**: keep the Google Maps logo and the tile attributions visible.
 - **No storing or exporting** tile content, or data derived from it such as surface heights, beyond what the HTTP cache headers allow.
-- **Videos**: only promotional videos about the app, 30 seconds or less, marked "for promotional purposes only", with the attribution showing.
+- **Videos**: only promotional videos about the app, 30 seconds or less, marked "for promotional purposes only", with the attribution showing. Record them in **Recording mode** (Settings › Advanced), which adds that marking to the attribution.
 
 ## Views
 
-The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's centre point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
+The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's centre point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge (or, in **Recording mode**, its logo and credits stay in front of you). If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
 
 `ALSOMAPS_PRESENTATION=immersive` (or `volume`) starts in that mode. Saved view states from the earlier 3×, 5× and 10× modes restore into Immersive.
 
@@ -156,7 +156,8 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 
 **Advanced**
 - **Parallel uploads, Simultaneous loads, Cache, Forbid holes**: trade-offs between fill speed, memory and gaps while refining. Forbid holes is on by default: a tile counts as loaded only once it's drawable, so parents stay until all their children can replace them.
-- **Reset to Defaults** returns everything but Show stats and keys to the hand-tuned baseline in `StreamingSettings.default`.
+- **Recording mode**, for screen recordings that promote the app: wherever the attribution shows, a line under it marks the video as promotional, as Google's terms require. It reads "for promotional purposes only · Also Maps · https://maps.also.dev/", with the app's name from `CFBundleDisplayName` and its site from `ViewPreferences.siteURL`. In Immersive on visionOS (not with Draw with Metal), the Google Maps logo and credits are also anchored to your head, 1 m ahead and about 11° below straight ahead, instead of at the map's near edge, by your feet, which is out of frame whenever you look out across the map. Loading progress and stats stay at the near edge.
+- **Reset to Defaults** returns everything but Show stats, Recording mode and keys to the hand-tuned baseline in `StreamingSettings.default`.
 
 `ALSOMAPS_OPEN_SETTINGS=1` opens the window at launch on visionOS.
 

@@ -265,48 +265,111 @@ extension View {
 /// white variant (for dark backgrounds, like this glass), unaltered at its
 /// native size.
 struct AttributionView: View {
+    /// Leaves out the logo and credits, for when they're shown elsewhere
+    /// (ImmersiveMapView's panel that stays in view).
+    var showsCredits = true
+
+    /// Between lines, and in AttributionCredits.
+    static let lineSpacing: CGFloat = 8
+
     @Environment(MapModel.self) private var model
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
 
     /// The attribution, how loading is going, why nothing loads (a missing
     /// or refused key), and the stats if Settings shows them. No hints.
+    /// Without the credits it can be empty, and then shows nothing.
     var body: some View {
-        VStack(spacing: 4) {
-            if let message = model.streaming.statusMessage {
-                Text(message).font(.callout)
-            } else if model.streaming.loadProgress < 100 {
-                ProgressView(value: Double(model.streaming.loadProgress), total: 100)
-                    .frame(width: 200)
-            }
-            if showsStats {
-                let stats = model.streaming.stats
-                VStack(spacing: 2) {
-                    Text("\(stats.renderedTiles) tiles · \(stats.entities) entities · \(Int(model.streaming.loadProgress))%")
-                    Text(stats.requestsSummary)
-                }
-                .font(.caption.monospacedDigit())
-            }
-            HStack(spacing: 8) {
-                if model.streaming.showsGoogleLogo {
-                    Image("GoogleMapsLogo")
-                        .accessibilityLabel("Google Maps")
-                }
-                // Providers' own logos (e.g. Cesium ion) come in their credits.
-                ForEach(model.streaming.credits.compactMap(\.imageURL), id: \.self) { url in
-                    AsyncImage(url: url) { image in
-                        image.resizable().scaledToFit()
-                    } placeholder: {
-                        Color.clear
-                    }
-                    .frame(height: 18)
-                }
-                Text(model.streaming.credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(.caption)
-                    .lineLimit(1)
+        Group(subviews: lines) { lines in
+            if !lines.isEmpty {
+                VStack(spacing: Self.lineSpacing) { lines }
+                    .attributionPanel()
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .glassBackgroundEffect()
+    }
+
+    @ViewBuilder private var lines: some View {
+        if let message = model.streaming.statusMessage {
+            Text(message).font(.callout)
+        } else if model.streaming.loadProgress < 100 {
+            ProgressView(value: Double(model.streaming.loadProgress), total: 100)
+                .frame(width: 200)
+        }
+        if showsStats {
+            let stats = model.streaming.stats
+            VStack(spacing: 2) {
+                Text("\(stats.renderedTiles) tiles · \(stats.entities) entities · \(Int(model.streaming.loadProgress))%")
+                Text(stats.requestsSummary)
+            }
+            .font(.caption.monospacedDigit())
+        }
+        if showsCredits {
+            AttributionCredits()
+        }
+    }
+}
+
+/// The Google Maps logo when the tiles are Google's, other providers' logos,
+/// and the credits for the tiles on screen, in one line. In recording mode,
+/// `ViewPreferences.promotionalLine` under them.
+struct AttributionCredits: View {
+    @Environment(MapModel.self) private var model
+    @AppStorage(ViewPreferences.recordingModeKey) private var recordingMode = false
+
+    var body: some View {
+        VStack(spacing: AttributionView.lineSpacing) {
+            credits
+            if recordingMode {
+                // One line, so the address never breaks.
+                Text(ViewPreferences.promotionalLine)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+    }
+
+    private var credits: some View {
+        HStack(spacing: 8) {
+            if model.streaming.showsGoogleLogo {
+                Image("GoogleMapsLogo")
+                    .accessibilityLabel("Google Maps")
+            }
+            // Providers' own logos (e.g. Cesium ion) come in their credits.
+            ForEach(model.streaming.credits.compactMap(\.imageURL), id: \.self) { url in
+                AsyncImage(url: url) { image in
+                    image.resizable().scaledToFit()
+                } placeholder: {
+                    Color.clear
+                }
+                .frame(height: 18)
+            }
+            Text(model.streaming.credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(.caption)
+                .lineLimit(1)
+        }
+    }
+}
+
+extension View {
+    /// The glass panel the attribution sits in.
+    func attributionPanel() -> some View {
+        modifier(AttributionPanel())
+    }
+}
+
+/// Room around the attribution's lines: an em above and below and two at the
+/// sides. The corners keep one radius as the panel grows, so a panel of
+/// several lines doesn't curve in over its text the way a capsule would.
+private struct AttributionPanel: ViewModifier {
+    /// An em of the caption text the panel holds.
+    @ScaledMetric(relativeTo: .caption) private var em: CGFloat = 12
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.vertical, em)
+            .padding(.horizontal, 2 * em)
+            // Half the height of one line (the 18 pt logo) and its padding,
+            // so a single line is still a capsule.
+            .glassBackgroundEffect(in: .rect(cornerRadius: 9 + em))
     }
 }
