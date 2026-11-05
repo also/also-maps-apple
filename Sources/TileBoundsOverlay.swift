@@ -100,8 +100,10 @@ final class TileBoundsOverlay {
         return (try? MeshResource.generate(from: [descriptor])) ?? .generateBox(size: 1)
     }
 
-    /// Stretches a unit bar from `a` to `b`, `width` its half-width.
-    private static func place(_ bar: ModelEntity, _ a: SIMD3<Float>, _ b: SIMD3<Float>, _ width: Float) {
+    /// Stretches a unit bar (a 1 m box) from `a` to `b`, `width` its
+    /// half-width; hides it if there's nothing to draw. Shared with
+    /// WorldMiniature's markers.
+    static func place(_ bar: ModelEntity, _ a: SIMD3<Float>, _ b: SIMD3<Float>, _ width: Float) {
         let along = b - a
         let length = simd_length(along)
         guard length > 1e-6, length.isFinite, width.isFinite else {
