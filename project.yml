@@ -165,6 +165,7 @@ targets:
           - TileStreaming.swift
           - TileUploader.swift
           - GuestPlace.swift
+          - GuestMenu.swift
           - DebugLines.swift
           - Config
           - Credentials
@@ -312,6 +313,7 @@ targets:
           - TileStreaming.swift
           - TileUploader.swift
           - GuestPlace.swift
+          - GuestMenu.swift
           - DebugLines.swift
           - Config
           - Credentials

@@ -11,7 +11,7 @@ import UIKit
 /// docs/camera-core.md.
 @MainActor
 @Observable
-final class MapModel {
+final class MapModel: GuestHost {
     /// Volume extents in metres (width, height, depth).
     nonisolated static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
 
@@ -37,6 +37,7 @@ final class MapModel {
             // A new source drops every tile, held or not.
             if settings.tileSource != oldValue.tileSource, tilesHeld { setTilesHeld(false) }
             streaming.settings = settings
+            guest?.streaming.settings = settings
             layOutGestureTarget()
             requestGroundSample()
             applyView()
@@ -234,12 +235,14 @@ final class MapModel {
     /// closes. Streaming restarts each way; tiles come back from the cache.
     func metalImmersiveDidOpen(_ metal: MetalTileRenderer) {
         streaming.customTileHandler = metal.handler
+        guest?.streaming.customTileHandler = metal.handler
         metalImmersiveIsOpen = true
     }
 
     func metalImmersiveDidClose() {
         metalImmersiveIsOpen = false
         streaming.customTileHandler = nil
+        guest?.streaming.customTileHandler = nil
         immersiveSpaceDidClose()
     }
 
@@ -260,6 +263,12 @@ final class MapModel {
     /// renderer outside RealityKit.
     var tilesInImmersiveSpace: simd_float4x4 {
         placementRoot.transform.matrix * root.transform.matrix * streaming.tilesRoot.transform.matrix
+    }
+
+    /// The same for the guest place's tiles, while one is shown.
+    var guestTilesInImmersiveSpace: simd_float4x4? {
+        guard let guest, guest.isShown else { return nil }
+        return placementRoot.transform.matrix * root.transform.matrix * guest.streaming.tilesRoot.transform.matrix
     }
 
     /// The volume went away (closed, or replaced by a blocking notice). It no
@@ -321,6 +330,12 @@ final class MapModel {
         if let id = env["ALSOMAPS_PLACE"], let place = PlaceLibrary.all.first(where: { $0.id == id }) {
             go(to: place)
         }
+        // A guest set before streaming started starts with it; then
+        // ALSOMAPS_GUEST_PLACE (and _MODE, _HEADING, _RADIUS) shows one.
+        guest?.start()
+        if let request = GuestPlace.environmentRequest() {
+            showGuest(request.place, mode: request.mode, heading: request.heading, radius: request.radius)
+        }
     }
 
     // MARK: Places
@@ -362,6 +377,8 @@ final class MapModel {
         camera.height = context.clampHeight(camera.height)
         navigation = flight.activate(NavigationState(camera: camera))
         tracks.markJump()
+        // The guest comes along, beside or over the new place.
+        guest?.rehost(centre: place.coordinate, radius: place.radius)
         applyView()
         requestGroundSample()
     }
@@ -513,6 +530,7 @@ final class MapModel {
                                   worldRadius: TrackOverlay.roomRadius / framing.georeference.scale)
         }
         streaming.update(deltaTime: deltaTime)
+        guest?.update(deltaTime: deltaTime, host: streaming, held: tilesHeld)
         tileBoundsOverlay.update(inputs: streaming.inputs, scale: streaming.tilesRoot.transform.scale.x,
                                  thickness: 0.0006 * Float(presentation.magnification))
     }
@@ -794,6 +812,7 @@ final class MapModel {
         }
         let georeference = framing.georeference
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
+        guest?.apply(georeference: georeference, hostInputs: streaming.inputs, held: tilesHeld)
 
         // The slab lies on the ground at the placement point, level with the
         // ground there as shown.
@@ -826,6 +845,55 @@ final class MapModel {
                                lod: AdaptiveModel.lodCamera(framing: framing, eye: room.designEye, anchor: anchor),
                                regionHeading: area.heading,
                                streamingRadius: area.radius)
+    }
+
+    // MARK: Guest place
+
+    /// A second place shown beside or over the map (Settings › Two places),
+    /// or nil. See GuestPlace.
+    private(set) var guest: GuestPlace?
+
+    /// Shows `place` as the guest, replacing any other, around the view's
+    /// centre now. Leaves Fly, like going to a place: held tiles would give
+    /// the new guest nothing to hold.
+    func showGuest(_ place: Place, mode: GuestMode, heading: Double = 0, radius: Double? = nil) {
+        if tilesHeld { setTilesHeld(false) }
+        hideGuest()
+        let host = guestHostArea()
+        let guest = GuestPlace(place: place, mode: mode, heading: heading, radius: radius,
+                               hostCentre: host.centre, hostRadius: host.radius, settings: settings,
+                               customTileHandler: streaming.customTileHandler)
+        root.addChild(guest.streaming.tilesRoot)
+        self.guest = guest
+        if started { guest.start() }
+        applyView()
+    }
+
+    func hideGuest() {
+        guest?.streaming.tilesRoot.removeFromParent()
+        guest = nil
+    }
+
+    func setGuestMode(_ mode: GuestMode) {
+        guest?.setMode(mode)
+        applyView()
+    }
+
+    func turnGuest(by angle: Double) {
+        guest?.turn(by: angle)
+        applyView()
+    }
+
+    /// The host's side of a guest's placement: the view's centre and how
+    /// much of the world it shows, or the camera's position before there's
+    /// a framing.
+    private func guestHostArea() -> (centre: GeoCoordinate, radius: Double) {
+        guard let framing else {
+            // No key yet, say: the place gone to, if any.
+            let place = PlaceLibrary.all.first { $0.id == currentPlaceID }
+            return (place?.coordinate ?? navigation.camera.coordinate, place?.radius ?? 500)
+        }
+        return (Geodesy.geodetic(framing.georeferencePoint).coordinate, framing.shownRadius(room))
     }
 
     // MARK: Tracks

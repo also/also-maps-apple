@@ -11,11 +11,16 @@ struct VolumeView: View {
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(ViewPreferences.guestPlacesKey) private var guestPlacesSetting = false
+
+    /// Settings › Two places, or ALSOMAPS_GUEST_PLACE for a run.
+    private var offersGuestPlaces: Bool { guestPlacesSetting || ViewPreferences.offersGuestPlaces }
 
     var body: some View {
         RealityView { content in
             model.attach(content, host: .volume)
         }
+        .hidesGuestWhenSwitchedOff(model)
         .mapGestures(model)
         // visionOS turns controller input into look-and-pinch events by
         // default; route it to the Game Controller framework for MapInput.
@@ -86,6 +91,10 @@ struct VolumeView: View {
                 }
                 .labelStyle(.iconOnly)
                 .help("Go to a place")
+                if offersGuestPlaces {
+                    GuestMenu(host: model)
+                        .labelStyle(.iconOnly)
+                }
                 Button("Settings", systemImage: "gearshape") {
                     openWindow(id: SettingsView.windowID)
                 }
@@ -268,6 +277,12 @@ struct AttributionView: View {
     @Environment(MapModel.self) private var model
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
 
+    /// The map's credits and, with a guest place, its credits too: both are
+    /// on screen.
+    private var credits: [TileStreaming.Credit] {
+        TileStreaming.Credit.merged([model.streaming] + (model.guest.map { [$0.streaming] } ?? []))
+    }
+
     /// The attribution, how loading is going, why nothing loads (a missing
     /// or refused key), and the stats if Settings shows them. No hints.
     var body: some View {
@@ -283,6 +298,10 @@ struct AttributionView: View {
                 VStack(spacing: 2) {
                     Text("\(stats.renderedTiles) tiles · \(stats.entities) entities · \(Int(model.streaming.loadProgress))%")
                     Text(stats.requestsSummary)
+                    if let guest = model.guest {
+                        let guestStats = guest.streaming.stats
+                        Text("Guest \(guest.place.name): \(guestStats.renderedTiles) tiles · \(Int(guest.streaming.loadProgress))% · \(guestStats.requestsSummary)")
+                    }
                 }
                 .font(.caption.monospacedDigit())
             }
@@ -292,7 +311,7 @@ struct AttributionView: View {
                         .accessibilityLabel("Google Maps")
                 }
                 // Providers' own logos (e.g. Cesium ion) come in their credits.
-                ForEach(model.streaming.credits.compactMap(\.imageURL), id: \.self) { url in
+                ForEach(credits.compactMap(\.imageURL), id: \.self) { url in
                     AsyncImage(url: url) { image in
                         image.resizable().scaledToFit()
                     } placeholder: {
@@ -300,7 +319,7 @@ struct AttributionView: View {
                     }
                     .frame(height: 18)
                 }
-                Text(model.streaming.credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
+                Text(credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption)
                     .lineLimit(1)
             }
