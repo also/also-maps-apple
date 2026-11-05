@@ -38,6 +38,25 @@ render pass. Unsupported configurations keep the unfoveated dedicated or
 shared layout. Stereo still uses a separate draw loop per eye; vertex
 amplification would be a later change.
 
+### Fades and fog
+
+`MetalTileFades` (one per host) tracks how far each drawn tile has faded in,
+and keeps tiles streaming stopped drawing for the fade, re-placed each frame
+as the anchor frame moves. Fading tiles are drawn last with a pipeline that
+discards a fixed screen-space dither pattern: an incoming tile draws where
+the pattern is under its visibility, an outgoing one the complement. A parent
+replaced by its children in one frame therefore cross-fades with no pixel
+drawn twice: no blending, sorting or z-fighting, and the same in each eye.
+Settled tiles use a pipeline without discard. A tile that replaced others
+leaves fully shown even if it was still fading in, so chained refinement
+during fast motion doesn't show the sky. Textures are built with geometry in
+the load handler, so nothing arrives untextured and needs a separate fade.
+
+Fog is computed in the anchor frame, so it's the same in a window and
+immersive: haze grows with distance over the camera's horizon distance (at
+least 20 km, at most the streamed area's half-width), and the last quarter
+to the area's square edge fades fully to the sky colour.
+
 ## Measuring
 
 Environment variables:
@@ -48,6 +67,10 @@ Environment variables:
 - `ALSOMAPS_METAL_CULLING=0`: turn culling off, for a baseline. On by default.
 - `ALSOMAPS_METAL_FOVEATION=0`: turn visionOS foveation off, for a baseline.
   On by default where the dedicated layout supports it.
+- `ALSOMAPS_METAL_FADE=0`: turn tile fades off, for comparison.
+  `ALSOMAPS_METAL_FADE=<seconds>` sets the duration (0.35 s by default); a
+  long one, such as 2, makes the fades easy to see in screenshots.
+- `ALSOMAPS_METAL_FOG=0`: turn the distance haze and edge fade off.
 
 The log reports submitted out of considered tiles, draws and triangles,
 summed over the interval. "Considered" is what would be submitted with
@@ -73,6 +96,46 @@ quality, both eyes and compositor depth. The simulator can't show foveation
 quality.
 
 ## Log
+
+### 2026-11-04: tile fades, cross-fades and fog
+
+- **Observed (code):** the study of Google's Maps JS 3D map
+  (`google-maps-js-study`, §5) lists the techniques that apply here:
+  - Unpopping: Google cross-fades an old tile's texture into its
+    replacement, disabled above a camera speed. Applied, as a dithered
+    dissolve; no speed limit yet.
+  - Per-octant masking of parents, drawing a parent only where its children
+    aren't ready. Not available: glTF tiles aren't split by octant, and
+    forbid-holes already keeps the parent until all children load.
+  - Skirts on water tiles hide cracks between levels. Not applied.
+  - Draped overlays, terrain exaggeration, altitude compensation: not visual
+    LOD smoothing; not applied.
+- **Observed (code):** what streaming reports per frame is enough: tile
+  identity (`identifier`) and placement, so appearing and leaving tiles are
+  a diff of consecutive `drawnTiles`. No parent/child links, so replacement
+  is inferred from tiles appearing as others leave. Retaining a leaving
+  `CNTileMesh` keeps its Metal resources alive after cesium-native frees it.
+  No change to streaming was needed.
+- **Observed (Mac, Debug, warm cache, default San Francisco view):** with a
+  2 s fade, the map dissolves in from the sky at launch, and climbing or
+  descending with the keyboard cross-fades levels with no sky showing
+  through; between water tiles of two levels it reads as a soft blend. A
+  first version let a tile replaced mid-fade-in leave at its partial
+  visibility; descending fast then showed the sky through the foreground
+  (parent, child and grandchild patterns didn't cover every pixel). Fixed as
+  described under "Fades and fog". Judged from screenshots; not timed, and
+  not compared with fades off while moving.
+- **Observed (Mac):** fog scaled to the streamed area was invisible there:
+  the screen map's area of interest reached 300 km (horizon plus mountain
+  reach) with the camera at 870 m. Scaled to the camera's horizon distance
+  instead, the far hills and East Bay haze toward the sky while the city
+  stays clear.
+- **Not tested:** Vision Pro or the visionOS simulator (built only), the
+  immersive edge fade (the streamed area is smaller there, so the edge is
+  more likely seen), stereo, foveated texture patterns, and the GPU cost of
+  the discard pipeline while many tiles fade.
+- **Inferred:** with `MetalDrawLog` on, fading-out tiles count as tiles
+  considered and submitted, so counts rise briefly while refining.
 
 ### 2026-11-04: eye height is measured twice
 

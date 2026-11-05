@@ -54,6 +54,7 @@ struct MetalMapView {
         private let renderer: MetalTileRenderer
         private let queue: MTLCommandQueue?
         private var drawLog = MetalDrawLog()
+        private let fades = MetalTileFades()
 
         init(map: ScreenMap, renderer: MetalTileRenderer) {
             self.map = map
@@ -76,10 +77,13 @@ struct MetalMapView {
                 let projection = MetalProjection.perspective(
                     tangents: [halfHeight * aspect, halfHeight * aspect, halfHeight, halfHeight],
                     near: Float(near), far: Float(far))
+                let tiles = map.streaming.drawnTiles
+                fades.update(drawn: tiles, now: CACurrentMediaTime())
                 let statistics = renderer.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
                                 viewProjection: projection * map.cameraMatrix.inverse,
                                 root: map.streaming.tilesRoot.transform.matrix,
-                                tiles: map.streaming.drawnTiles)
+                                tiles: tiles, fades: fades,
+                                region: MetalTileRenderer.Region(map.streaming.inputs))
                 encoder.endEncoding()
                 commands.present(drawable)
                 commands.commit()

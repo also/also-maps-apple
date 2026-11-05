@@ -59,6 +59,7 @@ final class MetalImmersiveRenderer {
     private let queue: MTLCommandQueue?
     private var measuredEye = false
     private var drawLog = MetalDrawLog()
+    private let fades = MetalTileFades()
     private var log = (frames: 0, anchored: 0, lastPrint: Date())
 
     init(model: MapModel, layerRenderer: LayerRenderer, metal: MetalTileRenderer) {
@@ -159,6 +160,9 @@ final class MetalImmersiveRenderer {
         guard let commands = queue?.makeCommandBuffer() else { return }
         let root = model.tilesInImmersiveSpace
         let tiles = model.streaming.drawnTiles
+        // Once per presentation: a second drawable at the same time is a no-op.
+        fades.update(drawn: tiles, now: time)
+        let region = MetalTileRenderer.Region(model.streaming.inputs)
         var statistics = MetalDrawStatistics()
         // Views sharing a texture (the shared layout) are drawn in one pass,
         // cleared once, each in its own viewport.
@@ -189,7 +193,7 @@ final class MetalImmersiveRenderer {
                 statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
                              viewProjection: drawable.computeProjection(viewIndex: index)
                                  * (originFromDevice * view.transform).inverse,
-                             root: root, tiles: tiles))
+                             root: root, tiles: tiles, fades: fades, region: region))
                 // Sky left at the far plane would be dropped as clipped.
                 metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat)
             }
