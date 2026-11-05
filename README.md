@@ -185,13 +185,17 @@ Where things land when unsandboxed:
 
 Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](docs/profiling.md). Tile caching, the request counters in the Tuning stats, and how to measure them are in [docs/tile-caching.md](docs/tile-caching.md).
 
-## Draped traces (prototype)
+## Draped traces and photo locations (prototype)
 
-The **Traces** menu on visionOS, macOS and iOS opens a GeoJSON file and drapes its lines over the tiles as texture, so they follow the surface and need no heights. The camera goes to them, and they come back next launch until you remove them. `ALSOMAPS_TRACES=<path>` opens a file as if picked, without moving the camera; on a simulator, the file has to be somewhere the app can read, such as its `Documents`.
+The **Overlays** menu on visionOS, macOS and iOS opens a GeoJSON file and drapes its lines over the tiles as texture, so they follow the surface and need no heights. The camera goes to them, and they come back next launch until you remove them. `ALSOMAPS_TRACES=<path>` opens a file as if picked, without moving the camera; on a simulator, the file has to be somewhere the app can read, such as its `Documents`.
 
 cesium-native rasterizes a texture for each tile (`GeoJsonDocumentRasterOverlay`), and `Sources/TraceDrape.swift` swaps tiles with something to show to a shader graph material that composites it over the photo. Only unlit, textured tiles are draped, so not terrain or OSM buildings. Lines paint whatever is on top, so they land on tree canopy and run down facades.
 
 `Sources/TraceFile.swift` drops lines with fewer than two points on the way in, which Strava exports have and cesium-native rejects a whole document over.
+
+**Show Photo Locations** in the same menu draws a dot where each photo and video in the Photos library was taken, then goes to where most were. The first time, it asks for access to the library; with limited access, only the photos you chose are read. Only positions are read (`Sources/PhotoLibraryLocations.swift`), hidden photos are left out, and photos within about a metre of each other share a dot (`Sources/PhotoPoints.swift`). It stays on next launch, reading the library again, until you hide it. It doesn't follow changes to the library while the app runs.
+
+The dots go in the same overlay as the traces: tiles have room for one overlay texture, so `CNTileStreamer` puts the traces' document and a collection of one GeoJSON point per photo spot into one document and rebuilds the overlay when either changes. Separate points, rather than one MultiPoint, let the overlay's quadtree hand each tile only the dots near it. Dots are a fixed size in overlay pixels, like the lines, so they grow and shrink on screen as tiles change detail. As with traces, they're only on tiles RealityKit draws, so not with the Metal renderer.
 
 ## Known gaps
 

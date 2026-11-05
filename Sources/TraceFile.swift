@@ -32,8 +32,7 @@ struct TraceFile {
         place = lines.place(name: name)
     }
 
-    /// Where each line's middle is. Medians, so that one trip abroad doesn't
-    /// leave the view over the ocean between it and all the others.
+    /// Where each line's middle is, to frame them all.
     private struct LineSummary {
         var count = 0
         var latitudes: [Double] = []
@@ -48,18 +47,7 @@ struct TraceFile {
         }
 
         func place(name: String) -> Place {
-            let latitudes = latitudes.sorted()
-            let longitudes = longitudes.sorted()
-            func median(_ values: [Double]) -> Double { values.isEmpty ? 0 : values[values.count / 2] }
-            func spread(_ values: [Double]) -> Double {
-                values.isEmpty ? 0 : values[values.count * 3 / 4] - values[values.count / 4]
-            }
-            let latitude = median(latitudes)
-            let metresPerDegree = 111_320.0
-            let height = spread(latitudes) * metresPerDegree
-            let width = spread(longitudes) * metresPerDegree * cos(latitude * .pi / 180)
-            return Place(id: "traces", name: name, latitude: latitude, longitude: median(longitudes),
-                         radius: min(max(max(width, height) / 2, 500), 50_000))
+            Place.framing(id: "traces", name: name, latitudes: latitudes, longitudes: longitudes)
         }
     }
 

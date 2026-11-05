@@ -70,6 +70,14 @@ final class TileStreaming {
     private(set) var isLoadingTraces = false
     /// Why the last traces couldn't be shown, until it's been read.
     var tracesError: String?
+#if !os(tvOS)
+    /// Where the photos in the library were taken, drawn as dots; nil when
+    /// photos aren't shown.
+    private(set) var photoPoints: PhotoPoints?
+    private(set) var isLoadingPhotos = false
+    /// Why the photos couldn't be shown, until it's been read.
+    var photosError: String?
+#endif
 
     private var streamer: CNTileStreamer?
     private let tileUploader = TileUploader()
@@ -90,6 +98,10 @@ final class TileStreaming {
     private static let traceColor = SIMD4<Float>(0, 0.863, 0.761, 1)
     private static let tracesNameKey = "tracesName"
     private static let tracesFile = URL.applicationSupportDirectory.appending(path: "traces.geojson")
+    private static let showsPhotosKey = "showsPhotos"
+    /// sRGB, a warm pink that stands out from the teal traces and most of
+    /// what the photos show.
+    private static let photoColor = SIMD4<Float>(1, 0.271, 0.475, 1)
     private var startedLoading = Date()
     private var tileEntities: [UInt64: Entity] = [:]
     private var renderedTiles: [CNTileMesh] = []
@@ -126,7 +138,49 @@ final class TileStreaming {
         if let traces = ProcessInfo.processInfo.environment["ALSOMAPS_TRACES"], !traces.isEmpty {
             Task { _ = await openTraces(URL(fileURLWithPath: traces)) }
         }
+#if !os(tvOS)
+        // Shown last time and still allowed: read the library again, as it
+        // may have changed, without asking.
+        if UserDefaults.standard.bool(forKey: Self.showsPhotosKey), PhotoLibraryLocations.isAuthorized {
+            Task { _ = await showPhotos() }
+        }
+#endif
     }
+
+#if !os(tvOS)
+    // MARK: Photos
+
+    /// Reads where the library's photos were taken, asking for access first
+    /// if it hasn't been decided, and draws a dot at each. Remembered for
+    /// next launch. Returns a view of where most were taken, or nil with
+    /// `photosError` set.
+    func showPhotos() async -> Place? {
+        isLoadingPhotos = true
+        defer { isLoadingPhotos = false }
+        do {
+            let points = try await PhotoLibraryLocations.load()
+            photoPoints = points
+            UserDefaults.standard.set(true, forKey: Self.showsPhotosKey)
+            drawPhotos()
+            return points.place(name: "Photos")
+        } catch {
+            photosError = error.localizedDescription
+            hidePhotos()
+            return nil
+        }
+    }
+
+    func hidePhotos() {
+        photoPoints = nil
+        UserDefaults.standard.removeObject(forKey: Self.showsPhotosKey)
+        streamer?.removePointsOverlay()
+    }
+
+    private func drawPhotos() {
+        guard let photoPoints else { return }
+        streamer?.showPointsOverlay(coordinates: photoPoints.coordinates, radius: 3, color: Self.photoColor)
+    }
+#endif
 
     // MARK: Traces
 
@@ -199,6 +253,9 @@ final class TileStreaming {
         streamer.rasterDetachHandler = { [drape] tile in drape.detach(tile) }
         self.streamer = streamer
         if tracesName != nil { showTraces() }
+#if !os(tvOS)
+        drawPhotos()
+#endif
         startedLoading = Date()
         applySettings()
         applyInputs()

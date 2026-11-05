@@ -35,6 +35,26 @@ struct Place: Codable, Identifiable, Hashable {
     }
 }
 
+extension Place {
+    /// A view of where most of a set of positions are. Medians and the middle
+    /// half's spread, so that a few far-off positions (one trip abroad) don't
+    /// leave the view over the ocean between them and all the others.
+    static func framing(id: String, name: String, latitudes: [Double], longitudes: [Double]) -> Place {
+        let latitudes = latitudes.sorted()
+        let longitudes = longitudes.sorted()
+        func median(_ values: [Double]) -> Double { values.isEmpty ? 0 : values[values.count / 2] }
+        func spread(_ values: [Double]) -> Double {
+            values.isEmpty ? 0 : values[values.count * 3 / 4] - values[values.count / 4]
+        }
+        let latitude = median(latitudes)
+        let metresPerDegree = 111_320.0
+        let height = spread(latitudes) * metresPerDegree
+        let width = spread(longitudes) * metresPerDegree * cos(latitude * .pi / 180)
+        return Place(id: id, name: name, latitude: latitude, longitude: median(longitudes),
+                     radius: min(max(max(width, height) / 2, 500), 50_000))
+    }
+}
+
 /// The places offered in the app: the remote config's, or the defaults bundled
 /// in Places.json without one. User-added places (stored locally or in iCloud)
 /// would be a further source merged in here.

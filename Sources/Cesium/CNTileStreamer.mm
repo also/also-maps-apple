@@ -30,6 +30,8 @@
 #include <CesiumUtility/Color.h>
 #include <CesiumUtility/CreditSystem.h>
 #include <CesiumVectorData/GeoJsonDocument.h>
+#include <CesiumVectorData/GeoJsonObject.h>
+#include <CesiumVectorData/GeoJsonObjectTypes.h>
 #include <CesiumVectorData/VectorStyle.h>
 #include <CesiumVectorOverlays/GeoJsonDocumentRasterOverlay.h>
 
@@ -1083,8 +1085,17 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
   std::shared_ptr<RealityKitPrepareRendererResources> _resources;
   std::shared_ptr<AreaOfInterestExcluder> _excluder;
   std::unique_ptr<Tileset> _tileset;
+  // The one vector overlay, rebuilt whenever its traces or points change.
+  // Tiles have room for one overlay texture (TraceDrape), so both are drawn
+  // into it.
   CesiumUtility::IntrusivePointer<CesiumRasterOverlays::RasterOverlay>
-      _geoJSONOverlay;
+      _vectorOverlay;
+  // The traces document, parsed on a worker; holds nullptr if it failed.
+  std::optional<SharedFuture<std::shared_ptr<CesiumVectorData::GeoJsonDocument>>>
+      _traces;
+  CesiumVectorData::LineStyle _traceLine;
+  // A GeometryCollection of Points, styled as dots.
+  std::shared_ptr<const CesiumVectorData::GeoJsonObject> _points;
   std::shared_ptr<FetchCounters> _fetchCounters;
   CNFrame* _lastFrame;
 }
@@ -1214,54 +1225,152 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
                          lineWidth:(double)lineWidth
                              color:(simd_float4)color
                         completion:(void (^)(NSString* _Nullable))completion {
-  [self removeGeoJSONOverlay];
-
   using CesiumVectorData::GeoJsonDocument;
-  auto document = _asyncSystem->runInWorkerThread([path, completion]() {
-    NSData* data = [NSData dataWithContentsOfFile:path];
-    auto result = GeoJsonDocument::fromGeoJson(std::span<const std::byte>(
-        static_cast<const std::byte*>(data.bytes),
-        data.length));
-    if (!result.value) {
-      NSString* message = result.errors.errors.empty()
-          ? @"The file couldn't be read."
-          : @(result.errors.errors.front().c_str());
-      dispatch_async(dispatch_get_main_queue(), ^{
-        completion(message);
-      });
-      return std::make_shared<GeoJsonDocument>();
-    }
-    dispatch_async(dispatch_get_main_queue(), ^{
-      completion(nil);
-    });
-    return std::make_shared<GeoJsonDocument>(std::move(*result.value));
-  });
+  _traces = _asyncSystem
+                ->runInWorkerThread([path, completion]() {
+                  NSData* data = [NSData dataWithContentsOfFile:path];
+                  auto result = GeoJsonDocument::fromGeoJson(
+                      std::span<const std::byte>(
+                          static_cast<const std::byte*>(data.bytes),
+                          data.length));
+                  if (!result.value) {
+                    NSString* message = result.errors.errors.empty()
+                        ? @"The file couldn't be read."
+                        : @(result.errors.errors.front().c_str());
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                      completion(message);
+                    });
+                    return std::shared_ptr<GeoJsonDocument>();
+                  }
+                  dispatch_async(dispatch_get_main_queue(), ^{
+                    completion(nil);
+                  });
+                  return std::make_shared<GeoJsonDocument>(
+                      std::move(*result.value));
+                })
+                .share();
 
-  CesiumVectorData::LineStyle line;
-  line.color = CesiumUtility::Color(
+  _traceLine = CesiumVectorData::LineStyle();
+  _traceLine.color = CesiumUtility::Color(
       uint8_t(color.x * 255),
       uint8_t(color.y * 255),
       uint8_t(color.z * 255),
       uint8_t(color.w * 255));
-  line.width = lineWidth;
-  line.widthMode = CesiumVectorData::LineWidthMode::Pixels;
-
-  CesiumVectorOverlays::GeoJsonDocumentRasterOverlayOptions options{
-      .defaultStyle = CesiumVectorData::VectorStyle(line, {}),
-      .ellipsoid = _tileset->getOptions().ellipsoid};
-
-  _geoJSONOverlay = new CesiumVectorOverlays::GeoJsonDocumentRasterOverlay(
-      "traces",
-      std::move(document),
-      options);
-  _tileset->getOverlays().add(_geoJSONOverlay);
+  _traceLine.width = lineWidth;
+  _traceLine.widthMode = CesiumVectorData::LineWidthMode::Pixels;
+  [self rebuildVectorOverlay];
 }
 
 - (void)removeGeoJSONOverlay {
-  if (_geoJSONOverlay) {
-    _tileset->getOverlays().remove(_geoJSONOverlay);
-    _geoJSONOverlay = nullptr;
+  if (!_traces) {
+    return;
   }
+  _traces.reset();
+  [self rebuildVectorOverlay];
+}
+
+- (void)showPointsOverlayWithCoordinates:(NSData*)coordinates
+                                  radius:(double)radius
+                                   color:(simd_float4)color {
+  using namespace CesiumVectorData;
+  const size_t count = coordinates.length / sizeof(simd_double2);
+  const simd_double2* lonLat =
+      static_cast<const simd_double2*>(coordinates.bytes);
+
+  // One Point per position, rather than one MultiPoint, so that each is its
+  // own entry in the overlay's quadtree and a tile rasterizes only the dots
+  // near it.
+  GeoJsonGeometryCollection collection;
+  collection.geometries.reserve(count);
+  for (size_t i = 0; i < count; i++) {
+    collection.geometries.emplace_back(GeoJsonObject{
+        GeoJsonPoint{glm::dvec3(lonLat[i].x, lonLat[i].y, 0.0)}});
+  }
+
+  // On the collection, not each point: the overlay keeps a pointer to the
+  // style each object resolves to, and a collection's stays put.
+  PointStyle point;
+  point.radius = radius;
+  point.fill = ColorStyle{
+      CesiumUtility::Color(
+          uint8_t(color.x * 255),
+          uint8_t(color.y * 255),
+          uint8_t(color.z * 255),
+          uint8_t(color.w * 255)),
+      ColorMode::Normal};
+  LineStyle outline;
+  outline.color = CesiumUtility::Color(0xff, 0xff, 0xff, 0xff);
+  outline.width = 1.0;
+  outline.widthMode = LineWidthMode::Pixels;
+  point.outline = outline;
+  collection.style = VectorStyle(LineStyle(), PolygonStyle(), point);
+
+  _points = std::make_shared<const GeoJsonObject>(
+      GeoJsonObject{std::move(collection)});
+  [self rebuildVectorOverlay];
+}
+
+- (void)removePointsOverlay {
+  if (!_points) {
+    return;
+  }
+  _points.reset();
+  [self rebuildVectorOverlay];
+}
+
+/// Replaces the vector overlay with one of the current traces and points.
+/// Tiles that loaded without an overlay load again.
+- (void)rebuildVectorOverlay {
+  using CesiumVectorData::GeoJsonDocument;
+  using CesiumVectorData::GeoJsonGeometryCollection;
+  using CesiumVectorData::GeoJsonObject;
+
+  if (_vectorOverlay) {
+    _tileset->getOverlays().remove(_vectorOverlay);
+    _vectorOverlay = nullptr;
+  }
+  if (!_traces && !_points) {
+    return;
+  }
+
+  // Both in one document: a collection of the traces' root and the points.
+  // Unstyled traces fall back to the overlay's default (line) style; the
+  // points carry their own.
+  auto combine = [](const std::shared_ptr<GeoJsonDocument>& traces,
+                    const std::shared_ptr<const GeoJsonObject>& points)
+      -> std::shared_ptr<GeoJsonDocument> {
+    if (!points) {
+      return traces ? traces : std::make_shared<GeoJsonDocument>();
+    }
+    GeoJsonGeometryCollection root;
+    if (traces) {
+      root.geometries.emplace_back(traces->rootObject);
+    }
+    root.geometries.emplace_back(*points);
+    auto document = std::make_shared<GeoJsonDocument>();
+    document->rootObject = GeoJsonObject{std::move(root)};
+    return document;
+  };
+
+  auto points = _points;
+  Future<std::shared_ptr<GeoJsonDocument>> document =
+      _traces ? _traces->thenInWorkerThread(
+                    [combine, points](
+                        const std::shared_ptr<GeoJsonDocument>& traces) {
+                      return combine(traces, points);
+                    })
+              : _asyncSystem->runInWorkerThread(
+                    [combine, points]() { return combine(nullptr, points); });
+
+  CesiumVectorOverlays::GeoJsonDocumentRasterOverlayOptions options{
+      .defaultStyle = CesiumVectorData::VectorStyle(_traceLine, {}),
+      .ellipsoid = _tileset->getOptions().ellipsoid};
+
+  _vectorOverlay = new CesiumVectorOverlays::GeoJsonDocumentRasterOverlay(
+      "vectors",
+      std::move(document),
+      options);
+  _tileset->getOverlays().add(_vectorOverlay);
 }
 
 - (double)maximumScreenSpaceError {

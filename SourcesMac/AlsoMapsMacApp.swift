@@ -58,7 +58,7 @@ struct MacMapView: View {
             .onChange(of: settings) { _, settings in map.settings = settings }
             .overlay(alignment: .topTrailing) {
                 HStack {
-                    TracesMenu(streaming: map.streaming) { map.go(to: $0) }
+                    OverlaysMenu(streaming: map.streaming) { map.go(to: $0) }
                     Menu("Places", systemImage: "mappin.and.ellipse") {
                         ForEach(PlaceLibrary.all) { place in
                             Button(place.name) { map.go(to: place) }

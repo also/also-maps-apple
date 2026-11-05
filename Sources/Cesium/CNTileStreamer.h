@@ -200,6 +200,17 @@ typedef struct {
     NS_SWIFT_NAME(showGeoJSONOverlay(path:lineWidth:color:completion:));
 - (void)removeGeoJSONOverlay;
 
+/// Draws a dot at each position, as part of the same overlay as the GeoJSON
+/// lines, so a tile shows both from one texture. `coordinates` is double2
+/// per point: longitude then latitude, in degrees. `color` is sRGB and
+/// `radius` in overlay pixels; each dot has a thin white outline. Replaces
+/// any dots already showing.
+- (void)showPointsOverlayWithCoordinates:(NSData *)coordinates
+                                  radius:(double)radius
+                                   color:(simd_float4)color
+    NS_SWIFT_NAME(showPointsOverlay(coordinates:radius:color:));
+- (void)removePointsOverlay;
+
 // Live cesium-native TilesetOptions; changes apply on the next update.
 /// SSE threshold for tiles the LOD camera sees; lower = more detail. Default 16.
 @property (nonatomic) double maximumScreenSpaceError;

@@ -68,7 +68,7 @@ struct PhoneMapView: View {
                     Button("Settings", systemImage: "gearshape") {
                         showsSettings = true
                     }
-                    TracesMenu(streaming: map.streaming) { place in
+                    OverlaysMenu(streaming: map.streaming) { place in
                         selection = nil
                         map.go(to: place)
                     }
