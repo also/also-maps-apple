@@ -169,6 +169,7 @@ struct SettingsView: View {
     #if os(visionOS)
     private var immersion: some View {
         @Bindable var model = model
+        @Bindable var miniature = model.miniature
         return Form {
             Section {
                 Toggle("Full immersion", isOn: $model.fullImmersion)
@@ -185,6 +186,23 @@ struct SettingsView: View {
                 }
             } footer: {
                 Text("Immersive streams everything you could see, out to the horizon. Turn this on to stream less.")
+            }
+
+            Section {
+                Toggle("World in miniature", isOn: $model.showsMiniature)
+                if model.showsMiniature {
+                    Picker("On the table", selection: $miniature.layout.orientation) {
+                        Text("Your heading ahead").tag(MiniatureLayout.Orientation.headingUp)
+                        Text("North ahead").tag(MiniatureLayout.Orientation.northUp)
+                    }
+                    setting("Size", value: Binding(get: { miniature.layout.halfWidth / 500 },
+                                                   set: { miniature.layout.halfWidth = $0 * 500 }),
+                            in: 2...60, step: 1,
+                            format: { "\(Int($0)) km across" },
+                            hint: "How much of the world the table shows. Pinch it with both hands to zoom, too.")
+                }
+            } footer: {
+                Text("In Immersive, the volume shows the world around you as a small copy, with you, which way you're looking and what's streaming. Pinch-tap it to go there, or drag it to slide along. It streams its own tiles, as a second map session.")
             }
 
             Section {

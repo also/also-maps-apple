@@ -73,6 +73,14 @@ targets:
         - variable: ALSOMAPS_RADIUS
           value: "800"
           isEnabled: false
+        # The world in miniature: the volume as a small copy of the world
+        # around you while Immersive is open (notes/world-in-miniature.md).
+        - variable: ALSOMAPS_MINIATURE
+          value: "1"
+          isEnabled: false
+        - variable: ALSOMAPS_PRESENTATION
+          value: immersive
+          isEnabled: false
     type: application
     platform: visionOS
     sources:
