@@ -13,6 +13,10 @@ struct SettingsView: View {
 
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
     @AppStorage(ViewPreferences.drawsWithMetalKey) private var drawsWithMetal = false
+    @AppStorage(SunStudy.clayKey) private var clay = false
+    @AppStorage(SunStudy.shadowsKey) private var sunShadows = false
+    @AppStorage(SunStudy.shadowsOverTexturesKey) private var sunShadowsOverTextures = false
+    @AppStorage(SunStudy.sunPathKey) private var sunPath = false
     #if os(iOS)
     /// On iPhone the list comes first; nothing picked shows General on iPad.
     @State private var category: Category?
@@ -33,6 +37,7 @@ struct SettingsView: View {
 
     enum Category: String, CaseIterable, Identifiable {
         case general
+        case sun
         #if os(visionOS)
         case immersion
         case detail
@@ -45,6 +50,7 @@ struct SettingsView: View {
         var title: String {
             switch self {
             case .general: "General"
+            case .sun: "Clay and Sun"
             #if os(visionOS)
             case .immersion: "Immersion"
             case .detail: "Detail"
@@ -57,6 +63,7 @@ struct SettingsView: View {
         var systemImage: String {
             switch self {
             case .general: "gearshape"
+            case .sun: "sun.max"
             #if os(visionOS)
             case .immersion: "visionpro"
             case .detail: "square.grid.3x3"
@@ -96,6 +103,7 @@ struct SettingsView: View {
     @ViewBuilder private func page(for category: Category) -> some View {
         switch category {
         case .general: general
+        case .sun: sunStudy
         #if os(visionOS)
         case .immersion: immersion
         case .detail: detailSettings
@@ -164,6 +172,63 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("General")
+    }
+
+    /// The clay model and sun study (SunStudy), which only the Metal
+    /// renderer draws.
+    private var sunStudy: some View {
+        @Bindable var study = SunStudy.shared
+        // Read through the setting's storage so a change redraws this view;
+        // ALSOMAPS_METAL=1 turns Metal on without it.
+        let metal = drawsWithMetal || ViewPreferences.drawsWithMetal
+        let zone = study.clock.timeZone
+        return Form {
+            Section {
+                Toggle("Clay model", isOn: $clay)
+                Toggle("Sun shadows", isOn: $sunShadows)
+                if sunShadows {
+                    Toggle("Shadows over photos", isOn: $sunShadowsOverTextures)
+                }
+                Toggle("Sun path", isOn: $sunPath)
+            } footer: {
+                if metal {
+                    #if os(visionOS)
+                    Text("Drawn in Immersive only, by the Metal renderer. Clay shows the city's shape without its photographs, as a model lit by the sun. Shadows and the day's sun path follow the date and time below.")
+                    #else
+                    Text("Clay shows the city's shape without its photographs, as a model lit by the sun. Shadows and the day's sun path follow the date and time below.")
+                    #endif
+                } else {
+                    Text("These need Draw with Metal, in General. The RealityKit renderer doesn't draw them.")
+                }
+            }
+            .disabled(!metal)
+
+            Section {
+                DatePicker("Date", selection: $study.day, displayedComponents: .date)
+                LabeledContent("Time",
+                               value: study.clock.instant.formatted(Date.FormatStyle(date: .omitted, time: .shortened,
+                                                                                     timeZone: zone)))
+                Slider(value: $study.minutesOfDay, in: 0...(24 * 60 - 1), step: 5)
+                HStack {
+                    Button(study.isPlaying ? "Pause" : "Play the day",
+                           systemImage: study.isPlaying ? "pause.fill" : "play.fill") {
+                        study.isPlaying.toggle()
+                    }
+                    Spacer()
+                    Button("Now") { study.resetToNow() }
+                }
+            } header: {
+                Text("Date and time")
+            } footer: {
+                Text("In the place's time zone (\(study.timeZoneLabel)), wherever you are.")
+            }
+            // UNVERIFIED: that DatePicker shows the day in the environment's
+            // time zone. If it shows the device's, the day can be off by
+            // one near midnight.
+            .environment(\.timeZone, zone)
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Clay and Sun")
     }
 
     #if os(visionOS)
