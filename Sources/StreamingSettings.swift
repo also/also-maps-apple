@@ -90,4 +90,13 @@ enum ViewPreferences {
         ProcessInfo.processInfo.environment["ALSOMAPS_METAL"] == "1"
             || UserDefaults.standard.bool(forKey: drawsWithMetalKey)
     }
+
+    /// UserDefaults key: draw live aircraft over the map (AirTrafficOverlay).
+    static let showsAirTrafficKey = "ShowsAirTraffic"
+
+    /// The setting, or ALSOMAPS_AIR_TRAFFIC=1, which turns it on for a run.
+    static var showsAirTraffic: Bool {
+        ProcessInfo.processInfo.environment["ALSOMAPS_AIR_TRAFFIC"] == "1"
+            || UserDefaults.standard.bool(forKey: showsAirTrafficKey)
+    }
 }

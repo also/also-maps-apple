@@ -160,6 +160,7 @@ targets:
           - TrackOverlay.swift
           - TubeExtruder.swift
           - AirTraffic
+          - AirTrafficOverlay.swift
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift
@@ -309,6 +310,7 @@ targets:
           - TrackOverlay.swift
           - TubeExtruder.swift
           - AirTraffic
+          - AirTrafficOverlay.swift
           - StreamingSettings.swift
           - Signposts.swift
           - TileSource.swift
