@@ -67,6 +67,11 @@ final class RouteSession {
     @ObservationIgnored private var chase = ChaseCamera(distance: 100, height: 40)
     /// Metres either side of the moving point the travel heading is taken over.
     @ObservationIgnored private var lookahead = 20.0
+    /// The lowest the chase may sit above the moving point, metres: the
+    /// host's lowest camera altitude, so the chase is never pushed up off
+    /// its aim (visionOS room hosts keep the camera 55 m up). Set by the
+    /// host; applies from the next route opened.
+    @ObservationIgnored var minimumChaseHeight = 0.0
 
     /// Points sampled per request: the tube fills in as each batch lands.
     static let drapeBatchSize = 64
@@ -119,6 +124,11 @@ final class RouteSession {
         drapeProgress = needsDrape ? 0 : 1
         chase = ChaseCamera(typicalSpeed: route.typicalSpeed)
         Self.applyChaseOverrides(&chase)
+        if chase.height < minimumChaseHeight {
+            // Further back too, keeping the angle down to the point.
+            chase.distance *= minimumChaseHeight / chase.height
+            chase.height = minimumChaseHeight
+        }
         lookahead = min(max(5 * route.typicalSpeed, 15), 1_000)
         overlay.isEnabled = true
         // The first colouring this route has values for, unless it has the

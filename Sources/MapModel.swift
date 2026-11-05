@@ -210,6 +210,9 @@ final class MapModel {
         routes.sampleSurfaceHeights = { [weak streaming = self.streaming] coordinates, completion in
             streaming?.sampleSurfaceHeights(at: coordinates, completion) ?? false
         }
+        // A little above the lowest the camera goes, so the chase isn't
+        // clamped up off its aim over flat ground.
+        routes.minimumChaseHeight = Self.minimumAltitude + 5
         // Indirect only (look + pinch). Allowing direct input meant hands that
         // were merely inside the map's area counted as touching it and
         // dragged the map with no pinch at all.
