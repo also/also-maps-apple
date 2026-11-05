@@ -205,6 +205,7 @@ final class MapModel {
         root.addChild(streaming.tilesRoot)
         streaming.tilesRoot.addChild(tileBoundsOverlay.root)
         root.addChild(tracks.overlay.root)
+        root.addChild(airTraffic.root)
         // Indirect only (look + pinch). Allowing direct input meant hands that
         // were merely inside the map's area counted as touching it and
         // dragged the map with no pinch at all.
@@ -511,6 +512,9 @@ final class MapModel {
         if let framing {
             tracks.overlay.update(georeference: framing.georeference,
                                   worldRadius: TrackOverlay.roomRadius / framing.georeference.scale)
+            airTraffic.update(georeference: framing.georeference,
+                              size: .room(scale: framing.georeference.scale),
+                              streaming: streaming.inputs)
         }
         streaming.update(deltaTime: deltaTime)
         tileBoundsOverlay.update(inputs: streaming.inputs, scale: streaming.tilesRoot.transform.scale.x,
@@ -827,6 +831,13 @@ final class MapModel {
                                regionHeading: area.heading,
                                streamingRadius: area.radius)
     }
+
+    // MARK: Air traffic
+
+    /// Live aircraft over the map, when Settings (or ALSOMAPS_AIR_TRAFFIC=1)
+    /// turns them on. Polled for the area being streamed, and only while
+    /// this map ticks. The Metal immersive space doesn't draw them.
+    let airTraffic = AirTrafficOverlay()
 
     // MARK: Tracks
 

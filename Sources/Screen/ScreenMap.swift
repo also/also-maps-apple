@@ -31,6 +31,10 @@ final class ScreenMap {
     /// visionOS. While a track plays it has the camera, and movement input
     /// is ignored; going to a place stops it.
     let tracks = TrackSession()
+    /// Live aircraft over the map, when Settings (or ALSOMAPS_AIR_TRAFFIC=1)
+    /// turns them on, polled only while this map ticks. The Metal renderer
+    /// doesn't draw them.
+    let airTraffic = AirTrafficOverlay()
 
     @ObservationIgnored private var flight = ModelFlightStyle()
     @ObservationIgnored private var cameraGround = CameraGround()
@@ -81,6 +85,7 @@ final class ScreenMap {
         content.camera = .virtual
         content.add(streaming.tilesRoot)
         content.add(tracks.overlay.root)
+        content.add(airTraffic.root)
         content.add(cameraEntity)
         applyView()
         streaming.start()
@@ -232,6 +237,8 @@ final class ScreenMap {
         let altitude = max(camera.height - cameraGround.value, Self.minimumAltitude)
         tracks.overlay.update(georeference: georeference,
                               worldRadius: TrackOverlay.screenRadiusPerAltitude * altitude)
+        airTraffic.update(georeference: georeference, size: .screen(altitude: altitude),
+                          streaming: streaming.inputs)
 
         let (near, far) = ScreenView.clipping(altitude: camera.height - cameraGround.value)
         cameraEntity.components.set(PerspectiveCameraComponent(near: Float(near), far: Float(far),
