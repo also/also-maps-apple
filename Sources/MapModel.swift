@@ -178,6 +178,10 @@ final class MapModel {
     /// Both scenes deliver frame updates; only the presented host's are used.
     private var updateSubscriptions: [MapPresentation.Host: EventSubscription] = [:]
     private var heldActions: Set<MapInput.Action> = []
+    /// Voice control, driving this map through commands.
+    @ObservationIgnored private(set) lazy var voice = VoiceControl(target: self)
+    /// A commanded climb, turn or move, eased over a moment.
+    @ObservationIgnored private var motion: CommandMotion?
     /// The last place jumped to, for cycling.
     private var currentPlaceID: String?
 
@@ -350,6 +354,7 @@ final class MapModel {
         if tilesHeld { setTilesHeld(false) }
         stopPlayback()
         endManipulation()
+        motion = nil
         // Framed level for this host already.
         settlesPitch = false
         placeAwaitsGround = true
@@ -491,6 +496,7 @@ final class MapModel {
         }
         let dt = Double(deltaTime)
         applyInput(deltaTime: dt)
+        applyMotion(deltaTime: dt)
         if tracks.isPlaying {
             advancePlayback(deltaTime: dt)
         } else if settlesPitch, manipulation == nil {
@@ -536,6 +542,7 @@ final class MapModel {
         for action in input.held.subtracting(heldActions) {
             perform(action)
         }
+        if heldActions.contains(.talk), !input.held.contains(.talk) { voice.release() }
         heldActions = input.held
 
         // The played track has the camera; movement is ignored.
@@ -548,6 +555,8 @@ final class MapModel {
             return
         }
         wasMoving = true
+        // Taking the controls cancels a commanded motion.
+        motion = nil
         steer(with: ControlInput(move: input.move, turn: input.turn, climb: input.altitude,
                                  dolly: input.zoom, fast: input.fast),
               deltaTime: deltaTime)
@@ -616,9 +625,32 @@ final class MapModel {
             navigation = NavigationOperations.faceNorth(navigation)
         case .toggleFly:
             setTilesHeld(!tilesHeld)
+        case .talk:
+            voice.press()
         default:
             break
         }
+    }
+
+    // MARK: Commands
+
+    /// This frame's share of a commanded motion, with the same assists and
+    /// limits as the controls: pitch follows altitude, the horizon limit,
+    /// and (while tiles are held) the held region. Re-samples the ground
+    /// when it ends, like the end of a drag.
+    private func applyMotion(deltaTime: Double) {
+        guard var motion, !tracks.isPlaying, manipulation == nil else { return }
+        var state = motion.step(navigation, deltaTime: deltaTime, context: context)
+        if pitchFollowsAltitude, !usesEyeLevel, motion.climb != 0 {
+            state.camera = easedPitch(state.camera, deltaTime: deltaTime)
+        }
+        state.camera.pitch = min(state.camera.pitch, pitchLimit(for: state.camera))
+        // Past the held region, stop where it is.
+        let within = withinHeldLimits(state)
+        if within { navigation = state }
+        let finished = motion.isFinished || !within
+        self.motion = finished ? nil : motion
+        if finished { requestGroundSample() }
     }
 
     // MARK: Limits
@@ -982,4 +1014,18 @@ final class MapModel {
             post.position = SIMD3<Float>(georeference.map(point)) + [0, height / 2, 0]
         }
     }
+}
+
+extension MapModel: MapCommandTarget {
+    /// The hosts set pitch themselves, so a commanded pitch is dropped.
+    func begin(_ motion: CommandMotion) {
+        guard !tracks.isPlaying else { return }
+        endManipulation()
+        var motion = motion
+        motion.pitch = 0
+        self.motion = motion
+    }
+
+    var commandCamera: CameraPose { navigation.camera }
+    var commandAltitude: Double { context.altitude(of: navigation.camera) }
 }

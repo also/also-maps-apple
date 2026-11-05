@@ -25,8 +25,9 @@ struct MapInput {
     var fast = false
 
     /// One-shot actions; reported while the button is held, so the model
-    /// fires them on the frame a button goes down.
-    enum Action: Hashable { case previousPlace, nextPlace, faceNorth, toggleFly }
+    /// fires them on the frame a button goes down. `talk` is push to talk:
+    /// the map also watches for its release.
+    enum Action: Hashable { case previousPlace, nextPlace, faceNorth, toggleFly, talk }
     var held: Set<Action> = []
 
     var isMoving: Bool { move != .zero || turn != 0 || zoom != 0 || altitude != 0 || pitch != 0 }
@@ -57,9 +58,9 @@ struct MapInput {
 
     // MARK: Keyboard
 
-    static let keyboardHint = "WASD / arrows move · Q E turn · R F descend/climb · = − zoom · Shift faster"
+    static let keyboardHint = "WASD / arrows move · Q E turn · R F descend/climb · = − zoom · Shift faster · Space talk"
     /// For flat screens, where you look up and down with the keyboard.
-    static let screenKeyboardHint = "WASD / arrows move · Q E turn · T G look up/down · R F descend/climb · = − zoom · Shift faster"
+    static let screenKeyboardHint = "WASD / arrows move · Q E turn · T G look up/down · R F descend/climb · = − zoom · Shift faster · Space talk"
 
     /// For the Mac's mouse and trackpad, which aren't read here (PointerSurface).
     static let pointerHint = "Drag or scroll pan · Pinch or ⌥ scroll zoom · Right-drag turn, tilt · ⇧ scroll tilt · Double-click zoom in, ⌥ out"
@@ -85,12 +86,13 @@ struct MapInput {
         input.altitude = axis(positive: held(.keyF), negative: held(.keyR))
         input.pitch = axis(positive: held(.keyT), negative: held(.keyG))
         input.fast = held(.leftShift, .rightShift)
+        if held(.spacebar) { input.held.insert(.talk) }
         return input
     }
 
     // MARK: Game controller
 
-    static let controllerHint = "Left stick move · Right stick turn, climb/descend · RT LT zoom · LB faster · D-pad places · Y north · X fly"
+    static let controllerHint = "Left stick move · Right stick turn, climb/descend · RT LT zoom · LB faster · D-pad places · Y north · X fly · RB talk"
 
     /// The controller in use, if any (the most recently used one, or else
     /// the first connected).
@@ -114,6 +116,7 @@ struct MapInput {
         if pad.dpad.right.isPressed { input.held.insert(.nextPlace) }
         if pad.buttonY.isPressed { input.held.insert(.faceNorth) }
         if pad.buttonX.isPressed { input.held.insert(.toggleFly) }
+        if pad.rightShoulder.isPressed { input.held.insert(.talk) }
         return input
     }
 

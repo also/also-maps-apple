@@ -25,6 +25,10 @@ struct VolumeView: View {
         .volumeBaseplateVisibility(model.presentation.host == .volume ? .automatic : .hidden)
         .onAppear { model.volumeIsOpen = true }
         .onDisappear { model.volumeDidClose() }
+        .ornament(attachmentAnchor: .scene(.trailingFront), contentAlignment: .leading) {
+            VoicePanel(voice: model.voice)
+                .glassBackgroundEffect()
+        }
         // Closing the window doesn't make it disappear, it sends its scene
         // to the background; coming back (Show Controls) makes it active.
         .onChange(of: scenePhase) { _, phase in

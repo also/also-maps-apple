@@ -37,6 +37,10 @@
 	<false/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Also Maps listens while you hold the talk button, so you can fly by voice.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Also Maps recognizes speech on this device to turn what you say into map commands.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationPreferredDefaultSceneSessionRole</key>

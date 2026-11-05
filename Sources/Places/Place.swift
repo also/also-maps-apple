@@ -63,4 +63,18 @@ enum PlaceLibrary {
         let index = places.firstIndex { $0.id == id } ?? (step > 0 ? -1 : 0)
         return places[(index + step + places.count) % places.count]
     }
+
+    /// The saved place named `query` (or with that id), ignoring case,
+    /// accents and punctuation. Only whole names match, so "San Francisco
+    /// airport" is left to a map search.
+    static func place(named query: String, in places: [Place]) -> Place? {
+        func normal(_ s: String) -> String {
+            s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        let wanted = normal(query)
+        guard !wanted.isEmpty else { return nil }
+        return places.first { normal($0.name) == wanted || normal($0.id) == wanted }
+    }
 }
