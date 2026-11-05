@@ -52,7 +52,7 @@ struct AircraftMotion {
         guard newFixTime > fixTime + 0.5 || newReport.coordinate != report.coordinate else { return false }
         let shown = position(at: now, groundHeight: groundHeight)
         report = newReport
-        fixTime = max(newFixTime, fixTime)
+        fixTime = newFixTime
         let jump = shown - deadReckoned(at: now, groundHeight: groundHeight)
         if simd_length(jump) > Self.snapDistance {
             correction = .zero
@@ -168,7 +168,8 @@ struct AirTrafficTracker {
             let position = motion.position(at: now, groundHeight: groundHeight)
             let (coordinate, height) = Geodesy.geodetic(position)
             let attitude = motion.attitude
-            let trail = motion.trail.map { (age: now - $0.time, position: $0.position) } + [(age: 0, position: position)]
+            let trail: [(age: Double, position: SIMD3<Double>)] =
+                motion.trail.map { (age: now - $0.time, position: $0.position) } + [(age: 0, position: position)]
             return State(id: motion.report.id, callsign: motion.report.callsign, coordinate: coordinate,
                          position: position, heading: attitude.heading, pitch: attitude.pitch, height: height,
                          heightSource: motion.report.heightSource, onGround: motion.report.onGround, trail: trail)
