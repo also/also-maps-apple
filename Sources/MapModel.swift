@@ -272,6 +272,7 @@ final class MapModel {
     /// The immersive space went away (dismissed by us or the system).
     func immersiveSpaceDidClose() {
         measuredEye = nil
+        headInImmersive = nil
         anchors[.immersive] = nil
         updateSubscriptions[.immersive] = nil
         if presentation.host == .immersive { presentation = .volume }
@@ -482,6 +483,7 @@ final class MapModel {
     // MARK: Frame loop
 
     private func tick(deltaTime: Float) {
+        miniature.setShown(wantsMiniature, tileSource: settings.tileSource, centre: navigation.camera.coordinate)
         guard streaming.isStreaming else {
             // Waiting for a key. Once there is one, the ground sample that
             // had no streamer to ask can run.
@@ -515,6 +517,10 @@ final class MapModel {
         streaming.update(deltaTime: deltaTime)
         tileBoundsOverlay.update(inputs: streaming.inputs, scale: streaming.tilesRoot.transform.scale.x,
                                  thickness: 0.0006 * Float(presentation.magnification))
+        if miniature.isShown {
+            miniature.update(camera: navigation.camera, groundHeight: effectiveEnvelope,
+                             viewDirection: headDirectionInWorld, main: streaming.inputs, deltaTime: deltaTime)
+        }
     }
 
     // MARK: Keyboard and controller
@@ -827,6 +833,123 @@ final class MapModel {
                                regionHeading: area.heading,
                                streamingRadius: area.radius)
     }
+
+    // MARK: World in miniature
+
+    /// The volume as a tabletop copy of the world around you while the
+    /// immersive space is open (WorldMiniature). Its root goes in the
+    /// volume's scene.
+    let miniature = WorldMiniature()
+    /// Settings › Immersion, or ALSOMAPS_MINIATURE=1. Off by default.
+    var showsMiniature = false
+    /// The headset's pose in the immersive space while the miniature is on,
+    /// for drawing where you're looking; nil otherwise. Set by whichever
+    /// immersive space is open, many times a second, so not observed.
+    @ObservationIgnored var headInImmersive: simd_float4x4?
+
+    /// Shown while it's on, the map is immersive and the volume is open to
+    /// show it. Checked every frame, so any of them changing takes effect.
+    private var wantsMiniature: Bool {
+        showsMiniature && presentation.host == .immersive && volumeIsOpen
+    }
+
+    /// The head's view direction in the world, ECEF: through the room
+    /// placement and the immersive map's georeference, so a tilted globe
+    /// tilts it too.
+    private var headDirectionInWorld: SIMD3<Double>? {
+        guard let head = headInImmersive, let framing else { return nil }
+        let forward = -SIMD3<Double>(Double(head.columns.2.x), Double(head.columns.2.y), Double(head.columns.2.z))
+        let inMap = roomPlacement.similarity.inverse.rotation.act(forward)
+        return framing.georeference.rotation.inverse.act(inMap)
+    }
+
+    private struct MiniatureDrag {
+        /// Where the drag started, the volume's scene space.
+        var start: SIMD3<Float>
+        var state: NavigationState
+    }
+    @ObservationIgnored private var miniatureDrag: MiniatureDrag?
+    /// The table's half-width when the pinch began, and its latest update.
+    @ObservationIgnored private var miniatureZoom: (halfWidth: Double, lastUpdate: Date)?
+
+    /// Pinch-tap on the table, at `point` in the volume's scene space: go
+    /// there.
+    func jumpFromMiniature(at point: SIMD3<Float>) {
+        guard miniature.isShown, let target = miniature.coordinate(atScene: point) else { return }
+        jump(to: target)
+    }
+
+    /// Goes straight to `target`: a jump, like going to a place, so the
+    /// track starts a new segment, held tiles are released and playback
+    /// stops. Heading and height above the ground stay. The ground there
+    /// isn't known yet, so the camera moves with it as it is: first by the
+    /// miniature's coarse tiles, then by the first ground sample there, as
+    /// after a place jump.
+    func jump(to target: GeoCoordinate) {
+        if tilesHeld { setTilesHeld(false) }
+        stopPlayback()
+        endManipulation()
+        miniatureDrag = nil
+        settlesPitch = false
+        var state = MiniatureLayout.jump(navigation, to: target)
+        if let rough = miniature.groundHeight(at: target), rough.isFinite {
+            let ground = min(max(rough, -500), 9_000)
+            state.camera.height += ground - rayHeight.value
+            rayHeight.reset(to: ground)
+            envelopeHeight.reset(to: ground)
+            cameraGround.reset(to: ground)
+        }
+        navigation = state
+        placeAwaitsGround = true
+        framing = nil
+        tracks.markJump()
+        applyView()
+        requestGroundSample()
+        #if DEBUG
+        print("[AlsoMaps] miniature: jumped to \(String(format: "%.5f, %.5f", target.latitude, target.longitude))")
+        #endif
+    }
+
+    /// Dragging the table from `start` to `current` (the volume's scene
+    /// space): the world grabbed stays under the hand, so you slide the
+    /// other way. Continuous travel, not a jump, limited like any other
+    /// while tiles are held.
+    func dragMiniature(from start: SIMD3<Float>, to current: SIMD3<Float>) {
+        // The played track has the camera; a two-handed pinch zooms instead.
+        guard miniature.isShown, !tracks.isPlaying, miniatureZoom == nil else { return }
+        if miniatureDrag?.start != start {
+            endManipulation()
+            miniatureDrag = MiniatureDrag(start: start, state: navigation)
+        }
+        guard let drag = miniatureDrag else { return }
+        let state = miniature.layout.slid(drag.state, from: SIMD3<Double>(drag.start), to: SIMD3<Double>(current))
+        guard withinHeldLimits(state, checking: [.travel]) else { return }
+        navigation = state
+        applyView()
+    }
+
+    func endMiniatureDrag() {
+        guard miniatureDrag != nil else { return }
+        miniatureDrag = nil
+        requestGroundSample()
+    }
+
+    /// Two-handed pinch on the table zooms the table, not the immersive
+    /// map, about your marker at its centre. `magnification` is relative to
+    /// the pinch's start.
+    func magnifyMiniature(by magnification: Double) {
+        let now = Date()
+        // A cancelled pinch never reaches the end; a pause means a new one.
+        if miniatureZoom.map({ now.timeIntervalSince($0.lastUpdate) > 0.3 }) ?? true {
+            miniatureZoom = (miniature.layout.halfWidth, now)
+            miniatureDrag = nil
+        }
+        miniatureZoom?.lastUpdate = now
+        guard let start = miniatureZoom?.halfWidth, magnification > 0, magnification.isFinite else { return }
+        miniature.layout.halfWidth = start / magnification
+    }
+
+    func endMiniatureMagnify() { miniatureZoom = nil }
 
     // MARK: Tracks
 
