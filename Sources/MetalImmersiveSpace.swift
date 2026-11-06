@@ -184,14 +184,17 @@ final class MetalImmersiveRenderer {
             for index in viewIndices {
                 let view = drawable.views[index]
                 encoder.setViewport(view.textureMap.viewport)
+                let originFromEye = originFromDevice * view.transform
+                let eye = SIMD3(originFromEye.columns.3.x, originFromEye.columns.3.y, originFromEye.columns.3.z)
                 // The compositor's projection: reverse Z over its default
                 // depth range, which the cleared 0 is the far end of.
+                let viewProjection = drawable.computeProjection(viewIndex: index) * originFromEye.inverse
                 statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
-                             viewProjection: drawable.computeProjection(viewIndex: index)
-                                 * (originFromDevice * view.transform).inverse,
-                             root: root, tiles: tiles))
-                // Sky left at the far plane would be dropped as clipped.
-                metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat)
+                             viewProjection: viewProjection, root: root, eye: eye, tiles: tiles))
+                // Paints the sky, and moves it off the far plane, where the
+                // compositor would drop it as clipped.
+                metal.encodeSky(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
+                                viewProjection: viewProjection, root: root, eye: eye, compositor: true)
             }
             encoder.endEncoding()
         }

@@ -38,6 +38,27 @@ render pass. Unsupported configurations keep the unfoveated dedicated or
 shared layout. Stereo still uses a separate draw loop per eye; vertex
 amplification would be a later change.
 
+### Sky and haze
+
+`encodeSky` runs after the tiles in both the Mac/iOS window and the immersive
+loop. It draws one full-screen triangle at `skyDepth` with the same
+greater-than depth test as the tiles, so only pixels still at the far plane are
+shaded, and the sky ends at `skyDepth` for the compositor. The ray for each
+pixel is unprojected from the far plane as a homogeneous point, so an infinite
+far plane works, and is interpolated as a varying, so foveation's rate maps
+don't disturb it.
+
+The sky is closed-form single scattering for a plane-parallel atmosphere
+(Rayleigh plus a Henyey-Greenstein Mie part), tone mapped with `1 - exp(-x)`,
+plus a sun disc and 8-bit dither. Tile fragments fade toward the sky's colour
+along their own view ray by the air between eye and point (exponential height
+density, integrated in closed form). Both work in the anchor's level frame
+(x east, y up, z south, metres), so haze distances are real metres even where
+the scene is scaled. Settings are `MetalAtmosphere` on the renderer; the
+default sun is a made-up morning sun, not a real position.
+`MetalAtmosphere.flat` is the old flat sky; `.passthrough` paints nothing and
+leaves the empty pixels empty, for a mixed-immersion path.
+
 ## Measuring
 
 Environment variables:
@@ -48,6 +69,10 @@ Environment variables:
 - `ALSOMAPS_METAL_CULLING=0`: turn culling off, for a baseline. On by default.
 - `ALSOMAPS_METAL_FOVEATION=0`: turn visionOS foveation off, for a baseline.
   On by default where the dedicated layout supports it.
+- `ALSOMAPS_METAL_ATMOSPHERE=0`: the old flat sky and no haze, for a baseline.
+- `ALSOMAPS_METAL_HAZE=<n>`: haze strength (0 none, 0.5 default, 1 physical).
+- `ALSOMAPS_METAL_SUN=<azimuth>,<elevation>`: degrees, azimuth from north
+  through east, in the anchor's frame.
 
 The log reports submitted out of considered tiles, draws and triangles,
 summed over the interval. "Considered" is what would be submitted with
@@ -73,6 +98,22 @@ quality, both eyes and compositor depth. The simulator can't show foveation
 quality.
 
 ## Log
+
+### 2026-11-05: sky, sun and haze (not built or tested)
+
+- **Observed (code):** the flat clear colour is replaced by a sky pass, and
+  tile fragments get aerial perspective (see "Sky and haze"). Written without
+  a build or a device; nothing here has been seen running.
+- **Inferred (by hand):** the defaults give a zenith near the old flat sky's
+  blue and a near-white horizon, from working the formulas through for a 45°
+  sun. Haze at the 0.5 default is about 12% at 5 km at ground level for blue.
+  Both are arithmetic, not measurements.
+- **To check on a device:** the horizon band (does it still step, does the
+  sky meet far tiles without a seam), foveation's edges in the sky, both
+  eyes agreeing on the sun and gradient, banding in the gradient, sun disc
+  size, the cost of the haze in `tileFragment` (it adds exponentials per
+  pixel; `ALSOMAPS_METAL_HAZE=0` skips it) and tiles past about 100 km, which
+  the sky paints over.
 
 ### 2026-11-04: eye height is measured twice
 
