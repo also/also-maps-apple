@@ -172,6 +172,9 @@ targets:
           - Config
           - Credentials
           - Places
+          - Diagrams
+          - MapPresentation.swift
+          - MapViewState.swift
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
     dependencies:

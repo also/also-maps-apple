@@ -115,6 +115,32 @@ extension AdaptiveModel {
         return levelPitch + (-.pi / 2 - levelPitch) * w
     }
 
+    /// The pitch assist's target for `camera`: θ_target for its altitude
+    /// over `cameraGround`, within the horizon limit over `rayHeight`.
+    static func assistedPitch(for camera: CameraPose, room: RoomGeometry, rayHeight: Double,
+                              cameraGround: Double) -> Double {
+        min(pitchTarget(altitude: camera.height - cameraGround, levelPitch: room.levelPitch),
+            pitchLimit(cameraHeight: camera.height, rayHeight: rayHeight, latitude: camera.latitude))
+    }
+
+    /// The pitch assist's step: toward the assisted pitch, swinging the
+    /// camera about the georeference point so what's on the table stays.
+    static func easedPitch(_ camera: CameraPose, room: RoomGeometry, rayHeight: Double, envelopeHeight: Double,
+                           context: NavigationContext, deltaTime: Double) -> CameraPose {
+        let target = assistedPitch(for: camera, room: room, rayHeight: rayHeight, cameraGround: context.cameraGround)
+        guard abs(target - camera.pitch) > 1e-6 else { return camera }
+        let pitch = camera.pitch + (target - camera.pitch) * min(1, deltaTime * 6)
+        guard let current = framing(camera: camera, room: room, rayHeight: rayHeight, envelopeHeight: envelopeHeight)
+        else { return camera }
+        var turned = camera
+        turned.pitch = pitch
+        let forward = turned.basis.forward
+        var swung = CameraPose(position: current.georeferencePoint - forward * current.range,
+                               forward: forward, fallbackHeading: camera.heading)
+        swung.height = context.clampHeight(swung.height)
+        return swung
+    }
+
     /// A pose framing a place in `room`'s geometry: the centre (at
     /// `groundHeight`) lands on the level placement point, `radius` metres of
     /// world span the content half-width, facing `heading`.

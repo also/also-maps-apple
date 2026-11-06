@@ -13,7 +13,7 @@ import UIKit
 @Observable
 final class MapModel {
     /// Volume extents in metres (width, height, depth).
-    nonisolated static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
+    nonisolated static let volumeSize = MapPresentation.volumeSize
 
     /// Where the app starts: the Ferry Building, 600 m across the volume.
     static let defaultPlace = Place(id: "default", name: "San Francisco",
@@ -581,24 +581,13 @@ final class MapModel {
     /// The pitch policy's step: toward θ_target for the altitude, swinging
     /// the camera about the georeference point so what's on the table stays.
     private func pitchTarget(for camera: CameraPose) -> Double {
-        min(AdaptiveModel.pitchTarget(altitude: camera.height - cameraGround.value, levelPitch: room.levelPitch),
-            pitchLimit(for: camera))
+        AdaptiveModel.assistedPitch(for: camera, room: room, rayHeight: rayHeight.value,
+                                    cameraGround: cameraGround.value)
     }
 
     private func easedPitch(_ camera: CameraPose, deltaTime: Double) -> CameraPose {
-        let target = pitchTarget(for: camera)
-        guard abs(target - camera.pitch) > 1e-6 else { return camera }
-        let pitch = camera.pitch + (target - camera.pitch) * min(1, deltaTime * 6)
-        guard let current = AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
-                                                  envelopeHeight: effectiveEnvelope)
-        else { return camera }
-        var turned = camera
-        turned.pitch = pitch
-        let forward = turned.basis.forward
-        var swung = CameraPose(position: current.georeferencePoint - forward * current.range,
-                               forward: forward, fallbackHeading: camera.heading)
-        swung.height = context.clampHeight(swung.height)
-        return swung
+        AdaptiveModel.easedPitch(camera, room: room, rayHeight: rayHeight.value, envelopeHeight: effectiveEnvelope,
+                                 context: context, deltaTime: deltaTime)
     }
 
     private func pitchLimit(for camera: CameraPose) -> Double {
@@ -807,25 +796,12 @@ final class MapModel {
     /// The area of interest each host streams by default, and the LOD camera
     /// at the design eye point.
     private func streamingInputs(for framing: AdaptiveModel.Framing) -> StreamingInputs {
-        let room = self.room
-        let camera = navigation.camera
         let policy: AOIPolicy = presentation.host == .immersive
             ? .horizon(limitPerAltitude: settings.limitsImmersiveReach ? settings.immersiveReach : nil)
             : .georeference(regionMultiplier: 1)
-        // The viewer is the eye, wherever the placement puts it in the world:
-        // in the immersive space, always the camera.
-        let (viewer, eyeHeight) = Geodesy.geodetic(framing.georeference.ecef(map: room.designEye))
-        let altitude = usesEyeLevel ? eyeHeight - effectiveEnvelope : camera.height - cameraGround.value
-        let area = policy.area(viewerNadir: viewer,
-                               altitude: max(altitude, 0),
-                               heading: camera.heading,
-                               georeferencePoint: Geodesy.geodetic(framing.georeferencePoint).coordinate,
-                               shownRadius: framing.shownRadius(room))
-        let anchor = StreamingAnchor(coordinate: area.centre, height: effectiveEnvelope)
-        return StreamingInputs(anchor: anchor,
-                               lod: AdaptiveModel.lodCamera(framing: framing, eye: room.designEye, anchor: anchor),
-                               regionHeading: area.heading,
-                               streamingRadius: area.radius)
+        return StreamingInputs.room(framing: framing, room: room, camera: navigation.camera, policy: policy,
+                                    eyeLevel: usesEyeLevel, groundHeight: effectiveEnvelope,
+                                    cameraGround: cameraGround.value)
     }
 
     // MARK: Tracks

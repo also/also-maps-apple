@@ -22,6 +22,9 @@ struct MapPresentation: Identifiable, Hashable {
     /// descending in place.
     let viewerPosition: SIMD3<Float>
 
+    /// Volume extents in metres (width, height, depth).
+    static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
+
     static let volume = MapPresentation(
         id: "volume",
         name: "Volume",
@@ -62,6 +65,6 @@ struct MapPresentation: Identifiable, Hashable {
         return .room(RoomGeometry(designEye: SIMD3<Double>(viewerPosition),
                                   placementLevel: level,
                                   placementDown: SIMD3(level.x, downHeight, level.z),
-                                  contentHalfWidth: MapModel.volumeSize.x / 2 * magnification))
+                                  contentHalfWidth: Self.volumeSize.x / 2 * magnification))
     }
 }

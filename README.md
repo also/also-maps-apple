@@ -139,6 +139,14 @@ The picker under the volume switches between the volume and **Immersive**. Immer
 
 Immersive doesn't clip the map's edges the way the volume does, so whole tiles stick out past the region (#5).
 
+## Camera diagram (macOS)
+
+The diagram button beside Places (⌥⌘D) opens side views of how the camera is shown in each host: the world along the camera's heading (the camera, the eye, the ground estimates, the view ray's hit G and the LOD camera) and, for the volume and Immersive, the room with the world as that host places it. They're computed with the same framing, ground and LOD code the app renders with (`Sources/Navigation/CameraDiagram.swift`).
+
+- **Follow the map** shows the window's camera, with the volume's pitch and the estimates it would settle on.
+- **Paste View State** loads a state copied from Settings on visionOS. Then the sliders and fields change the diagram's camera and estimates, and **Descend** and **Climb** fly it over five seconds with the volume's estimates frozen (as during a gesture) or following the Earth's curve (as with a controller).
+- At launch, `ALSOMAPS_DIAGRAM=window`, `volume` or `immersive` opens it on that host, and `ALSOMAPS_STATE` loads a view state into it.
+
 ## Settings
 
 Settings is a window on visionOS and a sheet on iPhone and iPad, each opened with the gear button (on visionOS, next to the mode picker). On the Mac it's the standard Settings window (⌘,). Categories are in a sidebar. Changes apply immediately and are remembered between launches. visionOS has every category; the others have General, Keys and Advanced.
