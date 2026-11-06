@@ -785,6 +785,23 @@ CNTileMesh* _Nullable buildTileMesh(
                                      primitives:primitives];
 }
 
+/// Frees the pixels of every decoded image in a glTF. buildTileMesh has
+/// already copied what the renderer needs, so this only moves the free from
+/// the unload (on the update thread) to the load thread. The images are
+/// per-model for embedded textures; an external texture shared between tiles
+/// would be emptied for the next tile too.
+void releaseDecodedImages(CesiumGltf::Model& model) {
+  for (CesiumGltf::Image& image : model.images) {
+    if (CesiumImage::ImageAsset* pAsset = image.pAsset.get()) {
+      // Moved out and destroyed at the end of the block: the buffer is freed
+      // here, and the asset keeps a valid, empty vector.
+      auto released = std::move(pAsset->pixelData);
+      pAsset->pixelData.clear();
+      (void)released;
+    }
+  }
+}
+
 /// Holds each tile's CNTileMesh as a retained void* inside cesium-native and
 /// reports frees back to Swift so it can drop the matching entity.
 class RealityKitPrepareRendererResources final
@@ -801,13 +818,16 @@ public:
       const glm::dmat4& transform,
       const std::any&) override {
     CNTileMesh* mesh = nil;
-    if (const CesiumGltf::Model* pModel =
+    if (CesiumGltf::Model* pModel =
             std::get_if<CesiumGltf::Model>(&tileLoadResult.contentKind)) {
       os_log_t log = CNSignpostLog("Tiles");
       const os_signpost_id_t signpostID = os_signpost_id_generate(log);
       os_signpost_interval_begin(log, signpostID, "Flatten");
       mesh = buildTileMesh(*pModel, transform, _nextID++);
       os_signpost_interval_end(log, signpostID, "Flatten");
+      if (mesh && releasesImages.load()) {
+        releaseDecodedImages(*pModel);
+      }
     }
     CNTileLoadHandler handler = tileLoadHandler();
     if (!mesh || !handler) {
@@ -890,6 +910,9 @@ public:
     std::lock_guard<std::mutex> lock(_freedMutex);
     return std::exchange(_freed, {});
   }
+
+  /// See CNTileStreamer.releasesDecodedImages.
+  std::atomic<bool> releasesImages{false};
 
 private:
   std::atomic<uint64_t> _nextID{1};
@@ -1109,6 +1132,14 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
 
 - (void)setTileLoadHandler:(CNTileLoadHandler)handler {
   _resources->setTileLoadHandler(handler);
+}
+
+- (BOOL)releasesDecodedImages {
+  return _resources->releasesImages.load();
+}
+
+- (void)setReleasesDecodedImages:(BOOL)value {
+  _resources->releasesImages.store(value);
 }
 
 - (double)maximumScreenSpaceError {

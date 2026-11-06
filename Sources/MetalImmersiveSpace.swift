@@ -157,8 +157,11 @@ final class MetalImmersiveRenderer {
         }
 
         guard let commands = queue?.makeCommandBuffer() else { return }
-        let root = model.tilesInImmersiveSpace
-        let tiles = model.streaming.drawnTiles
+        // The newest tiles and the anchor their placements are relative to,
+        // so a snapshot made a few frames ago still lands where it should.
+        let drawn = model.streaming.drawnForRender()
+        let root = model.tilesInImmersiveSpace(anchoredAt: drawn.anchor)
+        let tiles = drawn.tiles
         var statistics = MetalDrawStatistics()
         // Views sharing a texture (the shared layout) are drawn in one pass,
         // cleared once, each in its own viewport.
@@ -204,7 +207,7 @@ final class MetalImmersiveRenderer {
         log.frames += 1
         guard Date().timeIntervalSince(log.lastPrint) >= 1 else { return }
         print("[AlsoMaps] Metal immersive: \(log.frames) frames, \(log.anchored) with a device anchor, "
-              + "\(model.streaming.drawnTiles.count) tiles")
+              + "\(model.streaming.drawnForRender().tiles.count) tiles")
         log = (0, 0, Date())
     }
 

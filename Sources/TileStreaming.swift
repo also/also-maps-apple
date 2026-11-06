@@ -80,13 +80,24 @@ final class TileStreaming {
     /// With a custom handler: last frame's tiles, each with its placement in
     /// the anchor's level frame (the same as an entity's under `tilesRoot`).
     private(set) var drawnTiles: [(tile: CNTileMesh, placement: simd_float4x4)] = []
+    /// Experimental (ALSOMAPS_METAL_THREADED_SELECT=1, set by the Metal
+    /// immersive space): with a custom handler, cesium-native's selection and
+    /// unloading run on a serial queue from a snapshot of the inputs, and the
+    /// frame loop reads the latest published result through `drawnForRender()`
+    /// (`drawnTiles` stays empty). Set before `customTileHandler`, which is
+    /// what restarts streaming; it does nothing without one. See
+    /// notes/metal-renderer.md, "Selection off the main thread".
+    var runsSelectionOffMain = false
+    private var selectionWorker: TileSelectionWorker?
+    /// Whether this streamer's selection runs on the worker.
+    private var selectsOffMain: Bool { runsSelectionOffMain && customTileHandler != nil }
     private var tileEntities: [UInt64: Entity] = [:]
     private var renderedTiles: [CNTileMesh] = []
     /// Draw each drawn tile's bounding box as a wireframe child of the tile:
     /// cyan inside the LOD camera's view, orange outside it.
     var showsTileBounds = false {
         didSet {
-            streamer?.reportsTileBounds = showsTileBounds
+            if selectionWorker == nil { streamer?.reportsTileBounds = showsTileBounds }
             if !showsTileBounds { removeTileBoxes() }
         }
     }
@@ -135,6 +146,12 @@ final class TileStreaming {
         // Before the first update, so every tile goes through it.
         streamer.tileLoadHandler = customTileHandler ?? tileUploader.handler
         self.streamer = streamer
+        // Metal only, and only when asked for: free each tile's decoded
+        // glTF images as soon as its buffers are built (the bridge's
+        // releasesDecodedImages), instead of when cesium-native unloads it.
+        streamer.releasesDecodedImages = customTileHandler != nil
+            && env["ALSOMAPS_METAL_RELEASE_IMAGES"] == "1"
+        selectionWorker = selectsOffMain ? TileSelectionWorker(streamer: streamer) : nil
         applySettings()
         applyInputs()
     }
@@ -143,6 +160,10 @@ final class TileStreaming {
     /// at the same view.
     private func restart() {
         guard started else { return }
+        // An update still running on the worker finishes, but publishes
+        // nothing; the old streamer goes when it lets go of it.
+        selectionWorker?.cancel()
+        selectionWorker = nil
         streamer = nil
         for entity in tileEntities.values { entity.removeFromParent() }
         tileEntities = [:]
@@ -226,6 +247,10 @@ final class TileStreaming {
         let updateStart = Date()
         defer { debugSlowestUpdate = max(debugSlowestUpdate, Date().timeIntervalSince(updateStart)) }
         #endif
+        if let selectionWorker {
+            updateOffMain(selectionWorker, streamer: streamer, deltaTime: deltaTime)
+            return
+        }
         let frame = streamer.update(withDeltaTime: deltaTime)
 
         for id in frame.freedTileIDs {
@@ -286,11 +311,64 @@ final class TileStreaming {
         #endif
     }
 
+    /// What the Metal frame loop should draw now. With selection off the main
+    /// thread this is the newest snapshot the worker has published, and its
+    /// `anchor` is the one its placements are relative to: the caller must
+    /// place the tiles root for that anchor, not the current one. Otherwise
+    /// it's `drawnTiles` and a nil anchor (the current one).
+    func drawnForRender() -> DrawnTiles {
+        if let snapshot = selectionWorker?.latest {
+            return DrawnTiles(anchor: snapshot.anchor, tiles: snapshot.tiles)
+        }
+        return DrawnTiles(anchor: nil, tiles: drawnTiles)
+    }
+
+    /// The main-thread half of an update with selection on the worker: hand it
+    /// this frame's inputs (newest wins; it never queues more than one), then
+    /// adopt whatever it has published since the last frame. Nothing here
+    /// touches cesium-native except the atomic counters.
+    private func updateOffMain(_ worker: TileSelectionWorker, streamer: CNTileStreamer, deltaTime: Float) {
+        worker.submit(.init(inputs: inputs, settings: settings, deltaTime: deltaTime))
+        if let snapshot = worker.takeNewSnapshot() {
+            renderedTiles = snapshot.meshes
+            let newCredits = snapshot.credits.map { Credit(text: $0.text, imageURL: $0.imageURL) }
+            if credits != newCredits { credits = newCredits }
+            if snapshot.loadProgress >= 100, loadProgress < 100 {
+                Signposts.tiles.emitEvent("LoadComplete")
+                statusMessage = nil
+            }
+            if loadProgress != snapshot.loadProgress { loadProgress = snapshot.loadProgress }
+        }
+        let fetch = streamer.fetchStats()
+        let newStats = Stats(renderedTiles: renderedTiles.count, entities: 0,
+                             cacheHits: Int(fetch.cacheHits), revalidated: Int(fetch.revalidated),
+                             networkLoads: Int(fetch.networkLoads),
+                             networkMegabytes: Double(fetch.networkBytes) / 1_048_576)
+        if stats != newStats { stats = newStats }
+
+        #if DEBUG
+        debugLogElapsed += deltaTime
+        if debugLogElapsed > 1 {
+            debugLogElapsed = 0
+            let slowest = worker.takeSlowestUpdate()
+            print("[AlsoMaps] render \(renderedTiles.count) tiles (off-main selection), progress \(Int(loadProgress))%, slowest worker update \(String(format: "%.1f", slowest * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded")
+        }
+        #endif
+    }
+
     /// Samples the most detailed surface across 0.8 × `radius` metres around
     /// `centre` and reports the lowest hit, metres above the ellipsoid (NaN
     /// if none), on the main thread during a later update. May load tiles.
     func sampleGroundHeight(around centre: GeoCoordinate, radius: Double,
                             _ completion: @escaping @Sendable (Double) -> Void) {
+        if let selectionWorker {
+            // The tileset belongs to the worker's queue, and the bridge calls
+            // back there; callers expect the main thread.
+            selectionWorker.sampleGroundHeight(around: centre, radius: radius) { height in
+                DispatchQueue.main.async { completion(height) }
+            }
+            return
+        }
         streamer?.sampleGroundHeight(latitude: centre.latitude, longitude: centre.longitude,
                                      radius: radius, completion: completion)
     }
@@ -337,7 +415,8 @@ final class TileStreaming {
     // MARK: Applying
 
     private func applyInputs() {
-        guard let streamer else { return }
+        // On the worker, every update applies its own copy of the inputs.
+        guard let streamer, selectionWorker == nil else { return }
         streamer.anchorLatitude = inputs.anchor.coordinate.latitude
         streamer.anchorLongitude = inputs.anchor.coordinate.longitude
         streamer.anchorHeight = inputs.anchor.height
@@ -352,15 +431,207 @@ final class TileStreaming {
 
     private func applySettings() {
         guard let streamer else { return }
+        tileUploader.setConcurrency(Int(settings.uploadConcurrency))
+        // On the worker, every update applies its own copy of the settings.
+        guard selectionWorker == nil else { return }
         streamer.maximumScreenSpaceError = settings.detail
         streamer.culledScreenSpaceError = settings.outerDetail
         streamer.maximumSimultaneousTileLoads = Int(settings.simultaneousLoads)
         streamer.maximumCachedBytes = Int64(settings.cacheMegabytes * 1024 * 1024)
         streamer.forbidHoles = settings.forbidHoles
         streamer.reportsTileBounds = showsTileBounds
-        tileUploader.setConcurrency(Int(settings.uploadConcurrency))
     }
 
     /// A secret from the scheme environment or, via Info.plist, from
     /// Config/Secrets.xcconfig; nil if unset or still a placeholder.
+}
+
+/// The tiles a Metal frame draws, and the anchor frame their placements are
+/// relative to. A nil anchor means the streaming's current one.
+struct DrawnTiles {
+    var anchor: StreamingAnchor?
+    var tiles: [(tile: CNTileMesh, placement: simd_float4x4)]
+}
+
+/// Runs cesium-native's selection and unloading (`CNTileStreamer.update`) on a
+/// serial queue, for the Metal renderer. Experimental; see
+/// notes/metal-renderer.md, "Selection off the main thread".
+///
+/// Rules it keeps:
+/// - Once handed over, the streamer is touched only on `queue`: its Tileset
+///   isn't thread-safe, and nothing in the bridge locks around it. The
+///   exceptions are the bridge's atomic counters (`fetchStats`,
+///   `takeKeyFailureStatus`), `tileLoadHandler`'s own lock and the freed list's
+///   mutex, which TileStreaming still reads from the main thread.
+/// - Camera and settings travel as values (`Job`) and are applied at the top
+///   of each update, so the bridge's plain properties are never written from
+///   one thread while another reads them.
+/// - What it publishes is immutable (`Snapshot`) and holds the tiles with
+///   their placements, so a tile cesium-native has since freed stays alive
+///   until the frame loop moves on.
+/// - At most one update runs and one waits; a newer job replaces the waiting
+///   one (their time steps add), so the queue never backs up.
+final class TileSelectionWorker: @unchecked Sendable {
+    struct Job {
+        var inputs: StreamingInputs
+        var settings: StreamingSettings
+        var deltaTime: Float
+    }
+
+    final class Snapshot {
+        let sequence: UInt64
+        /// Frame A for `tiles`' placements: the anchor of the job that made it.
+        let anchor: StreamingAnchor
+        let tiles: [(tile: CNTileMesh, placement: simd_float4x4)]
+        let meshes: [CNTileMesh]
+        let credits: [(text: String, imageURL: URL?)]
+        let loadProgress: Float
+
+        fileprivate init(sequence: UInt64, anchor: StreamingAnchor,
+                         tiles: [(tile: CNTileMesh, placement: simd_float4x4)],
+                         meshes: [CNTileMesh], credits: [(text: String, imageURL: URL?)],
+                         loadProgress: Float) {
+            self.sequence = sequence
+            self.anchor = anchor
+            self.tiles = tiles
+            self.meshes = meshes
+            self.credits = credits
+            self.loadProgress = loadProgress
+        }
+    }
+
+    private let streamer: CNTileStreamer
+    private let queue = DispatchQueue(label: "dev.also.maps.tile-selection", qos: .userInteractive)
+    private let lock = NSLock()
+    // Guarded by `lock`.
+    private var pending: Job?
+    private var running = false
+    private var cancelled = false
+    private var sequence: UInt64 = 0
+    private var published: Snapshot?
+    private var taken: UInt64 = 0
+    private var slowestUpdate: TimeInterval = 0
+
+    init(streamer: CNTileStreamer) {
+        self.streamer = streamer
+    }
+
+    /// Starts an update from `job`, or replaces the one waiting for the
+    /// running update to finish. Never blocks.
+    func submit(_ job: Job) {
+        lock.lock()
+        if running {
+            var merged = job
+            if let older = pending { merged.deltaTime += older.deltaTime }
+            pending = merged
+            lock.unlock()
+            return
+        }
+        running = true
+        lock.unlock()
+        queue.async { self.run(job) }
+    }
+
+    /// The newest published snapshot, whoever has seen it.
+    var latest: Snapshot? {
+        lock.lock()
+        defer { lock.unlock() }
+        return published
+    }
+
+    /// The newest snapshot if it hasn't been taken yet.
+    func takeNewSnapshot() -> Snapshot? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let published, published.sequence != taken else { return nil }
+        taken = published.sequence
+        return published
+    }
+
+    /// Stops publishing. An update already running finishes first.
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        pending = nil
+        published = nil
+        lock.unlock()
+    }
+
+    func takeSlowestUpdate() -> TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        defer { slowestUpdate = 0 }
+        return slowestUpdate
+    }
+
+    /// Queued behind the running update, so it starts at the next gap.
+    /// `completion` runs on the worker's queue, during a later update.
+    func sampleGroundHeight(around centre: GeoCoordinate, radius: Double,
+                            _ completion: @escaping @Sendable (Double) -> Void) {
+        queue.async {
+            self.lock.lock()
+            let cancelled = self.cancelled
+            self.lock.unlock()
+            if cancelled {
+                completion(.nan)
+                return
+            }
+            self.streamer.sampleGroundHeight(latitude: centre.latitude, longitude: centre.longitude,
+                                             radius: radius, completion: completion)
+        }
+    }
+
+    private func run(_ job: Job) {
+        let signposter = Signposts.frame
+        let interval = signposter.beginInterval("SelectionJob", id: signposter.makeSignpostID())
+        let started = Date()
+        configure(job)
+        let frame = streamer.update(withDeltaTime: job.deltaTime)
+        let tiles: [(tile: CNTileMesh, placement: simd_float4x4)] = frame.tileTransforms.withUnsafeBytes { buffer in
+            let placements = buffer.bindMemory(to: simd_float4x4.self)
+            return frame.tilesToRender.enumerated().map { ($1, placements[$0]) }
+        }
+        let meshes = frame.tilesToRender
+        let credits = frame.credits.map { (text: $0.text, imageURL: $0.imageURL.flatMap(URL.init(string:))) }
+        let loadProgress = frame.loadProgress
+        let elapsed = Date().timeIntervalSince(started)
+        signposter.endInterval("SelectionJob", interval)
+
+        lock.lock()
+        if !cancelled {
+            sequence += 1
+            published = Snapshot(sequence: sequence, anchor: job.inputs.anchor, tiles: tiles,
+                                 meshes: meshes, credits: credits, loadProgress: loadProgress)
+        }
+        slowestUpdate = max(slowestUpdate, elapsed)
+        let next = cancelled ? nil : pending
+        pending = nil
+        running = next != nil
+        lock.unlock()
+        // Re-enqueued rather than looped, so a ground sample waiting on the
+        // queue isn't starved.
+        if let next { queue.async { self.run(next) } }
+    }
+
+    /// Everything the bridge reads in `update`, set on its own queue. Tile
+    /// bounds are a RealityKit debug overlay, so they stay off.
+    private func configure(_ job: Job) {
+        let inputs = job.inputs, settings = job.settings
+        streamer.anchorLatitude = inputs.anchor.coordinate.latitude
+        streamer.anchorLongitude = inputs.anchor.coordinate.longitude
+        streamer.anchorHeight = inputs.anchor.height
+        streamer.streamingRadius = inputs.streamingRadius
+        streamer.regionHeading = inputs.regionHeading
+        streamer.viewPosition = inputs.lod.position
+        streamer.viewDirection = inputs.lod.direction
+        streamer.viewUp = inputs.lod.up
+        streamer.viewFieldOfView = inputs.lod.fieldOfView
+        streamer.viewAspect = inputs.lod.aspect
+        streamer.maximumScreenSpaceError = settings.detail
+        streamer.culledScreenSpaceError = settings.outerDetail
+        streamer.maximumSimultaneousTileLoads = Int(settings.simultaneousLoads)
+        streamer.maximumCachedBytes = Int64(settings.cacheMegabytes * 1024 * 1024)
+        streamer.forbidHoles = settings.forbidHoles
+        streamer.reportsTileBounds = false
+    }
 }
