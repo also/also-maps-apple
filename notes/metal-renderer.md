@@ -46,6 +46,13 @@ Environment variables:
 - `ALSOMAPS_METAL_STATS=1`: log submission counts once a second on macOS,
   iOS and immersive visionOS.
 - `ALSOMAPS_METAL_CULLING=0`: turn culling off, for a baseline. On by default.
+- `ALSOMAPS_METAL_DEBUG=bounds`: draw wireframe boxes round each submitted
+  tile (and, fainter, each part of a multi-part tile), over the scene and
+  showing through the tiles. Colour is by box size on a log scale, red
+  (smallest, about 16 m across) to blue (largest, about 16 km), as a stand-in
+  for tile level, which tiles don't carry. Lines are one pixel wide, so they
+  are thin on a headset. No setting for it yet. Comma-separated, to leave room
+  for other modes.
 - `ALSOMAPS_METAL_FOVEATION=0`: turn visionOS foveation off, for a baseline.
   On by default where the dedicated layout supports it.
 
@@ -56,10 +63,17 @@ separately. These are CPU submission counts, not presented frames a second;
 the screen FPS overlay counts RealityKit updates, and the immersive log counts
 frame-loop iterations.
 
+The same line ends with the GPU time of the command buffers that finished in
+the interval: mean and maximum milliseconds and how many, from
+`gpuStartTime`/`gpuEndTime` in a completed handler (`kernelStartTime`/
+`kernelEndTime` where the GPU times read 0). It is execution time, not time to
+presentation. One buffer is one frame on each platform, both eyes included on
+visionOS. "GPU time n/a" means no buffer reported a time.
+
 `MetalEncode` signposts (subsystem `dev.also.maps`, category `Frame`) cover
 culling and draw encoding for one view; record and summarise them as in
-[docs/profiling.md](../docs/profiling.md). Use Metal System Trace or GPU timing
-for GPU execution and missed deadlines: fewer submitted triangles alone don't
+[docs/profiling.md](../docs/profiling.md). Use Metal System Trace for missed
+deadlines, and the GPU time above for execution: fewer submitted triangles alone don't
 prove a frame-rate gain.
 
 For a controlled comparison, use a fixed saved view (New York at street level,
@@ -73,6 +87,26 @@ quality, both eyes and compositor depth. The simulator can't show foveation
 quality.
 
 ## Log
+
+### 2026-11-05: GPU timing, bounds view and credits (written, not built)
+
+- **Inferred:** nothing here has been compiled or run; written without Xcode.
+  Check on a device:
+  - the stats line's GPU numbers are plausible next to frame time, on Mac and
+    in the immersive space;
+  - `ALSOMAPS_METAL_DEBUG=bounds` draws boxes where the tiles are, with the
+    right orientation, and the colours run coarse to fine toward the viewer;
+  - the credits appear in the immersive space, are legible and the right way
+    up, don't flicker when the text changes, and sit comfortably in the view.
+- The credits are a head-locked quad (device pose each frame, 1.2 m ahead,
+  0.42 m down), 0.64 m wide, drawn last with depth always passing so nothing
+  hides them. Chosen over a ground-anchored quad because attribution has to be
+  visible and a ground quad can be out of view or under a building. Cost: it
+  follows the head, which some find tiring; tune the offset in
+  `MetalImmersiveRenderer.render`. The text is the volume's: the tiles'
+  credits joined by " · ", plus Google's logo while `showsGoogleLogo`.
+  Drawn with CoreText into a 1024×160 bitmap (`MetalOverlays.swift`), rebuilt
+  only when the credits change. The Mac and iOS windows keep the SwiftUI bar.
 
 ### 2026-11-04: eye height is measured twice
 

@@ -3,6 +3,7 @@ import CompositorServices
 import Metal
 import OSLog
 import SwiftUI
+import simd
 
 /// The immersive presentation drawn with Metal (Settings › General › Draw
 /// with Metal): the same MapModel, placement and streaming as
@@ -58,6 +59,7 @@ final class MetalImmersiveRenderer {
     private let worldTracking = WorldTrackingProvider()
     private let queue: MTLCommandQueue?
     private var measuredEye = false
+    private var creditsDrawn: (credits: [TileStreaming.Credit], logo: Bool) = ([], false)
     private var drawLog = MetalDrawLog()
     private var log = (frames: 0, anchored: 0, lastPrint: Date())
 
@@ -159,6 +161,12 @@ final class MetalImmersiveRenderer {
         guard let commands = queue?.makeCommandBuffer() else { return }
         let root = model.tilesInImmersiveSpace
         let tiles = model.streaming.drawnTiles
+        updateCredits()
+        // Head-locked: the credits keep their place in the view as the head
+        // moves, so they can't be left behind or out of sight, which
+        // attribution must not be. 1.2 m ahead and 0.42 m down (about 19°
+        // below the gaze), small, and drawn over the world.
+        let credits = originFromDevice * simd_float4x4(translation: [0, -0.42, -1.2])
         var statistics = MetalDrawStatistics()
         // Views sharing a texture (the shared layout) are drawn in one pass,
         // cleared once, each in its own viewport.
@@ -192,12 +200,29 @@ final class MetalImmersiveRenderer {
                              root: root, tiles: tiles))
                 // Sky left at the far plane would be dropped as clipped.
                 metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat)
+                metal.overlays?.encodeCredits(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
+                                              viewProjection: drawable.computeProjection(viewIndex: index)
+                                                  * (originFromDevice * view.transform).inverse,
+                                              model: credits)
             }
             encoder.endEncoding()
         }
         drawable.encodePresent(commandBuffer: commands)
+        drawLog.observe(commands)
         commands.commit()
         drawLog.record(statistics)
+    }
+
+    /// The credits text as the volume's attribution bar shows it (the
+    /// tiles' credits joined by " · ", with Google's logo while it's
+    /// required), redrawn into the quad's bitmap only when it changes.
+    private func updateCredits() {
+        let streaming = model.streaming
+        guard streaming.credits != creditsDrawn.credits || streaming.showsGoogleLogo != creditsDrawn.logo else { return }
+        creditsDrawn = (streaming.credits, streaming.showsGoogleLogo)
+        let text = streaming.credits.map(\.text).filter { !$0.isEmpty }.joined(separator: " · ")
+        let logo = streaming.showsGoogleLogo ? UIImage(named: "GoogleMapsLogo")?.cgImage : nil
+        metal.overlays?.updateCredits(text: text, logo: logo)
     }
 
     private func printLog() {
@@ -211,5 +236,12 @@ final class MetalImmersiveRenderer {
     private static func seconds(_ duration: Duration) -> TimeInterval {
         let parts = duration.components
         return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) * 1e-18
+    }
+}
+
+private extension simd_float4x4 {
+    init(translation: SIMD3<Float>) {
+        self = matrix_identity_float4x4
+        columns.3 = SIMD4(translation, 1)
     }
 }
