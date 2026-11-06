@@ -186,10 +186,12 @@ final class MetalImmersiveRenderer {
                 encoder.setViewport(view.textureMap.viewport)
                 // The compositor's projection: reverse Z over its default
                 // depth range, which the cleared 0 is the far end of.
+                let eyeFromScene = originFromDevice * view.transform
+                let eye = eyeFromScene.columns.3
                 statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
-                             viewProjection: drawable.computeProjection(viewIndex: index)
-                                 * (originFromDevice * view.transform).inverse,
-                             root: root, tiles: tiles))
+                             viewProjection: drawable.computeProjection(viewIndex: index) * eyeFromScene.inverse,
+                             root: root, frame: MetalFrameState(cameraPosition: SIMD3(eye.x, eye.y, eye.z)),
+                             tiles: tiles))
                 // Sky left at the far plane would be dropped as clipped.
                 metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat)
             }

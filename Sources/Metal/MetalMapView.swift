@@ -79,6 +79,7 @@ struct MetalMapView {
                 let statistics = renderer.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
                                 viewProjection: projection * map.cameraMatrix.inverse,
                                 root: map.streaming.tilesRoot.transform.matrix,
+                                frame: MetalFrameState(cameraPosition: SIMD3(map.cameraMatrix.columns.3.x, map.cameraMatrix.columns.3.y, map.cameraMatrix.columns.3.z)),
                                 tiles: map.streaming.drawnTiles)
                 encoder.endEncoding()
                 commands.present(drawable)

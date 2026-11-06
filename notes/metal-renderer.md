@@ -6,6 +6,20 @@ running log of what was found, newest first. **Observed** means seen on a
 device or in logs. **Inferred** means a hypothesis that fits the evidence but
 wasn't confirmed.
 
+## Frame and tile uniforms
+
+`MetalTileRenderer.encode` binds a `MetalFrameUniforms` block once per call
+(vertex buffer 4, fragment buffer 1: view-projection, camera position and
+time, sun direction and colour, exposure, tone curve) and a
+`MetalTileUniforms` block per part (buffer 3 / fragment 0). Both are defined
+in `Sources/Metal/MetalUniforms.swift`; the MSL copies carry `static_assert`s
+on their sizes (128 and 160 bytes) and `Tests/Metal/MetalSunTests.swift`
+checks the Swift side. The per-tile model-view-projection is still multiplied
+on the CPU so vertex precision is unchanged. `MetalSun` gives a sun direction
+in east-north-up; mapping that into scene space is up to the caller (nothing
+uses it yet; the defaults reproduce the old fixed light). **Inferred:** not
+built or run when written.
+
 ## How it works
 
 ### Culling
