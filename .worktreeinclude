@@ -1,0 +1,3 @@
+# Gitignored files to copy into each new worktree, for tools that read this
+# file (Claude Code, Conductor and others). Plain `git worktree add` doesn't.
+Config/Secrets.xcconfig
