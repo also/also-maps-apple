@@ -33,6 +33,8 @@
 	<true/>
 	<key>GoogleMapsAPIKey</key>
 	<string>$(GOOGLE_MAPS_API_KEY)</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Also Maps shows a dot on the map where each of your photos was taken. It reads only their locations, which stay on this device.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

@@ -65,6 +65,19 @@ final class TileStreaming {
     private(set) var loadProgress: Float = 0
     private(set) var statusMessage: String?
     var isStreaming: Bool { streamer != nil }
+    /// The name of the traces draped over the map; nil if there are none.
+    private(set) var tracesName = UserDefaults.standard.string(forKey: TileStreaming.tracesNameKey)
+    private(set) var isLoadingTraces = false
+    /// Why the last traces couldn't be shown, until it's been read.
+    var tracesError: String?
+#if !os(tvOS)
+    /// Where the photos in the library were taken, drawn as dots; nil when
+    /// photos aren't shown.
+    private(set) var photoPoints: PhotoPoints?
+    private(set) var isLoadingPhotos = false
+    /// Why the photos couldn't be shown, until it's been read.
+    var photosError: String?
+#endif
 
     private var streamer: CNTileStreamer?
     private let tileUploader = TileUploader()
@@ -80,6 +93,16 @@ final class TileStreaming {
     /// With a custom handler: last frame's tiles, each with its placement in
     /// the anchor's level frame (the same as an entity's under `tilesRoot`).
     private(set) var drawnTiles: [(tile: CNTileMesh, placement: simd_float4x4)] = []
+    private let drape = TraceDrape()
+    /// sRGB, the teal the traces are drawn in on the web.
+    private static let traceColor = SIMD4<Float>(0, 0.863, 0.761, 1)
+    private static let tracesNameKey = "tracesName"
+    private static let tracesFile = URL.applicationSupportDirectory.appending(path: "traces.geojson")
+    private static let showsPhotosKey = "showsPhotos"
+    /// sRGB, a warm pink that stands out from the teal traces and most of
+    /// what the photos show.
+    private static let photoColor = SIMD4<Float>(1, 0.271, 0.475, 1)
+    private var startedLoading = Date()
     private var tileEntities: [UInt64: Entity] = [:]
     private var renderedTiles: [CNTileMesh] = []
     /// Draw each drawn tile's bounding box as a wireframe child of the tile:
@@ -111,6 +134,96 @@ final class TileStreaming {
         guard !started else { return }
         started = true
         startStreamer()
+        // Debug: ALSOMAPS_TRACES=<path to GeoJSON> opens it as if picked.
+        if let traces = ProcessInfo.processInfo.environment["ALSOMAPS_TRACES"], !traces.isEmpty {
+            Task { _ = await openTraces(URL(fileURLWithPath: traces)) }
+        }
+#if !os(tvOS)
+        // Shown last time and still allowed: read the library again, as it
+        // may have changed, without asking.
+        if UserDefaults.standard.bool(forKey: Self.showsPhotosKey), PhotoLibraryLocations.isAuthorized {
+            Task { _ = await showPhotos() }
+        }
+#endif
+    }
+
+#if !os(tvOS)
+    // MARK: Photos
+
+    /// Reads where the library's photos were taken, asking for access first
+    /// if it hasn't been decided, and draws a dot at each. Remembered for
+    /// next launch. Returns a view of where most were taken, or nil with
+    /// `photosError` set.
+    func showPhotos() async -> Place? {
+        isLoadingPhotos = true
+        defer { isLoadingPhotos = false }
+        do {
+            let points = try await PhotoLibraryLocations.load()
+            photoPoints = points
+            UserDefaults.standard.set(true, forKey: Self.showsPhotosKey)
+            drawPhotos()
+            return points.place(name: "Photos")
+        } catch {
+            photosError = error.localizedDescription
+            hidePhotos()
+            return nil
+        }
+    }
+
+    func hidePhotos() {
+        photoPoints = nil
+        UserDefaults.standard.removeObject(forKey: Self.showsPhotosKey)
+        streamer?.removePointsOverlay()
+    }
+
+    private func drawPhotos() {
+        guard let photoPoints else { return }
+        streamer?.showPointsOverlay(coordinates: photoPoints.coordinates, radius: 3, color: Self.photoColor)
+    }
+#endif
+
+    // MARK: Traces
+
+    /// Prepares a GeoJSON file and drapes it over the map, keeping a copy so
+    /// it's there next launch. Returns a view of it, or nil with `tracesError`
+    /// set.
+    func openTraces(_ url: URL) async -> Place? {
+        isLoadingTraces = true
+        defer { isLoadingTraces = false }
+        let name = url.deletingPathExtension().lastPathComponent
+        do {
+            let place = try await Task.detached(priority: .userInitiated) {
+                let accessing = url.startAccessingSecurityScopedResource()
+                defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                let file = try TraceFile(geoJSON: Data(contentsOf: url, options: .mappedIfSafe), name: name)
+                try FileManager.default.createDirectory(at: Self.tracesFile.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
+                try file.data.write(to: Self.tracesFile, options: .atomic)
+                return file.place
+            }.value
+            tracesName = name
+            UserDefaults.standard.set(name, forKey: Self.tracesNameKey)
+            showTraces()
+            return place
+        } catch {
+            tracesError = error.localizedDescription
+            return nil
+        }
+    }
+
+    func removeTraces() {
+        streamer?.removeGeoJSONOverlay()
+        tracesName = nil
+        UserDefaults.standard.removeObject(forKey: Self.tracesNameKey)
+        try? FileManager.default.removeItem(at: Self.tracesFile)
+    }
+
+    private func showTraces() {
+        streamer?.showGeoJSONOverlay(path: Self.tracesFile.path, lineWidth: 2, color: Self.traceColor) { [weak self] error in
+            guard let self, let error else { return }
+            self.tracesError = error
+            self.removeTraces()
+        }
     }
 
     private func startStreamer() {
@@ -134,7 +247,16 @@ final class TileStreaming {
         tileUploader.untexturedColor = settings.tileSource.untexturedColor
         // Before the first update, so every tile goes through it.
         streamer.tileLoadHandler = customTileHandler ?? tileUploader.handler
+        streamer.rasterAttachHandler = { [drape] tile, raster, translation, scale in
+            drape.attach(tile, raster: raster, translation: translation, scale: scale)
+        }
+        streamer.rasterDetachHandler = { [drape] tile in drape.detach(tile) }
         self.streamer = streamer
+        if tracesName != nil { showTraces() }
+#if !os(tvOS)
+        drawPhotos()
+#endif
+        startedLoading = Date()
         applySettings()
         applyInputs()
     }
@@ -227,6 +349,7 @@ final class TileStreaming {
         defer { debugSlowestUpdate = max(debugSlowestUpdate, Date().timeIntervalSince(updateStart)) }
         #endif
         let frame = streamer.update(withDeltaTime: deltaTime)
+        drape.finishFrame()
 
         for id in frame.freedTileIDs {
             tileEntities.removeValue(forKey: id.uint64Value)?.removeFromParent()
@@ -267,6 +390,9 @@ final class TileStreaming {
         if frame.loadProgress >= 100, loadProgress < 100 {
             Signposts.tiles.emitEvent("LoadComplete")
             statusMessage = nil
+            #if DEBUG
+            print("[AlsoMaps] load complete \(String(format: "%.1f", Date().timeIntervalSince(startedLoading))) s after start, \(frame.tilesToRender.count) tiles")
+            #endif
         }
         loadProgress = frame.loadProgress
         let fetch = streamer.fetchStats()
@@ -280,7 +406,8 @@ final class TileStreaming {
         debugLogElapsed += deltaTime
         if debugLogElapsed > 1 {
             debugLogElapsed = 0
-            print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB)")
+            print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB), rasters \(drape.attachedRasters) attached / \(drape.emptyRasters) empty / \(drape.undrapableTiles) undrapable, \(drape.drapedTiles) draped")
+            fflush(stdout)
             debugSlowestUpdate = 0
         }
         #endif

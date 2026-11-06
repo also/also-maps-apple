@@ -26,7 +26,14 @@
 #include <CesiumGltf/Model.h>
 #include <CesiumGltfContent/GltfUtilities.h>
 #include <CesiumImage/ImageAsset.h>
+#include <CesiumRasterOverlays/RasterOverlayTile.h>
+#include <CesiumUtility/Color.h>
 #include <CesiumUtility/CreditSystem.h>
+#include <CesiumVectorData/GeoJsonDocument.h>
+#include <CesiumVectorData/GeoJsonObject.h>
+#include <CesiumVectorData/GeoJsonObjectTypes.h>
+#include <CesiumVectorData/VectorStyle.h>
+#include <CesiumVectorOverlays/GeoJsonDocumentRasterOverlay.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -50,6 +57,7 @@ using CesiumGeospatial::Ellipsoid;
 @interface CNPrimitive ()
 - (instancetype)initWithPositions:(NSData *)positions
                         texcoords:(nullable NSData *)texcoords
+                 overlayTexcoords:(nullable NSData *)overlayTexcoords
                           normals:(nullable NSData *)normals
                           indices:(NSData *)indices
                              rgba:(nullable NSData *)rgba
@@ -59,9 +67,14 @@ using CesiumGeospatial::Ellipsoid;
                         baseColor:(simd_float4)baseColor;
 @end
 
+@interface CNRasterImage ()
+- (instancetype)initWithRGBA:(NSData *)rgba width:(NSInteger)width height:(NSInteger)height;
+@end
+
 @implementation CNPrimitive
 - (instancetype)initWithPositions:(NSData *)positions
                         texcoords:(NSData *)texcoords
+                 overlayTexcoords:(NSData *)overlayTexcoords
                           normals:(NSData *)normals
                           indices:(NSData *)indices
                              rgba:(NSData *)rgba
@@ -72,6 +85,7 @@ using CesiumGeospatial::Ellipsoid;
   if ((self = [super init])) {
     _positions = positions;
     _texcoords = texcoords;
+    _overlayTexcoords = overlayTexcoords;
     _normals = normals;
     _indices = indices;
     _rgba = rgba;
@@ -82,6 +96,17 @@ using CesiumGeospatial::Ellipsoid;
     _textureMagFilter = sampler.magFilter.value_or(0);
     _textureMinFilter = sampler.minFilter.value_or(0);
     _baseColor = baseColor;
+  }
+  return self;
+}
+@end
+
+@implementation CNRasterImage
+- (instancetype)initWithRGBA:(NSData *)rgba width:(NSInteger)width height:(NSInteger)height {
+  if ((self = [super init])) {
+    _rgba = rgba;
+    _width = width;
+    _height = height;
   }
   return self;
 }
@@ -653,6 +678,27 @@ CNTileMesh* _Nullable buildTileMesh(
           }
         }
 
+        // Overlay coordinates, which cesium-native adds to the glTF when the
+        // tileset has a raster overlay. Only unlit, textured tiles use them.
+        NSMutableData* overlayTexcoordData = nil;
+        if (rgba) {
+          auto overlayIt = primitive.attributes.find("_CESIUMOVERLAY_0");
+          if (overlayIt != primitive.attributes.end()) {
+            AccessorView<glm::vec2> uvs(gltf, overlayIt->second);
+            if (uvs.status() == AccessorViewStatus::Valid &&
+                size_t(uvs.size()) == vertexCount) {
+              overlayTexcoordData =
+                  [NSMutableData dataWithLength:vertexCount * 2 * sizeof(float)];
+              float* t = static_cast<float*>(overlayTexcoordData.mutableBytes);
+              for (size_t i = 0; i < vertexCount; ++i) {
+                const glm::vec2 uv = uvs[int64_t(i)];
+                t[i * 2 + 0] = uv.x;
+                t[i * 2 + 1] = uv.y;
+              }
+            }
+          }
+        }
+
         std::vector<uint32_t> indices;
         if (const Accessor* pIndices =
                 Model::getSafe(&gltf.accessors, primitive.indices)) {
@@ -765,6 +811,7 @@ CNTileMesh* _Nullable buildTileMesh(
         NSInteger height = rgba && pImage ? pImage->height : 0;
         [primitives addObject:[[CNPrimitive alloc] initWithPositions:positionData
                                                            texcoords:texcoordData
+                                                    overlayTexcoords:overlayTexcoordData
                                                              normals:normalData
                                                              indices:indexData
                                                                 rgba:rgba
@@ -855,31 +902,61 @@ public:
   }
 
   void* prepareRasterInLoadThread(
-      CesiumImage::ImageAsset&,
+      CesiumImage::ImageAsset& image,
       const std::any&) override {
-    return nullptr;
+    NSData* rgba = [NSData dataWithBytes:image.pixelData.data()
+                                  length:image.pixelData.size()];
+    CNRasterImage* raster = [[CNRasterImage alloc] initWithRGBA:rgba
+                                                          width:image.width
+                                                         height:image.height];
+    return (__bridge_retained void*)raster;
   }
   void* prepareRasterInMainThread(
       CesiumRasterOverlays::RasterOverlayTile&,
-      void*) override {
-    return nullptr;
+      void* pLoadThreadResult) override {
+    // As with tiles, ownership moves to the main-thread slot unchanged.
+    return pLoadThreadResult;
   }
   void freeRaster(
       const CesiumRasterOverlays::RasterOverlayTile&,
-      void*,
-      void*) noexcept override {}
+      void* pLoadThreadResult,
+      void* pMainThreadResult) noexcept override {
+    void* p = pMainThreadResult ? pMainThreadResult : pLoadThreadResult;
+    if (p) {
+      CNRasterImage* raster = (__bridge_transfer CNRasterImage*)p;
+      (void)raster;
+    }
+  }
   void attachRasterInMainThread(
-      const Tile&,
+      const Tile& tile,
       int32_t,
       const CesiumRasterOverlays::RasterOverlayTile&,
-      void*,
-      const glm::dvec2&,
-      const glm::dvec2&) override {}
+      void* pMainThreadRendererResources,
+      const glm::dvec2& translation,
+      const glm::dvec2& scale) override {
+    CNTileMesh* mesh = meshForTile(tile);
+    if (mesh && pMainThreadRendererResources && _rasterAttachHandler) {
+      _rasterAttachHandler(
+          mesh,
+          (__bridge CNRasterImage*)pMainThreadRendererResources,
+          simd_make_float2(float(translation.x), float(translation.y)),
+          simd_make_float2(float(scale.x), float(scale.y)));
+    }
+  }
   void detachRasterInMainThread(
-      const Tile&,
+      const Tile& tile,
       int32_t,
       const CesiumRasterOverlays::RasterOverlayTile&,
-      void*) noexcept override {}
+      void*) noexcept override {
+    CNTileMesh* mesh = meshForTile(tile);
+    if (mesh && _rasterDetachHandler) {
+      _rasterDetachHandler(mesh);
+    }
+  }
+
+  // Both are only set and used on the main thread.
+  CNRasterAttachHandler _rasterAttachHandler;
+  CNRasterDetachHandler _rasterDetachHandler;
 
   CNTileLoadHandler tileLoadHandler() {
     std::lock_guard<std::mutex> lock(_handlerMutex);
@@ -892,6 +969,12 @@ public:
   }
 
 private:
+  static CNTileMesh* meshForTile(const Tile& tile) {
+    const TileRenderContent* pContent = tile.getContent().getRenderContent();
+    void* p = pContent ? pContent->getRenderResources() : nullptr;
+    return p ? (__bridge CNTileMesh*)p : nil;
+  }
+
   std::atomic<uint64_t> _nextID{1};
   std::mutex _handlerMutex;
   CNTileLoadHandler _handler;
@@ -1002,6 +1085,17 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
   std::shared_ptr<RealityKitPrepareRendererResources> _resources;
   std::shared_ptr<AreaOfInterestExcluder> _excluder;
   std::unique_ptr<Tileset> _tileset;
+  // The one vector overlay, rebuilt whenever its traces or points change.
+  // Tiles have room for one overlay texture (TraceDrape), so both are drawn
+  // into it.
+  CesiumUtility::IntrusivePointer<CesiumRasterOverlays::RasterOverlay>
+      _vectorOverlay;
+  // The traces document, parsed on a worker; holds nullptr if it failed.
+  std::optional<SharedFuture<std::shared_ptr<CesiumVectorData::GeoJsonDocument>>>
+      _traces;
+  CesiumVectorData::LineStyle _traceLine;
+  // A GeometryCollection of Points, styled as dots.
+  std::shared_ptr<const CesiumVectorData::GeoJsonObject> _points;
   std::shared_ptr<FetchCounters> _fetchCounters;
   CNFrame* _lastFrame;
 }
@@ -1109,6 +1203,174 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
 
 - (void)setTileLoadHandler:(CNTileLoadHandler)handler {
   _resources->setTileLoadHandler(handler);
+}
+
+- (CNRasterAttachHandler)rasterAttachHandler {
+  return _resources->_rasterAttachHandler;
+}
+
+- (void)setRasterAttachHandler:(CNRasterAttachHandler)handler {
+  _resources->_rasterAttachHandler = handler;
+}
+
+- (CNRasterDetachHandler)rasterDetachHandler {
+  return _resources->_rasterDetachHandler;
+}
+
+- (void)setRasterDetachHandler:(CNRasterDetachHandler)handler {
+  _resources->_rasterDetachHandler = handler;
+}
+
+- (void)showGeoJSONOverlayFromPath:(NSString*)path
+                         lineWidth:(double)lineWidth
+                             color:(simd_float4)color
+                        completion:(void (^)(NSString* _Nullable))completion {
+  using CesiumVectorData::GeoJsonDocument;
+  _traces = _asyncSystem
+                ->runInWorkerThread([path, completion]() {
+                  NSData* data = [NSData dataWithContentsOfFile:path];
+                  auto result = GeoJsonDocument::fromGeoJson(
+                      std::span<const std::byte>(
+                          static_cast<const std::byte*>(data.bytes),
+                          data.length));
+                  if (!result.value) {
+                    NSString* message = result.errors.errors.empty()
+                        ? @"The file couldn't be read."
+                        : @(result.errors.errors.front().c_str());
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                      completion(message);
+                    });
+                    return std::shared_ptr<GeoJsonDocument>();
+                  }
+                  dispatch_async(dispatch_get_main_queue(), ^{
+                    completion(nil);
+                  });
+                  return std::make_shared<GeoJsonDocument>(
+                      std::move(*result.value));
+                })
+                .share();
+
+  _traceLine = CesiumVectorData::LineStyle();
+  _traceLine.color = CesiumUtility::Color(
+      uint8_t(color.x * 255),
+      uint8_t(color.y * 255),
+      uint8_t(color.z * 255),
+      uint8_t(color.w * 255));
+  _traceLine.width = lineWidth;
+  _traceLine.widthMode = CesiumVectorData::LineWidthMode::Pixels;
+  [self rebuildVectorOverlay];
+}
+
+- (void)removeGeoJSONOverlay {
+  if (!_traces) {
+    return;
+  }
+  _traces.reset();
+  [self rebuildVectorOverlay];
+}
+
+- (void)showPointsOverlayWithCoordinates:(NSData*)coordinates
+                                  radius:(double)radius
+                                   color:(simd_float4)color {
+  using namespace CesiumVectorData;
+  const size_t count = coordinates.length / sizeof(simd_double2);
+  const simd_double2* lonLat =
+      static_cast<const simd_double2*>(coordinates.bytes);
+
+  // One Point per position, rather than one MultiPoint, so that each is its
+  // own entry in the overlay's quadtree and a tile rasterizes only the dots
+  // near it.
+  GeoJsonGeometryCollection collection;
+  collection.geometries.reserve(count);
+  for (size_t i = 0; i < count; i++) {
+    collection.geometries.emplace_back(GeoJsonObject{
+        GeoJsonPoint{glm::dvec3(lonLat[i].x, lonLat[i].y, 0.0)}});
+  }
+
+  // On the collection, not each point: the overlay keeps a pointer to the
+  // style each object resolves to, and a collection's stays put.
+  PointStyle point;
+  point.radius = radius;
+  point.fill = ColorStyle{
+      CesiumUtility::Color(
+          uint8_t(color.x * 255),
+          uint8_t(color.y * 255),
+          uint8_t(color.z * 255),
+          uint8_t(color.w * 255)),
+      ColorMode::Normal};
+  LineStyle outline;
+  outline.color = CesiumUtility::Color(0xff, 0xff, 0xff, 0xff);
+  outline.width = 1.0;
+  outline.widthMode = LineWidthMode::Pixels;
+  point.outline = outline;
+  collection.style = VectorStyle(LineStyle(), PolygonStyle(), point);
+
+  _points = std::make_shared<const GeoJsonObject>(
+      GeoJsonObject{std::move(collection)});
+  [self rebuildVectorOverlay];
+}
+
+- (void)removePointsOverlay {
+  if (!_points) {
+    return;
+  }
+  _points.reset();
+  [self rebuildVectorOverlay];
+}
+
+/// Replaces the vector overlay with one of the current traces and points.
+/// Tiles that loaded without an overlay load again.
+- (void)rebuildVectorOverlay {
+  using CesiumVectorData::GeoJsonDocument;
+  using CesiumVectorData::GeoJsonGeometryCollection;
+  using CesiumVectorData::GeoJsonObject;
+
+  if (_vectorOverlay) {
+    _tileset->getOverlays().remove(_vectorOverlay);
+    _vectorOverlay = nullptr;
+  }
+  if (!_traces && !_points) {
+    return;
+  }
+
+  // Both in one document: a collection of the traces' root and the points.
+  // Unstyled traces fall back to the overlay's default (line) style; the
+  // points carry their own.
+  auto combine = [](const std::shared_ptr<GeoJsonDocument>& traces,
+                    const std::shared_ptr<const GeoJsonObject>& points)
+      -> std::shared_ptr<GeoJsonDocument> {
+    if (!points) {
+      return traces ? traces : std::make_shared<GeoJsonDocument>();
+    }
+    GeoJsonGeometryCollection root;
+    if (traces) {
+      root.geometries.emplace_back(traces->rootObject);
+    }
+    root.geometries.emplace_back(*points);
+    auto document = std::make_shared<GeoJsonDocument>();
+    document->rootObject = GeoJsonObject{std::move(root)};
+    return document;
+  };
+
+  auto points = _points;
+  Future<std::shared_ptr<GeoJsonDocument>> document =
+      _traces ? _traces->thenInWorkerThread(
+                    [combine, points](
+                        const std::shared_ptr<GeoJsonDocument>& traces) {
+                      return combine(traces, points);
+                    })
+              : _asyncSystem->runInWorkerThread(
+                    [combine, points]() { return combine(nullptr, points); });
+
+  CesiumVectorOverlays::GeoJsonDocumentRasterOverlayOptions options{
+      .defaultStyle = CesiumVectorData::VectorStyle(_traceLine, {}),
+      .ellipsoid = _tileset->getOptions().ellipsoid};
+
+  _vectorOverlay = new CesiumVectorOverlays::GeoJsonDocumentRasterOverlay(
+      "vectors",
+      std::move(document),
+      options);
+  _tileset->getOverlays().add(_vectorOverlay);
 }
 
 - (double)maximumScreenSpaceError {

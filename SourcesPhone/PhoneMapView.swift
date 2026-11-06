@@ -68,6 +68,10 @@ struct PhoneMapView: View {
                     Button("Settings", systemImage: "gearshape") {
                         showsSettings = true
                     }
+                    OverlaysMenu(streaming: map.streaming) { place in
+                        selection = nil
+                        map.go(to: place)
+                    }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
                     }

@@ -51,6 +51,9 @@ settingGroups:
       - LIBASYNC_STATIC
       - SPDLOG_COMPILED_LIB
       - SPDLOG_FMT_EXTERNAL
+      # The prebuilt library is a release build. Without this, ReferenceCounted
+      # in its headers has a debug-only member the library's objects don't.
+      - NDEBUG
   # One app on every platform. The Mac shows this name, not the display name, in
   # Finder and the menu bar; Swift module names can't have spaces.
   AppName:
@@ -77,6 +80,9 @@ targets:
         - variable: ALSOMAPS_RADIUS
           value: "800"
           isEnabled: false
+        - variable: ALSOMAPS_TRACES
+          value: ""
+          isEnabled: false
     type: application
     platform: visionOS
     sources:
@@ -101,6 +107,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
+        # Photo locations (OverlaysMenu) read only where each photo was taken.
+        NSPhotoLibraryUsageDescription: Also Maps shows a dot on the map where each of your photos was taken. It reads only their locations, which stay on this device.
         # Game controllers drive the map (MapInput) rather than system navigation.
         GCSupportsControllerUserInteraction: true
         GCSupportedGameControllers:
@@ -168,6 +176,11 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - TraceDrape.swift
+          - TraceFile.swift
+          - OverlaysMenu.swift
+          - PhotoPoints.swift
+          - PhotoLibraryLocations.swift
           - DebugLines.swift
           - Config
           - Credentials
@@ -187,6 +200,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
+        # Photo locations (OverlaysMenu) read only where each photo was taken.
+        NSPhotoLibraryUsageDescription: Also Maps shows a dot on the map where each of your photos was taken. It reads only their locations, which stay on this device.
         LSApplicationCategoryType: public.app-category.navigation
     settings:
       groups: [CesiumBridge, AppName]
@@ -222,6 +237,8 @@ targets:
       - path: Sources/Metal/MetalVisibility.swift
       - path: Tests/Metal
       - path: Sources/Places/Place.swift
+      - path: Sources/TraceFile.swift
+      - path: Sources/PhotoPoints.swift
       - path: Sources/Config/AppConfig.swift
       - path: Sources/Config/AppConfigStore.swift
       - path: Sources/Credentials/CredentialStore.swift
@@ -256,6 +273,9 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - TraceDrape.swift
+          - TraceFile.swift
+          - OverlaysMenu.swift
           - DebugLines.swift
           - Config
           - Credentials/CredentialStore.swift
@@ -312,6 +332,11 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - TraceDrape.swift
+          - TraceFile.swift
+          - OverlaysMenu.swift
+          - PhotoPoints.swift
+          - PhotoLibraryLocations.swift
           - DebugLines.swift
           - Config
           - Credentials
@@ -337,6 +362,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
+        # Photo locations (OverlaysMenu) read only where each photo was taken.
+        NSPhotoLibraryUsageDescription: Also Maps shows a dot on the map where each of your photos was taken. It reads only their locations, which stay on this device.
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
