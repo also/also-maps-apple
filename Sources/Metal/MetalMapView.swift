@@ -42,6 +42,7 @@ struct MetalMapView {
         let view = MTKView(frame: .zero, device: renderer.device)
         view.colorPixelFormat = .bgra8Unorm_srgb
         view.depthStencilPixelFormat = .depth32Float
+        view.sampleCount = renderer.mapSampleCount  // MTKView allocates and resolves the multisample targets
         view.clearDepth = 0
         view.clearColor = MetalTileRenderer.skyColour
         view.preferredFramesPerSecond = 60
@@ -77,6 +78,7 @@ struct MetalMapView {
                     tangents: [halfHeight * aspect, halfHeight * aspect, halfHeight, halfHeight],
                     near: Float(near), far: Float(far))
                 let statistics = renderer.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
+                                sampleCount: view.sampleCount,
                                 viewProjection: projection * map.cameraMatrix.inverse,
                                 root: map.streaming.tilesRoot.transform.matrix,
                                 tiles: map.streaming.drawnTiles)

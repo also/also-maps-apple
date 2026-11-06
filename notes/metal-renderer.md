@@ -74,6 +74,23 @@ quality.
 
 ## Log
 
+### 2026-11-05: anisotropy and MSAA on Mac/iOS (not built or tested)
+
+- **Inferred:** tile samplers (Metal path only; RealityKit's descriptor is
+  untouched) now use `maxAnisotropy = 4` when min and mag filters are linear.
+- **Inferred:** the Mac/iOS `MTKView` uses 4x MSAA where
+  `supportsTextureSampleCount(4)`, else 1. The pipeline key includes the
+  sample count and sets `rasterSampleCount`. MTKView makes the multisample
+  colour and depth targets and resolves colour into the drawable. The sky-depth
+  pass is only used on visionOS, but takes a sample count too.
+- **Not done, visionOS MSAA:** the compositor's colour and depth textures are
+  single-sample and come with a rasterization rate map for foveation. Whether
+  a multisample target can be combined with the rate map isn't verified, so
+  the compositor path stays at 1 sample.
+- Pipelines for bgra8Unorm_srgb/depth32Float are made in `init`. Samplers are
+  still made on first use: they're built on the tile-build threads, not the
+  render thread, and the cache keys come from each tile's glTF sampler.
+
 ### 2026-11-04: eye height is measured twice
 
 - **Observed (code):** both immersive spaces place the map around an eye
