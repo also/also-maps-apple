@@ -224,7 +224,7 @@ struct ViewStateTests {
     }
 
     @Test func legacyStatesAreRejectedClearly() {
-        let legacy = #"{"flyScale":1,"flying":false,"focusHeight":-32,"headingDegrees":25,"latitude":37.7955,"longitude":-122.3937,"presentation":"volume","radius":600}"#
+        let legacy = #"{"focusHeight":-32,"headingDegrees":25,"latitude":37.7955,"longitude":-122.3937,"presentation":"volume","radius":600}"#
         #expect(throws: MapViewState.ParseError.unsupportedVersion) { try MapViewState.parse(legacy) }
         #expect(throws: MapViewState.ParseError.notAViewState) { try MapViewState.parse("hello") }
     }
