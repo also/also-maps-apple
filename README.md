@@ -15,13 +15,7 @@ You need Xcode 26 or later with the platform SDKs you want to build for, and [Xc
    open AlsoMaps.xcodeproj
    ```
 
-2. **Pick a scheme and run it.**
-
-   | Scheme | Runs on |
-   | --- | --- |
-   | Also Maps visionOS | Apple Vision Pro simulator, or a device running visionOS 26 or later |
-   | Also Maps iOS | iPhone or iPad, iOS 26 or later |
-   | Also Maps macOS | macOS 26 or later |
+2. **Pick a scheme and run it.** There's a scheme for each platform (Also Maps visionOS, iOS and macOS), each needing OS 26 or later.
 
    On a Vision Pro, run the **Also Maps visionOS (Optimised)** scheme unless you're debugging. It's the Debug build (the key from `Config/Secrets.xcconfig`, `DEBUG` code and logging) compiled with optimisation, and without Metal API validation or GPU frame capture. The unoptimised Debug build misses frame deadlines on the device. The debugger still attaches, but stepping through optimised code is less reliable.
 
