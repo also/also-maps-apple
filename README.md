@@ -1,51 +1,65 @@
 # Also Maps
 
-A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric window, using [cesium-native](https://github.com/CesiumGS/cesium-native) for tile selection and loading and RealityKit for rendering.
+Also Maps streams Google's Photorealistic 3D Tiles to Apple Vision Pro, in a volumetric window or an immersive space. There are also iPhone, iPad and Mac apps.
 
-## How it fits together
-
-- `Sources/Cesium/CNTileStreamer.{h,mm}`: an Objective-C++ bridge that owns a cesium-native `Tileset`. It provides:
-  - networking over `NSURLSession` (cesium-native is built without curl)
-  - a GCD task processor
-  - an `IPrepareRendererResources` that flattens each tile's glTF into float positions (small offsets from the tile's own centre), UVs, indices and RGBA. Every frame each drawn tile gets a transform, computed in double, that places it relative to the current anchor. There's no global origin, so precision is the same anywhere on Earth
-  - an excluder that limits streaming to the area of interest, a square around the anchor measured in the anchor's own frame
-  - a level-of-detail camera given as position, direction and up in the anchor's frame
-- `Sources/TileUploader.swift`: builds each loaded tile's RealityKit meshes and textures asynchronously, a few at a time, before cesium-native counts the tile as loaded. Meshes are built off the main thread.
-- `Sources/TileStreaming.swift`: runs one cesium-native update per RealityKit frame from its streaming inputs (anchor, area of interest, LOD camera), adds ready tile entities, hides tiles that aren't selected and removes freed ones.
-- `Sources/Navigation/`: the platform-neutral navigation core, being introduced in stages (see [docs/camera-core.md](docs/camera-core.md)): WGS84 geodesy and surface queries, camera pose and navigation state, the georeference (world → map frame), streaming inputs, and prototype control styles. `Also Maps Core Tests` tests it on macOS without a scene or network (see [Tests](#tests)).
-- `Sources/MapModel.swift`: navigation and presentation. It stores the camera (`NavigationState`), steers it with the core's model-flight style and anchored gestures, and shows it in each host. The volume uses the adaptive model: the world is scaled so the camera sits at the design eye point and what it looks at sits low in the volume. The immersive space uses the eye-level model (`Sources/Navigation/EyeLevelModel.swift`): the camera is at your eye and the map is level on the origin plane, whatever the camera's pitch, with the scale making the camera's height above the ground your eye's height above the floor. Far up, the map tilts with altitude about your eye, so the ground below comes up in front of you as a globe; the camera stays at your eye at every altitude. Tiles are placed relative to whichever anchor is streaming, so held tiles stay put while you fly.
-- The Shared Space provides no head pose, so a synthetic camera in front of the volume, 45° up, drives level of detail.
+Tile selection and loading use [cesium-native](https://github.com/CesiumGS/cesium-native) via the Swift package [also/cesium-native-xcframework](https://github.com/also/cesium-native-xcframework), a fork of [crookneck/cesium-native-xcframework](https://github.com/crookneck/cesium-native-xcframework) that adds visionOS. RealityKit draws the tiles.
 
 ## Setup
 
-1. **Add an API key.** Copy `Config/Secrets.example.xcconfig` to `Config/Secrets.xcconfig` and set `GOOGLE_MAPS_API_KEY`. This is for Debug builds; see [Keys](#keys). The key needs the Map Tiles API enabled. Restrict it to iOS apps with bundle ID `dev.also.maps`; the app sends `X-Ios-Bundle-Identifier`. You can also set `GOOGLE_MAPS_API_KEY` in the scheme's environment.
+You need Xcode 26 or later with the platform SDKs you want to build for, and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). The Xcode project is generated, not checked in. All builds are Apple silicon (arm64) only.
 
-2. **Generate the project and run it.**
+1. **Generate the project and open it.**
 
    ```
    xcodegen generate
    open AlsoMaps.xcodeproj
    ```
 
-   Run on the Apple Vision Pro simulator or a device running visionOS 26 or later.
+2. **Pick a scheme and run it.**
+
+   | Scheme | Runs on |
+   | --- | --- |
+   | Also Maps visionOS | Apple Vision Pro simulator, or a device running visionOS 26 or later |
+   | Also Maps iOS | iPhone or iPad, iOS 26 or later |
+   | Also Maps macOS | macOS 26 or later |
 
    On a Vision Pro, run the **Also Maps visionOS (Optimised)** scheme unless you're debugging. It's the Debug build (the key from `Config/Secrets.xcconfig`, `DEBUG` code and logging) compiled with optimisation, and without Metal API validation or GPU frame capture. The unoptimised Debug build misses frame deadlines on the device. The debugger still attaches, but stepping through optimised code is less reliable.
 
-**Optional Cesium ion token:** to use the Cesium ion tile sources, add `CESIUM_ION_TOKEN` to `Config/Secrets.xcconfig`. Create the token with only the `assets:read` scope, restricted to the assets the app uses (1, Cesium World Terrain, and 96188, Cesium OSM Buildings).
+3. **Add your own Google Maps key.** On first launch the app asks how to load the map. Builds from source can't use the app's shared key, because that is only handed to builds that pass App Attest as the published app (see [Keys](#keys)). Choose your own key and paste a Google Maps Platform API key with the Map Tiles API enabled. It's saved in the Keychain, so you enter it once per device. If you restrict the key to iOS apps, use your build's bundle ID: the app sends it as `X-Ios-Bundle-Identifier` on every platform.
 
-**cesium-native** comes prebuilt as a Swift package ([also/cesium-native-xcframework](https://github.com/also/cesium-native-xcframework)); Xcode downloads it on first build. To work on it locally, build it there (see its README), symlink the result next to its `Package.swift`, and change `CesiumNative` under `packages:` in `project.yml` to `path: ../cesium-native-xcframework`.
+   You can also build a key into Debug builds instead of entering it: copy `Config/Secrets.example.xcconfig` to `Config/Secrets.xcconfig` and set `GOOGLE_MAPS_API_KEY`, or set `GOOGLE_MAPS_API_KEY` in the scheme's environment.
+
+**Running on a device.** The simulators need no signing. For a device, set `DEVELOPMENT_TEAM` in `Config/Secrets.xcconfig`, so signing survives regenerating the project. Debug builds have no capabilities that need their own App ID, so Xcode signs them with your team's wildcard profile and the bundle ID can stay as it is.
+
+**No key?** Tick the `ALSOMAPS_*` variables in the visionOS scheme. They stream a public Cesium sample tileset instead. `ALSOMAPS_LAT`, `ALSOMAPS_LON`, `ALSOMAPS_RADIUS` and `ALSOMAPS_HEADING` also work on their own, to start somewhere other than the Ferry Building.
+
+**Optional Cesium ion token:** to use the Cesium ion tile sources, add `CESIUM_ION_TOKEN` to `Config/Secrets.xcconfig`. Create the token with only the `assets:read` scope, restricted to the assets the app uses (1, Cesium World Terrain, and 96188, Cesium OSM Buildings).
 
 **Optional soundtrack:** put an MP3 at `Local/soundtrack.mp3`. `Local/` is gitignored, for assets that can't be published. If the file is there, the build bundles it and the app loops it quietly while active, with a mute button in the ornament. Without it, the app simply has no soundtrack.
 
-To test without a key, tick the `ALSOMAPS_*` variables in the scheme. They stream a public Cesium sample tileset instead. `ALSOMAPS_LAT`, `ALSOMAPS_LON`, `ALSOMAPS_RADIUS` and `ALSOMAPS_HEADING` also work on their own, to start somewhere other than the Ferry Building.
+## How it fits together
 
-## Tests
+cesium-native decides which tiles to load and fetches them; a thin bridge hands them to RealityKit; a platform-neutral navigation core owns the camera, and each platform presents that camera its own way.
 
-`Also Maps Core Tests` tests the navigation core on macOS, without a scene or network:
+- **Streaming.** `Sources/Cesium/CNTileStreamer.{h,mm}` is an Objective-C++ bridge that owns a cesium-native `Tileset`. It supplies networking over `NSURLSession` (cesium-native is built without curl) and a GCD task processor, and flattens each tile's glTF into float positions relative to the tile's own centre, plus UVs, indices and RGBA. Every frame, each drawn tile gets a transform, computed in double, that places it relative to the current anchor. There's no global origin, so precision is the same anywhere on Earth. An excluder limits streaming to the area of interest, a square around the anchor, and level of detail comes from a camera given in the anchor's frame.
+- **Frames.** `Sources/TileStreaming.swift` runs one cesium-native update per frame from those inputs (anchor, area of interest, LOD camera), adds ready tiles, hides tiles that aren't selected and removes freed ones. `Sources/TileUploader.swift` builds each tile's RealityKit meshes and textures off the main thread, a few at a time, before cesium-native counts the tile as loaded.
+- **Navigation.** `Sources/Navigation/` holds WGS84 geodesy and surface queries, the camera pose and navigation state, the georeference (world to map frame), the streaming inputs and the control styles. It doesn't depend on RealityKit or a platform, and `Also Maps Core Tests` covers it on macOS (see [Tests](#tests) and [docs/camera-core.md](docs/camera-core.md)).
+- **Presentation.**
+  - *Volume* (`Sources/MapModel.swift`, `Sources/VolumeView.swift`): the world is scaled so the camera sits at a design eye point and what it looks at sits low in the volume. The Shared Space gives the app no head pose, so a synthetic camera in front of the volume, 45° up, drives level of detail.
+  - *Immersive* (`Sources/ImmersiveMapView.swift`, `Sources/Navigation/EyeLevelModel.swift`): the camera is at your eye and the map is level on the floor, scaled so the camera's height above the ground is your eye's height above the floor. Far up, the map tilts about your eye, so the ground comes up in front of you as a globe.
+  - *iPhone, iPad and Mac* (`Sources/Screen/ScreenMap.swift`): the window's camera is the navigation camera.
 
-```
-xcodebuild -scheme 'Also Maps Core Tests' -destination 'platform=macOS' test
-```
+  Tiles are placed relative to whichever anchor is streaming, so held tiles stay put while you move.
+- **Metal renderer.** `Sources/Metal/` and `Sources/MetalImmersiveSpace.swift` are an experimental alternative to RealityKit, behind Settings › General › Draw with Metal. See [notes/metal-renderer.md](notes/metal-renderer.md).
+- **App services.** `Sources/Credentials/` ([Keys](#keys)), `Sources/Config/` ([Remote config](#remote-config)), `Sources/Places/` ([Places](#places)) and `Sources/Tracks/` (recording the camera's path to a CSV in the app's Documents folder, and playing it back).
+
+## Views
+
+The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's centre point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
+
+`ALSOMAPS_PRESENTATION=immersive` (or `volume`) starts in that mode. Saved view states from the earlier 3×, 5× and 10× modes restore into Immersive.
+
+Immersive doesn't clip the map's edges the way the volume does, so whole tiles stick out past the region (#5).
 
 ## Controls
 
@@ -53,7 +67,7 @@ xcodebuild -scheme 'Also Maps Core Tests' -destination 'platform=macOS' test
 - **Zoom:** pinch with both hands and move them apart or together. The view's half-width ranges from 50 m to 10,000 km, about a hemisphere. Below 50 km the ground is placed by sampling terrain. Above 50 km it's placed by the Earth's curve, so sea level at the view's edges meets the base plane, with no sampling. At hemisphere scale, tiles on the far side of the Earth are skipped.
 - **Turn:** pinch with both hands and twist about the vertical. The map turns around the focus point and can turn while zooming.
 - **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F descend and climb (which is zoom), `=` and `-` zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.
-- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, Y faces north, and X holds or releases the loaded tiles (see [Holding tiles](#holding-tiles)). The ornament shows these hints while a controller is connected. Keyboard and controller input combine, and the turn pivot in Settings applies to both.
+- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, Y faces north, and X holds or releases the loaded tiles (see [Holding tiles](#holding-tiles)). The ornament shows these hints while a controller is connected. Keyboard and controller input combine.
 
 On a Mac, the map also takes the usual mouse and trackpad controls:
 
@@ -61,11 +75,13 @@ On a Mac, the map also takes the usual mouse and trackpad controls:
 - **Zoom:** pinch, turn a mouse wheel, or hold Option and scroll, all about the pointer. Double-click zooms in, Option-double-click zooms out, and a two-finger double tap on a trackpad zooms in.
 - **Turn and tilt:** right-drag, or hold Option or Control and drag: sideways turns, up and down tilts. A two-finger twist on a trackpad turns, and Shift-scroll tilts.
 
+On iPhone and iPad, drag to pan, pinch to zoom, twist to turn and move two fingers up or down to tilt. Double tap zooms in (hold the second tap and drag to keep zooming) and a two-finger tap zooms out. Two on-screen sticks, laid out like a game controller's, move and turn or climb, with a tilt slider between them. Places and Settings are in the navigation bar.
+
 `ALSOMAPS_HEADING`, in degrees clockwise from north, sets the starting direction.
 
 ## Holding tiles
 
-**Hold tiles**, in the debug panel, or X on a controller, freezes streaming, so the loaded tiles stay as they are. Every control then does exactly what it does with live tiles: the same moves, turns and zoom, at the same rates and around the same pivot (the "Turn and zoom around" setting), applied to the frozen scene instead of the live map. The surface stays on the base plane. Releasing the tiles resumes streaming from where you are, without anything visibly moving. While tiles are held and the debug panel is closed, the toolbar shows a Tiles Held button that releases them.
+**Hold tiles**, in the debug panel, or X on a controller, freezes streaming, so the loaded tiles stay as they are. Every control then does exactly what it does with live tiles: the same moves, turns and zoom and at the same rates, applied to the frozen scene instead of the live map. The surface stays on the base plane. Releasing the tiles resumes streaming from where you are, without anything visibly moving. While tiles are held and the debug panel is closed, the toolbar shows a Tiles Held button that releases them.
 
 Detail doesn't improve as you zoom in, because nothing new loads while frozen. You can travel about 1.5× and zoom out about 3× the held region before stopping. Changing view mode or going to a place releases the tiles.
 
@@ -131,14 +147,6 @@ Whoever owns the Google Maps Platform key a build uses must follow the [Google M
 - **No storing or exporting** tile content, or data derived from it such as surface heights, beyond what the HTTP cache headers allow.
 - **Videos**: only promotional videos about the app, 30 seconds or less, marked "for promotional purposes only", with the attribution showing.
 
-## Views
-
-The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's centre point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
-
-`ALSOMAPS_PRESENTATION=immersive` (or `volume`) starts in that mode. Saved view states from the earlier 3×, 5× and 10× modes restore into Immersive.
-
-Immersive doesn't clip the map's edges the way the volume does, so whole tiles stick out past the region (#5).
-
 ## Settings
 
 Settings is a window on visionOS and a sheet on iPhone and iPad, each opened with the gear button (on visionOS, next to the mode picker). On the Mac it's the standard Settings window (⌘,). Categories are in a sidebar. Changes apply immediately and are remembered between launches. visionOS has every category; the others have General, Keys and Advanced.
@@ -147,7 +155,6 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 - **Tiles** picks the source: Google Photorealistic, or Cesium OSM Buildings or Cesium World Terrain via Cesium ion. The ion sources are untextured, so they're drawn lit. Buildings use their own normals, or flat normals computed per triangle. Terrain uses smooth normals generated by cesium-native, in a flat earth tone until imagery overlays arrive (#8). Switching restarts streaming at the same view. Credits that carry a logo, such as Cesium ion's, show it in the attribution panel.
 - **Show stats** adds tiles drawn, entities, load progress and request counts to the panel over the map: the ornament on visionOS, the top-left overlay on iPhone and the Mac (which adds fps and the camera's position). Keyboard and controller hints show there whether or not stats are on.
 - **Terms** links the app's [Terms of Use](https://maps.also.dev/terms/), the Google Maps/Google Earth Additional Terms of Service and the Google Privacy Policy. See [Google Maps Platform terms](#google-maps-platform-terms).
-- **Turn and zoom around** (visionOS): the map's centre, or **where you are**: the ground beneath the viewer stays fixed, so zooming is moving straight up or down and turning is turning on the spot. The viewer is where you stood when the immersive mode opened, or, for the volume, just in front of it. This applies to every input: sticks, triggers, keys, pinch and twist. The pivot is full strength up to a 50 km half-width and fades to the map's centre by 500 km, where there's no meaningful "beneath you" on the curved map. Over the same range the map tilts to face you, like a globe in Google Earth VR. Its centre rises toward eye level and turns so your line of sight meets it head-on, and level-of-detail selection looks down to match. Fully tilted, the bigger immersive modes extend below the floor, so Immersive 3× works best for this.
 
 **Immersion** (visionOS): **Full immersion**, **Human scale (test)**, and
 - **Limit reach** (Immersive only): by default Immersive streams everything you could see, all around you out to the horizon (plus ~200 km for mountains beyond it), measured from where your eye is in the world, so a tilted globe shows its whole visible face. Turn this on to stream only **Reach** around you instead: 5× to 100× your height above the ground (the same multiple of your eye height above the floor).
@@ -168,6 +175,14 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 - **Restore from Clipboard** brings a copied state back.
 
 At launch, `ALSOMAPS_STATE=<that JSON>` restores a state and `ALSOMAPS_MARKERS=1` shows the markers.
+
+## Tests
+
+`Also Maps Core Tests` tests the navigation core on macOS, without a scene or network:
+
+```
+xcodebuild -scheme 'Also Maps Core Tests' -destination 'platform=macOS' test
+```
 
 ## Running and inspecting the Mac app (for tools and agents)
 
@@ -192,48 +207,8 @@ Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](
 - The main thread still spends 2–3 ms per frame on tile selection and on re-placing every tile, even when the view isn't moving (#2).
 - Below 50 km, ground height is the lowest hit on a 3×3 grid of samples. In a region that's mostly hills with a little low ground, the hills can reach close to the top of the volume.
 
-## tvOS static-map prototype
+## tvOS proof of concept
 
-The `Also Maps tvOS` target (tvOS 26+) displays a full-screen,
-static scene selected from the bundled places. The location button in the
-upper-right opens a remote-focusable Places list; selecting an entry replaces
-the scene and streams that location using its saved radius and heading. The
-camera looks down at 45 degrees, with distance proportional to the radius,
-and samples ground height to frame elevated locations.
+The `Also Maps tvOS` target (tvOS 26+) exists to show that rendering works on Apple TV. It shows a full-screen, static view of a bundled place, looking down at 45°, and the location button in the upper right picks another place. There's no free navigation. It uses the key from `Config/Secrets.xcconfig` (or the app's key), not one entered in the app.
 
-It shares `Sources/Static/StaticMapView.swift` and the existing tile streaming
-pipeline. Set `ALSOMAPS_PLACE=<id>` to select the starting place, or
-`ALSOMAPS_VIEW=bay` to try the wider Mac view. Detail and concurrency
-overrides apply to both; saved places use their own radius, while
-`ALSOMAPS_RADIUS` overrides the area for an explicit camera preset.
-The LOD camera tracks the actual view aspect ratio.
-
-The project uses the released `CesiumNative` package version `0.66.0-1`,
-which contains arm64 macOS and device/simulator slices for iOS, visionOS and
-tvOS. No sibling framework checkout is required.
-
-Keep `Config/Secrets.xcconfig` configured as above, then run `xcodegen generate`
-and select the `Also Maps tvOS` scheme and an Apple TV simulator or device in Xcode.
-This prototype has no free camera navigation or TV app icon/top-shelf artwork yet.
-
-Verified with Debug builds for macOS and the Apple TV 4K (3rd generation)
-simulator on tvOS 27.0. The saved San Francisco scene rendered 160 tiles at
-100% load and 60 fps. These are simulator observations, not measurements on
-Apple TV hardware. Remote-driven picker selection still needs manual verification.
-
-## iPhone static-map prototype
-
-The `Also Maps iOS` target (iOS 26+, iPhone) uses the shared static-map scene
-and the released CesiumNative package. Open Places in the navigation bar to
-choose any bundled location; each uses its saved radius and heading, with
-sampled ground height. Portrait and landscape use the actual scene aspect
-ratio. Credits wrap within the safe area, and the phone hides diagnostic stats.
-
-Run `xcodegen generate`, select `Also Maps iOS`, and run on an iPhone or iOS
-simulator. API keys and `ALSOMAPS_PLACE` / `ALSOMAPS_VIEW` overrides work as
-above. This prototype has no free camera navigation or app icon yet.
-
-Verified: Debug build and launch on the iPhone 18 Pro simulator (iOS 27.0),
-with textured San Francisco tiles, the Places control and wrapped attribution
-visible in portrait. Touch-driven place selection, rotation and physical-device
-performance still need manual verification.
+It shares `Sources/Static/StaticMapView.swift` with the rest of the streaming pipeline. `ALSOMAPS_PLACE=<id>` picks the starting place, and `ALSOMAPS_VIEW=bay` a wider camera preset; `ALSOMAPS_RADIUS` overrides a preset's area.
