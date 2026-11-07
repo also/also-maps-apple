@@ -86,12 +86,6 @@ targets:
       - package: CesiumNative
       - sdk: libsqlite3.tbd
       - sdk: libc++.tbd
-    # App Attest uses Apple's production service in every build, so local and
-    # distributed builds work against the same credentials API.
-    entitlements:
-      path: Sources/AlsoMaps.entitlements
-      properties:
-        com.apple.developer.devicecheck.appattest-environment: production
     info:
       path: Sources/Info.plist
       properties:
@@ -134,8 +128,18 @@ targets:
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
       configs:
+        # App Attest, for the app's key, needs an explicit App ID on the
+        # maintainer's team. Debug builds leave it out unless
+        # Config/Secrets.xcconfig opts in (Config/App.xcconfig), so anyone's
+        # team can sign them with its wildcard profile.
+        Debug: &debugEntitlements
+          CODE_SIGN_ENTITLEMENTS: $(DEBUG_CODE_SIGN_ENTITLEMENTS)
+        Optimised: *debugEntitlements
         # Release builds get keys at run time (CredentialStore), so none ship.
+        # App Attest uses Apple's production service in every build, so local
+        # and distributed builds work against the same credentials API.
         Release:
+          CODE_SIGN_ENTITLEMENTS: Config/AppAttest.entitlements
           GOOGLE_MAPS_API_KEY: ""
           CESIUM_ION_TOKEN: ""
 
@@ -322,12 +326,6 @@ targets:
       - package: CesiumNative
       - sdk: libsqlite3.tbd
       - sdk: libc++.tbd
-    # App Attest uses Apple's production service in every build, so local and
-    # distributed builds work against the same credentials API.
-    entitlements:
-      path: SourcesPhone/AlsoMaps.entitlements
-      properties:
-        com.apple.developer.devicecheck.appattest-environment: production
     info:
       path: SourcesPhone/Info.plist
       properties:
@@ -358,8 +356,12 @@ targets:
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
       configs:
+        # Entitlements as for the visionOS app.
+        Debug: *debugEntitlements
+        Optimised: *debugEntitlements
         # Release builds get keys at run time (CredentialStore), so none ship.
         Release:
+          CODE_SIGN_ENTITLEMENTS: Config/AppAttest.entitlements
           GOOGLE_MAPS_API_KEY: ""
           CESIUM_ION_TOKEN: ""
 
