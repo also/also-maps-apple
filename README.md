@@ -4,6 +4,8 @@ Also Maps streams Google's Photorealistic 3D Tiles to Apple Vision Pro, in a vol
 
 Tile selection and loading use [cesium-native](https://github.com/CesiumGS/cesium-native) via the Swift package [also/cesium-native-xcframework](https://github.com/also/cesium-native-xcframework), a fork of [crookneck/cesium-native-xcframework](https://github.com/crookneck/cesium-native-xcframework) that adds visionOS. RealityKit draws the tiles.
 
+<img src="docs/images/immersive-san-francisco.webp" width="720" alt="Also Maps in Immersive on Apple Vision Pro: San Francisco laid out below, with the Mount Hood environment behind">
+
 ## Setup
 
 You need Xcode 26 or later with the platform SDKs you want to build for, and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). The Xcode project is generated, not checked in. All builds are Apple silicon (arm64) only.
