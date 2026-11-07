@@ -57,7 +57,7 @@ cesium-native decides which tiles to load and fetches them; a thin bridge hands 
 
 The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's centre point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
 
-`ALSOMAPS_PRESENTATION=immersive` (or `volume`) starts in that mode. Saved view states from the earlier 3×, 5× and 10× modes restore into Immersive.
+`ALSOMAPS_PRESENTATION=immersive` (or `volume`) starts in that mode.
 
 Immersive doesn't clip the map's edges the way the volume does, so whole tiles stick out past the region (#5).
 
