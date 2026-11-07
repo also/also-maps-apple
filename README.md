@@ -51,7 +51,7 @@ cesium-native decides which tiles to load and fetches them; a thin bridge hands 
 
   Tiles are placed relative to whichever anchor is streaming, so held tiles stay put while you move.
 - **Metal renderer.** `Sources/Metal/` and `Sources/MetalImmersiveSpace.swift` are an experimental alternative to RealityKit, behind Settings › General › Draw with Metal. See [notes/metal-renderer.md](notes/metal-renderer.md).
-- **App services.** `Sources/Credentials/` ([Keys](#keys)), `Sources/Config/` ([Remote config](#remote-config)), `Sources/Places/` ([Places](#places)) and `Sources/Tracks/` (recording the camera's path to a CSV in the app's Documents folder, and playing it back).
+- **App services.** `Sources/Credentials/` ([Keys](#keys)), `Sources/Config/` ([docs/remote-config.md](docs/remote-config.md)), `Sources/Places/` ([Places](#places)) and `Sources/Tracks/` (recording the camera's path to a CSV in the app's Documents folder, and playing it back).
 
 ## Views
 
@@ -91,52 +91,16 @@ The debug panel opens from the wrench in the toolbar, which shows when Settings 
 
 The pin button next to the mode picker jumps to a saved place: its position, zoom and facing. The defaults are in `Sources/Places/Places.json` (San Francisco, Boston, New York, Chicago, Grand Canyon and Puente Nuevo in Ronda). Each entry has an `id`, `name`, `latitude`, `longitude`, `radius` (view half-width in metres) and an optional `heading` (degrees clockwise from north). `PlaceLibrary` is where user-added places, stored locally or in iCloud, would be merged in later. `ALSOMAPS_PLACE=<id>` starts at that place.
 
-The remote config can replace these defaults; see below.
-
-## Remote config
-
-Every platform reads `https://maps.also.dev/config/v1.json`, a static file published from also-maps-site, on launch, on returning to the foreground and every 15 minutes while active (every minute while blocked). `Sources/Config/` holds the file's model and rules (`AppConfig`), its fetching and saved copy (`AppConfigStore`) and how the app applies it (`AppGate`).
-
-```json
-{
-  "notices": [
-    {
-      "id": "update-required-1.2",
-      "severity": "blocking",
-      "title": "Update required",
-      "body": "This version of Also Maps no longer works.",
-      "link": { "title": "Update", "url": "https://apps.apple.com/app/id0000000000" },
-      "platforms": ["visionos", "ios", "macos", "tvos"],
-      "minVersion": "1.0",
-      "maxVersion": "1.1.9",
-      "keySource": "app",
-      "expires": "2027-01-01T00:00:00Z"
-    }
-  ],
-  "places": []
-}
-```
-
-All the top-level keys are optional. A notice needs `id`, `severity`, `title` and `body`; everything else narrows who sees it. Versions compare against `CFBundleShortVersionString`, inclusive at both ends, so a fix that a notice shouldn't reach needs a new version number. `expires` takes ISO 8601 without fractional seconds.
-
-- **`info`** shows as an alert, once. Give a new message a new `id`.
-- **`blocking`** replaces the app, stopping streaming, until it no longer applies. With no version range it's the kill switch; with `maxVersion` it's a minimum version. Don't let one match a build in App Review, or the reviewer sees a blocked app.
-- **`places`** has the format of `Places.json`, and replaces the bundled list when it has at least one usable entry.
-- **`keySource`** on a notice limits it to people on the app's key (`"app"`) or their own (`"own"`). Having your own Google key counts as `"own"`, since that's the quota the notice protects. A blocking `"app"` notice offers **Use Your Own Key**, so it can stop the shared key without stopping everyone.
-- **`"appKeys": false`** at the top level turns off the app's key. People on it see how to add their own.
-
-The app fails open: launch never waits for the file, it starts from the last good copy (or the bundled places), and an outage or a bad file leaves that in place. Unusable notices and places are skipped, while older builds ignore unknown fields. Don't add a new way to narrow a notice's audience to a live notice: older builds would ignore it and show the notice more widely. Change the format incompatibly only at a new URL (`v2.json`). The file is public, so it must never hold secrets. The block is enforced by the app, so it doesn't reach older builds or protect the API keys; those need quotas on the services themselves.
-
-`ALSOMAPS_CONFIG_URL=<url>` reads another file instead, without touching the saved copy, and accepts `file://` URLs.
+The remote config can replace these defaults; see [docs/remote-config.md](docs/remote-config.md).
 
 ## Keys
 
 Release builds contain no keys, except on tvOS. Where there's no key yet, the first launch asks how to load the map: with the app's shared key, which may be throttled, or with your own. Change it later in Keys (in Settings on every platform but tvOS). `Sources/Credentials/` holds this.
 
-- **The app's key** comes from the credentials API in also-maps-site, which needs App Attest, so `AppKeyClient` proves the app is genuine, saves what it gets in the Keychain and refreshes it daily. Where `isSupported` is false, the app offers only your own key: macOS 26, and simulators. The Mac needs macOS 27 or later, where the API also requires Apple's key policy (full security mode and System Integrity Protection). Refreshes run only while a window is active. The app needs App Attest, from `Config/AppAttest.entitlements`, which needs an explicit App ID on the maintainer's team. Release builds always have it. Debug and Optimised builds have it only when `Config/Secrets.xcconfig` sets `DEBUG_CODE_SIGN_ENTITLEMENTS = Config/AppAttest.entitlements`, so anyone else's team can sign them with its wildcard profile.
+- **The app's key** comes from the app's credentials API, which needs App Attest, so `AppKeyClient` proves the app is genuine, saves what it gets in the Keychain and refreshes it daily. Where `isSupported` is false, the app offers only your own key: macOS 26, and simulators. The Mac needs macOS 27 or later, where the API also requires Apple's key policy (full security mode and System Integrity Protection). Refreshes run only while a window is active. The app needs App Attest, from `Config/AppAttest.entitlements`, which needs an explicit App ID on the maintainer's team. Release builds always have it. Debug and Optimised builds have it only when `Config/Secrets.xcconfig` sets `DEBUG_CODE_SIGN_ENTITLEMENTS = Config/AppAttest.entitlements`, so anyone else's team can sign them with its wildcard profile.
 - **Your own key** is saved in the Keychain, and follows you between devices through iCloud Keychain. Saving one makes one request to check it, which for Google counts as a map session.
 - **Which wins**: a scheme's `GOOGLE_MAPS_API_KEY` or `CESIUM_ION_TOKEN`, then your own, then the app's, then one built in from `Config/Secrets.xcconfig` (Debug builds, and tvOS). `ALSOMAPS_CREDENTIALS_URL=<url>` points at another deployment of the API.
-- **Rotation**: streaming restarts whenever the key changes. When a service rejects the app's key, the app fetches a new one straight away, so an old key can be deleted at any time. See also-maps-site/docs/credentials-api.md.
+- **Rotation**: streaming restarts whenever the key changes. When a service rejects the app's key, the app fetches a new one straight away, so an old key can be deleted at any time.
 
 ## Google Maps Platform terms
 
