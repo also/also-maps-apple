@@ -31,8 +31,12 @@ struct ModelFlightStyle {
     var dollyRate = 1.0
     /// Radians per second.
     var pitchRate = Double.pi / 4
-    /// Surface the dolly target is found on, metres above the ellipsoid.
+    /// Surface the dolly target is found on along the view, metres above
+    /// the ellipsoid.
     var dollySurfaceHeight = 0.0
+    /// A point (ECEF) to dolly toward instead of along the view: the view
+    /// centre in a host whose placement ignores pitch.
+    var dollyTarget: SIMD3<Double>?
 
     /// Takes over from another style: the view is unchanged, and movement
     /// heading follows the view from here on.
@@ -61,9 +65,11 @@ struct ModelFlightStyle {
         if input.dolly != 0 {
             let camera = state.camera
             let ray = Ray(origin: camera.position, direction: camera.basis.forward)
-            // Declines on a miss: there's nothing to approach.
-            if case let .hit(point, _) = Geodesy.intersect(ray: ray, surfaceHeight: dollySurfaceHeight) {
-                let fraction = 1 - exp(-input.dolly * dollyRate * boost * deltaTime)
+            let fraction = 1 - exp(-input.dolly * dollyRate * boost * deltaTime)
+            if let dollyTarget {
+                state = NavigationOperations.dolly(state, toward: dollyTarget, fraction: fraction, context: context)
+            } else if case let .hit(point, _) = Geodesy.intersect(ray: ray, surfaceHeight: dollySurfaceHeight) {
+                // Declines on a miss: there's nothing to approach.
                 state = NavigationOperations.dolly(state, toward: point, fraction: fraction, context: context)
             }
         }
