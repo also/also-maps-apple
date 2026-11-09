@@ -35,12 +35,12 @@ Scale on its own doesn't need the ground. It can be:
 - set by the user, with a slider;
 - a function of height above the ellipsoid.
 
-Scale only matters in VR. On a flat screen, scaling the world and the camera together produces exactly the same image, so you can't see the scale. In VR two things give it away:
+Scale only matters in VR. On a flat screen, rescaling the world about the viewpoint gives exactly the same image, so you can't see the scale. In VR two things give it away:
 
 - **Stereo:** your eyes are about 63 mm apart.
 - **Parallax:** your head moves through real metres.
 
-So in VR scale is something you perceive, not just a number: up close, a tower at 1:1,000 reads as a model, not as a real tower far away. For the same picture (scaling about your eye, below), scale only changes how far away things are in the room. Stereo and parallax show the scale when that distance is within their reach: a few tens of metres for stereo, which works from your eyes' 63 mm, and further the more your head moves for parallax. The same view of the whole Earth is a ball a metre away at adaptive scale, and a small head movement shows it; at 1:1 it's thousands of kilometres away, and nothing tells it from a huge distant planet.
+So in VR scale is something you perceive, not just a number: up close, a tower at 1:1,000 reads as a model, not as a real tower far away. Stereo and parallax show the scale when things are close enough in the room: a few tens of metres for stereo, which works from your eyes' 63 mm, and further the more your head moves for parallax. The same view of the whole Earth is a ball a metre away at adaptive scale, and a small head movement shows it; at 1:1 it's thousands of kilometres away, and nothing tells it from a huge distant planet.
 
 **Placement is where the ground comes in.** Choosing a scale so that the ground lands on the floor (or on the volume's base plane) means scaling from AGL, and that needs a terrain estimate. Immersive does this today. Human scale doesn't, so its ground lands wherever it is.
 
@@ -52,15 +52,13 @@ Human scale is honest about distance, but far up it puts everything beyond the r
 
 Changing the scale shrinks or grows everything about some point, and that point decides what you see:
 
-- **About your eye:** everything gets nearer and smaller by the same factor, so each eye's picture doesn't change at all. Only stereo and parallax do: things read as smaller and closer. This is the only purely scale change.
+- **About the point between your eyes:** everything gets nearer and smaller by the same factor, so the picture from that point doesn't change. Each eye sits slightly to one side, so its view changes a little, and so does the view when you move your head. Those changes are stereo and parallax, and they show things as smaller and closer.
 - **About the Earth's centre:** the surface drops away below you, and what's on it shrinks and recedes until it disappears. That looks like climbing, and is equivalent to it.
 - **About a point on the map:** that point stays put and you seem to fly away from it.
 
-The app keeps the camera on your eye, so its scale changes are the first kind.
-
 ### Easily confused with scale
 
-These three change how size and depth look, but they come from the flat picture itself: where the viewpoint is and how wide its field of view is. Scaling about your eye changes neither, and in a headset the field of view is fixed by the optics.
+These three change how size and depth look, but they come from the flat picture itself: where the viewpoint is and how wide its field of view is. Scaling about the point between your eyes changes neither, and in a headset the field of view is fixed by the optics.
 
 - **Perspective distortion:** near things look stretched, as in a wide-angle selfie. It comes from being close, plus stretching toward the edges of a wide view.
 - **Lens compression:** through a telephoto lens, depth looks squashed. It's really the distance; the long lens only crops a far-away view.
