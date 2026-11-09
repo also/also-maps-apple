@@ -60,6 +60,19 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 - **Tile loading should suit a viewpoint, not a view direction.** The eye is at a point and may look anywhere in a comfortable range, so load the detail any of those views would need, nearest first. Detail closest to you, where you can easily look while seated, matters most.
 - **Distances and ranges aren't derived from the room's size.** The map doesn't read as bounded by the room (it seems to extend past the walls), so don't propose cutoffs from room dimensions without a reason.
 
+**Decided in the stage 2b session (2026-11-05 to 11-09)**
+
+- **Tilt is a function of position.** The owner's question was whether everything a room host shows could be a pure function of the camera's position and heading. The volume's tilt came from stored, eased pitch; it now comes from the camera's height above the ellipsoid, as the immersive space's does.
+- **Pitch is irrelevant in VR.** Nothing a room host shows or does should depend on the stored pitch. It's fine for places to keep setting it for now.
+- **Simplicity and the immersive space first,** since controller controls matter more there. Separate control styles for the volume and the immersive space may come later.
+- **Zoom only below where the tilt starts.** Zooming past it made no sense to the viewer, and zooming in from above moved toward a point they weren't looking at. So zoom does nothing above 50 km, and zooming out stops short of it with room to zoom back in. The limit is a workaround for not having a zoom model that works with the tilt, not a property of the world, and the code says so.
+- **Heading:** consider a better representation of direction than heading, at least in operations ([also/also-maps-apple#65](https://github.com/also/also-maps-apple/issues/65)). Not prescriptive.
+- **Process:**
+  - While implementing an agreed change, don't make further design decisions; stop and ask. Two were made and backed out in this session.
+  - Notes on trade-offs come after the owner has tried and reviewed the change, not before.
+  - Use `docs/camera-core.md` §2's terms. In particular, "the design eye point" is a fixed, assumed position; don't call it "your eye" to the owner.
+  - Checkpoint commits are fine when the owner asks for them.
+
 ## Rejected
 
 - **"The eye is the camera":** placing the world so the navigation camera sits at an assumed viewer position. It welded three separate things together:
@@ -116,6 +129,8 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 - **Proposed, not built:** use the measured head position on entering the immersive space for the LOD camera only, not for placement; a Tuning toggle for frustum culling; weighted view groups.
 
 ## Code state (`main`, not pushed)
+
+As of 2026-10-26. For later work see `docs/camera-core.md` §13.
 
 **Commits**
 

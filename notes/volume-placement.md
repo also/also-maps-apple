@@ -1,6 +1,21 @@
 # Volume placement on §5 (stage 2b): design for review
 
-Status: **implemented for trying, not approved.** Proposal written 2026-11-05 from `main` at `081538b`. Implemented 2026-11-09 on `main` at `b7bf38d` (uncommitted), so the owner can try it on the headset. See "Built for trying" at the end for what was decided along the way and what the tests found.
+Status: **implemented as checkpoints, not merged.** Proposal written 2026-11-05 from `main` at `081538b`. Built on `claude/volume-explicit-tilt-bcfcc9` from `b7bf38d`: `9dcad75` (placement) and `c63a61e` (zoom), so the owner can try it on the headset. The settled parts are in `docs/camera-core.md` (revision 7); this note keeps the log of what was tried and found.
+
+## Log (newest first)
+
+**2026-11-09: zoom**
+
+- **Observed (owner, headset; reproduced in a core simulation):** with zoom capped, holding zoom out at the stop turned the view 180°. **Cause, observed in the simulation:** at the stop each step moves the camera by a rounding error, and `GeoMath.bearingChange` carried the heading across that move using bearings computed from rounding noise. **Fix:** `bearingChange` treats moves under 1 mm as no change. That hides the symptom; the method is still ill-conditioned for short moves ([also/also-maps-apple#65](https://github.com/also/also-maps-apple/issues/65)).
+- **Observed (owner, headset):** zoom out from San Francisco's 600 m view could leave you stuck above the cap, unable to zoom back in. **Inferred:** the stop could land on 50.000 km or a rounding error over it. **Changed:** zoom out stops 1% short (49.5 km).
+- **Owner decision:** zoom works only below where the tilt starts (50 km above the ellipsoid). Above it (reachable by climbing), zoom does nothing either way. Zooming in from above moved you toward a point you weren't looking at, and making that sensible would need another algorithm. This limit is a workaround, not a property of the world.
+- **Observed (core simulation):** zooming out to the 50 km cap and back down to the starting height leaves the view centre 11 m (volume) and 50 m (Immersive) from where it started, for a 600 m view. Uncapped, it was 1–2.4 km.
+- **Tried in the core and backed out (not agreed):** zooming by changing height while the view centre stays fixed. It returns exactly in the volume (0.2 µm) but failed in Immersive by 12,700 km, because Immersive's view centre runs past the horizon far out. Anchoring Immersive's zoom on the volume's line-of-sight centre would fix that. Both were started without the owner's agreement while implementing an agreed change, and backed out; neither was tried on the headset.
+- **Observed (owner, headset):** in the volume, zooming out (toward the view centre, uncapped) from San Francisco to 397 km left San Francisco at the top edge of the box, partly cut off. **Inferred:** zoom backs away from the current view centre, which slides toward the ground below the camera as the map tilts, and the tilt carries ground ahead up the box.
+- **Observed (owner, headset), on `main` and on `9dcad75`:** in Immersive, zooming out from San Francisco moved back and up, then "just moved away"; zooming in didn't return, and later zooms went straight up. **Observed (core simulation):** zoom went along the stored pitch; the pitch steepened as the camera moved around the Earth; at the 11,000 km ceiling the height clamp pushed the camera off its line, sliding it 1,600 km sideways; zooming in then landed 6,700 km from San Francisco at a pitch of −76°. The old horizon pitch clamp wasn't the cause.
+- **Changed:** zoom in both room hosts heads for the view centre, leaves pitch alone, and stops on its line at a height limit (`NavigationOperations.approach`).
+
+**2026-11-09: placement** (see "Built for trying" below)
 
 ## Goal
 
@@ -117,7 +132,7 @@ The owner asked to try it before deciding. What was built, with the open questio
 - **Pivot:** tilt about the eye in both hosts (question 1). Full tilt is 70.6° in the volume (`RoomGeometry.fullTilt`, from `RoomGeometry.tiltFacing(C₁, from: E)`) and 90° in Immersive.
 - **Tilt altitude:** the camera's height above the ellipsoid (question 2), in both hosts: `EyeLevelModel.tiltWeight(for:)`.
 - **Scale:** §5's fixed eye height / agl (question 3).
-- **Zoom:** in the volume only, zoom (`=`/`−`, RT/LT) heads for the view centre (`ModelFlightStyle.dollyTarget`). Immersive still zooms along the stored pitch (question 4, narrowed after the discussion below).
+- **Zoom:** in `9dcad75`, the volume's zoom headed for the view centre and Immersive's still went along the stored pitch. I narrowed that myself, without asking, and it left pitch in use in Immersive. Superseded by `c63a61e` (see the log).
 - **Names:** no renames (question 5). `AdaptiveModel` keeps `Framing`, `minimumRange`, `pitchLimit`, `lodCamera`, `AnchorTarget` and the generic `solve`. The view-ray framing, the nadir fallback, `placementPoint`, `pitchTarget`, `framePlace` and the ray/envelope `solve` overload are gone. So are `RoomGeometry.levelPitch` and, in `MapModel`, the pitch easing, `settlesPitch`, the steering pitch clamp and the horizon clamp on restore.
 - **Immersive's C₀ uses are unchanged** (agreed in discussion). The shared placement needs only the eye. The view centre that rises from C₀ to C₁ is the volume's alone (`RoomGeometry.viewCentreFollowsTilt`). Immersive keeps the ground beneath level C₀ for its slab, ground sample and place framing. Moving those to the eye is a follow-up, and the gesture slab is [also/also-maps-apple#61](https://github.com/also/also-maps-apple/issues/61).
 - **Ground:** one placement ground (`MapModel.placementGround`), the 3×3 sample, no curvature envelope. Saved states write it to both `ray` and `envelope`; restoring reads `ray`. `pitchFollowsAltitude` is now `tiltFollowsAltitude`.
