@@ -21,9 +21,12 @@ import simd
 /// gestures grab and what the area of interest and ground sample centre on.
 /// See `RoomGeometry.viewCentreFollowsTilt`.
 enum EyeLevelModel {
+    /// Where the tilt assist starts, metres above the ellipsoid.
+    static let tiltStartAltitude = 50_000.0
+
     /// 0 up to 50 km, 1 from 500 km, on a smoothstep in log(altitude).
     static func tiltWeight(altitude: Double) -> Double {
-        let t = min(max(log(max(altitude, 1) / 50_000) / log(10.0), 0), 1)
+        let t = min(max(log(max(altitude, 1) / tiltStartAltitude) / log(10.0), 0), 1)
         return t * t * (3 - 2 * t)
     }
 

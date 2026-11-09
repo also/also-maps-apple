@@ -177,8 +177,8 @@ struct VolumePlacementTests {
         }
     }
 
-    /// Zoom in the volume heads for the view centre, wherever the pitch was
-    /// left pointing.
+    /// Zoom heads for the view centre, wherever the pitch was left pointing,
+    /// and leaves the pitch alone.
     @Test func zoomHeadsForTheViewCentre() {
         var flight = ModelFlightStyle()
         let camera = CameraPose(latitude: 37.79, longitude: -122.39, height: 3_000, heading: 0.3, pitch: 20 * degrees)
@@ -191,5 +191,102 @@ struct VolumePlacementTests {
         let toCentre = f.georeferencePoint - camera.position
         #expect(simd_length(simd_cross(simd_normalize(moved), simd_normalize(toCentre))) < 1e-6)
         #expect(state.camera.height < camera.height)
+        #expect(state.camera.pitch == camera.pitch)
+    }
+
+    /// Zooming out into the altitude ceiling stops there rather than
+    /// sliding the camera along the globe, in both hosts.
+    @Test(arguments: [true, false])
+    func zoomStopsAtTheCeiling(inVolume: Bool) {
+        let room = inVolume ? volume : immersive
+        let context = NavigationContext(cameraGround: 0, minimumAltitude: 55, maximumAltitude: 11_000_000)
+        var flight = ModelFlightStyle()
+        let start = EyeLevelModel.framePlace(centre: places[0], radius: 600, heading: 0, room: room)
+        var state = flight.activate(NavigationState(camera: start))
+        var highest = 0.0
+        var atCeiling: CameraPose?
+        for _ in 0..<(90 * 20) {
+            flight.dollyTarget = framing(state.camera, room).georeferencePoint
+            state = flight.step(state, input: ControlInput(dolly: -1), deltaTime: 1.0 / 90, context: context)
+            highest = max(highest, state.camera.height)
+            if atCeiling == nil, state.camera.height > 10_999_000 { atCeiling = state.camera }
+        }
+        #expect(highest <= 11_000_000 + 1e-6)
+        let ceiling = try! #require(atCeiling)
+        #expect(GeoMath.distance(from: state.camera.coordinate, to: ceiling.coordinate) < 0.01 * ceiling.height)
+        #expect(state.camera.pitch == start.pitch)
+    }
+
+    /// With zoom capped where the tilt starts, zooming out to the cap and
+    /// back down to the starting height comes back close to where it began:
+    /// the view centre within a tenth of the shown half-width (measured:
+    /// 11 m in the volume, 50 m in the immersive space, for 600 m).
+    @Test(arguments: [true, false])
+    func cappedZoomComesBackClose(inVolume: Bool) {
+        let room = inVolume ? volume : immersive
+        let context = NavigationContext(cameraGround: 0, minimumAltitude: 55, maximumAltitude: 11_000_000)
+        var flight = ModelFlightStyle()
+        flight.zoomCeiling = EyeLevelModel.tiltStartAltitude
+        let start = EyeLevelModel.framePlace(centre: places[0], radius: 600, heading: 0, room: room)
+        var state = flight.activate(NavigationState(camera: start))
+        func centre() -> SIMD3<Double> { framing(state.camera, room).georeferencePoint }
+        let startCentre = centre()
+        var highest = 0.0
+        func step(_ dolly: Double) {
+            flight.dollyTarget = centre()
+            state = flight.step(state, input: ControlInput(dolly: dolly), deltaTime: 1.0 / 90, context: context)
+            highest = max(highest, state.camera.height)
+        }
+        for _ in 0..<(90 * 10) { step(-1) }
+        // Zooming out stops short of the ceiling, with room to zoom back in.
+        #expect(highest <= 0.99 * EyeLevelModel.tiltStartAltitude)
+        #expect(highest > 0.98 * EyeLevelModel.tiltStartAltitude)
+        #expect(EyeLevelModel.tiltWeight(for: state.camera) == 0)
+        let top = state.camera.height
+        step(1)
+        #expect(state.camera.height < top)
+        var frames = 0
+        while state.camera.height > start.height, frames < 90 * 30 { step(1); frames += 1 }
+        #expect(simd_distance(centre(), startCentre) < 60)
+    }
+
+    /// Above the zoom ceiling (climbed to), zoom does nothing either way.
+    @Test func aboveTheZoomCeilingZoomDoesNothing() {
+        let context = NavigationContext(cameraGround: 0, minimumAltitude: 55, maximumAltitude: 11_000_000)
+        var flight = ModelFlightStyle()
+        flight.zoomCeiling = EyeLevelModel.tiltStartAltitude
+        let camera = CameraPose(latitude: 37.79, longitude: -122.39, height: 200_000, heading: 0.3, pitch: -0.4)
+        flight.dollyTarget = framing(camera, volume).georeferencePoint
+        let state = NavigationState(camera: camera)
+        for dolly in [-1.0, 1.0] {
+            let zoomed = flight.step(state, input: ControlInput(dolly: dolly), deltaTime: 0.1, context: context)
+            #expect(zoomed.camera == camera)
+        }
+    }
+
+    /// Holding zoom out at its stop doesn't turn the view: the camera moves
+    /// by rounding errors there, which once reversed the heading.
+    @Test(arguments: [0.0, 0.3, 2.0])
+    func zoomHeldAtTheStopKeepsTheHeading(heading: Double) {
+        let context = NavigationContext(cameraGround: -32.5, minimumAltitude: 55, maximumAltitude: 11_000_000)
+        var flight = ModelFlightStyle()
+        flight.zoomCeiling = EyeLevelModel.tiltStartAltitude
+        var state = flight.activate(NavigationState(
+            camera: EyeLevelModel.framePlace(centre: places[0], radius: 600, heading: heading, room: volume)))
+        var largestTurn = 0.0
+        for _ in 0..<(90 * 20) {
+            let before = state.camera.heading
+            flight.dollyTarget = framing(state.camera, volume, ground: -32.5).georeferencePoint
+            state = flight.step(state, input: ControlInput(dolly: -1), deltaTime: 1.0 / 90, context: context)
+            largestTurn = max(largestTurn, abs(NavigationOperations.wrapped(state.camera.heading - before)))
+        }
+        #expect(state.camera.height > 0.98 * EyeLevelModel.tiltStartAltitude)
+        #expect(largestTurn < 0.01)
+    }
+
+    @Test func bearingChangeIgnoresRoundingNoise() {
+        let a = GeoCoordinate(latitude: 37.5, longitude: -122.3)
+        let b = GeoCoordinate(latitude: 37.5 + 1e-13, longitude: -122.3 - 1e-13)
+        #expect(GeoMath.bearingChange(from: a, to: b) == 0)
     }
 }

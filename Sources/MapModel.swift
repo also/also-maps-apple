@@ -513,11 +513,16 @@ final class MapModel {
               deltaTime: deltaTime)
     }
 
-    /// Model flight. Zooming heads for the view centre in the volume, where
-    /// pitch doesn't show, and along the view in the immersive space.
+    /// Model flight. Zooming heads for the view centre, not along the
+    /// camera's pitch, which room hosts don't show.
     private func steer(with input: ControlInput, deltaTime: Double) {
         flight.dollySurfaceHeight = placementGround.value
-        flight.dollyTarget = isImmersive ? nil : framing?.georeferencePoint
+        flight.dollyTarget = framing?.georeferencePoint
+        // Zoom works only below where the tilt starts. Not a property of the
+        // world: we haven't found a model of zooming that works with the tilt
+        // assist (the view centre zoom heads for moves as the map tilts), and
+        // the limit keeps zooming out and back in from drifting confusingly.
+        flight.zoomCeiling = EyeLevelModel.tiltStartAltitude
         // Turning, climbing and zooming first, limited (while held) by how
         // much of the held region they'd show; then travel, limited by how
         // far it goes from it.
