@@ -18,6 +18,10 @@ settings:
     # Xcode's recommended project settings, set here so it stops prompting.
     DEAD_CODE_STRIPPING: YES
     STRING_CATALOG_GENERATE_SYMBOLS: YES
+    # CesiumNative.xcframework has only arm64 slices. Xcode's default also
+    # includes x86_64 for macOS and the simulators, which a generic simulator
+    # destination builds and then fails to link.
+    ARCHS: arm64
   configs:
     Optimised:
       GCC_OPTIMIZATION_LEVEL: s
@@ -28,7 +32,7 @@ packages:
   # cesium-native, prebuilt: https://github.com/also/cesium-native-xcframework
   CesiumNative:
     url: https://github.com/also/cesium-native-xcframework
-    exactVersion: 0.64.0-2
+    exactVersion: 0.66.0-1
 settingGroups:
   # Compiling against cesium-native: its headers, and the targets that include
   # CNTileStreamer.mm.
@@ -82,12 +86,6 @@ targets:
       - package: CesiumNative
       - sdk: libsqlite3.tbd
       - sdk: libc++.tbd
-    # App Attest uses Apple's production service in every build, so local and
-    # distributed builds work against the same credentials API.
-    entitlements:
-      path: Sources/AlsoMaps.entitlements
-      properties:
-        com.apple.developer.devicecheck.appattest-environment: production
     info:
       path: Sources/Info.plist
       properties:
@@ -132,8 +130,18 @@ targets:
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
       configs:
+        # App Attest, for the app's key, needs an explicit App ID on the
+        # maintainer's team. Debug builds leave it out unless
+        # Config/Secrets.xcconfig opts in (Config/App.xcconfig), so anyone's
+        # team can sign them with its wildcard profile.
+        Debug: &debugEntitlements
+          CODE_SIGN_ENTITLEMENTS: $(DEBUG_CODE_SIGN_ENTITLEMENTS)
+        Optimised: *debugEntitlements
         # Release builds get keys at run time (CredentialStore), so none ship.
+        # App Attest uses Apple's production service in every build, so local
+        # and distributed builds work against the same credentials API.
         Release:
+          CODE_SIGN_ENTITLEMENTS: Config/AppAttest.entitlements
           GOOGLE_MAPS_API_KEY: ""
           CESIUM_ION_TOKEN: ""
 
@@ -189,8 +197,6 @@ targets:
     settings:
       groups: [CesiumBridge, AppName]
       base:
-        # CesiumNative.xcframework has no x86_64 macOS slice.
-        ARCHS: arm64
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
         SWIFT_VERSION: "5.0"
@@ -322,12 +328,6 @@ targets:
       - package: CesiumNative
       - sdk: libsqlite3.tbd
       - sdk: libc++.tbd
-    # App Attest uses Apple's production service in every build, so local and
-    # distributed builds work against the same credentials API.
-    entitlements:
-      path: SourcesPhone/AlsoMaps.entitlements
-      properties:
-        com.apple.developer.devicecheck.appattest-environment: production
     info:
       path: SourcesPhone/Info.plist
       properties:
@@ -358,8 +358,12 @@ targets:
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
       configs:
+        # Entitlements as for the visionOS app.
+        Debug: *debugEntitlements
+        Optimised: *debugEntitlements
         # Release builds get keys at run time (CredentialStore), so none ship.
         Release:
+          CODE_SIGN_ENTITLEMENTS: Config/AppAttest.entitlements
           GOOGLE_MAPS_API_KEY: ""
           CESIUM_ION_TOKEN: ""
 

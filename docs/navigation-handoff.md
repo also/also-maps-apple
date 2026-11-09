@@ -29,7 +29,7 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 **Modes and streaming**
 
 - **Multiple camera and interaction modes** should be possible.
-- **Tiles live or held** is a user-facing choice. It's a real feature (today's Fly), not a workaround.
+- **Tiles live or held** is a user-facing choice. It's a real feature (Hold tiles), not a workaround.
   - **Live:** detail refines as you approach, and the streamed area follows.
   - **Held:** fly through the geometry already loaded, so the view is stable but nothing finer arrives.
 - **Streaming should not simply "follow your head".** Following the head means tiles load, unload and shift as you move, which isn't always wanted. Both ways should be possible, with a switch.

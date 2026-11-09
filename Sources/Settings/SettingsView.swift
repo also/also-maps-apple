@@ -21,10 +21,8 @@ struct SettingsView: View {
     #endif
     #if os(visionOS)
     @Environment(MapModel.self) private var model
-    @Environment(\.openImmersiveSpace) private var openImmersiveSpace
-    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
-    @State private var stateNote: String?
     @AppStorage(HandControlScheme.storageKey) private var handControls = HandControlScheme.none
+    @AppStorage(ViewPreferences.showsDebugControlsKey) private var showsDebugControls = false
     #endif
 
     init(settings: Binding<StreamingSettings>, onDone: (() -> Void)? = nil) {
@@ -137,17 +135,6 @@ struct SettingsView: View {
                 #else
                 Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
                 #endif
-            }
-            #endif
-
-            #if os(visionOS)
-            Section {
-                Picker("Turn and zoom around", selection: $settings.keyboardTurnPivot) {
-                    Text("Map centre").tag(StreamingSettings.TurnPivot.center)
-                    Text("Where you are").tag(StreamingSettings.TurnPivot.viewer)
-                }
-            } footer: {
-                Text("Where you are keeps the ground beneath you fixed, so zooming is moving straight up or down and turning is turning on the spot.")
             }
             #endif
 
@@ -272,45 +259,15 @@ struct SettingsView: View {
 
     #if os(visionOS)
     @ViewBuilder private var debugging: some View {
-        @Bindable var model = model
         Section {
-            Toggle("Show pivot and centre markers", isOn: $model.showsDebugMarkers)
-            Text("Red: the point turns and zooms rotate around. Blue: the map's centre.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Toggle("Show tile bounds", isOn: $model.showsTileBounds)
-            Text("Each drawn tile's box: cyan inside the LOD camera's view, orange outside. Yellow: the area of interest. Pink: the LOD camera's view; white: its view direction.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Button("Copy View State") {
-                let json = model.captureState().json()
-                UIPasteboard.general.string = json
-                print("[AlsoMaps] view state: \(json)")
-                stateNote = "Copied (also printed to the console)."
-            }
-            Button("Restore from Clipboard") {
-                guard let text = UIPasteboard.general.string else {
-                    stateNote = "The clipboard doesn't hold a view state."
-                    return
-                }
-                let state: MapViewState
-                do {
-                    state = try MapViewState.parse(text)
-                } catch {
-                    stateNote = error.localizedDescription
-                    return
-                }
-                Task {
-                    await VolumeView.restore(state, model: model,
-                                             open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
-                    stateNote = "Restored."
-                }
-            }
-            if let stateNote {
-                Text(stateNote).font(.caption).foregroundStyle(.secondary)
-            }
+            Toggle("Show debug controls", isOn: $showsDebugControls)
         } header: {
             Text("Debugging")
+        } footer: {
+            Text("Adds a wrench to the map's toolbar that opens these controls beside the map, to change while you move it.")
+        }
+        Section {
+            DebugControls(showsNotes: true)
         }
     }
     #endif

@@ -8,7 +8,7 @@ This project has its own ways of doing several routine things, and some differ f
 - **Running, logging from, or inspecting the Mac app:** the README's "Running and inspecting the Mac app" section.
 - **Comparing runs, or anything touching tile requests:** [docs/tile-caching.md](docs/tile-caching.md). Decide whether each run starts with a cold or warm cache.
 - **Navigation or the camera:** [docs/camera-core.md](docs/camera-core.md) and [docs/navigation-handoff.md](docs/navigation-handoff.md), which records what the owner decided.
-- **Setup, keys, building and testing:** the README's "Setup", "Keys" and "Tests" sections. The Xcode project is generated, so a fresh checkout or worktree needs `xcodegen generate` first.
+- **Setup, keys, building and testing:** the README's "Setup", "Keys" and "Tests" sections. The Xcode project is generated, so a fresh checkout or worktree needs `xcodegen generate` first. Tools that read `.worktreeinclude` (Claude Code, Conductor and others) copy `Config/Secrets.xcconfig` into new worktrees. With plain `git worktree add`, copy it from the main checkout.
 - **App icons and artwork:** [docs/branding/README.md](docs/branding/README.md).
 - **The experimental Metal renderer:** [notes/metal-renderer.md](notes/metal-renderer.md), for how its culling, foveation and counters work, how to measure them, and what's been found.
 
