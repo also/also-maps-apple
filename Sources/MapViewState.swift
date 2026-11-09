@@ -6,7 +6,7 @@ import simd
 /// the settings that shape navigation. Copied as JSON from Settings; restored
 /// from the clipboard or, at launch, from ALSOMAPS_STATE.
 ///
-/// Version 2 is camera-centric. Older (focus, radius, Fly) states aren't
+/// Version 2 is camera-centric. Older (focus, radius, held-tile pose) states aren't
 /// supported.
 struct MapViewState: Codable {
     static let currentVersion = 2
@@ -115,7 +115,7 @@ struct MapViewState: Codable {
             throw ParseError.notAViewState
         }
         guard let version = object["version"] as? Int else {
-            throw object["radius"] != nil || object["flyScale"] != nil
+            throw object["radius"] != nil
                 ? ParseError.unsupportedVersion : ParseError.notAViewState
         }
         guard version == currentVersion else { throw ParseError.unsupportedVersion }

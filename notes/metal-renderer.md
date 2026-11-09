@@ -19,7 +19,7 @@ geometry hidden behind other buildings.
 It's render-only. Tile selection, refinement, loading and the all-around
 streaming area are unchanged, so turning around can immediately draw content
 that's already loaded. Each eye is tested separately, from its current
-compositor projection and predicted pose. Held (Fly) tiles use their current
+compositor projection and predicted pose. Held tiles use their current
 render transform, like live tiles.
 
 Bounds are computed once from the uploaded positions, before the CPU buffers

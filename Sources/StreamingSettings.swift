@@ -25,17 +25,6 @@ struct StreamingSettings: Codable, Equatable {
     /// Keep parent tiles until all their children are drawable.
     var forbidHoles = true
 
-    enum TurnPivot: String, Codable, CaseIterable {
-        /// Turn and zoom about the map's centre (the focus point).
-        case center
-        /// Turn and zoom about the ground beneath the viewer, so zooming is
-        /// climbing or descending in place and turning and moving forward
-        /// feels like flying. (Stored as "frontEdge", its earlier, near-
-        /// identical form, so saved settings carry over.)
-        case viewer = "frontEdge"
-    }
-    /// What turns and zooms pivot around, from any input.
-    var keyboardTurnPivot = TurnPivot.center
     /// Where the tiles come from.
     var tileSource = TileSource.googlePhotorealistic
 
@@ -56,7 +45,6 @@ struct StreamingSettings: Codable, Equatable {
         simultaneousLoads = try c.decodeIfPresent(Double.self, forKey: .simultaneousLoads) ?? d.simultaneousLoads
         cacheMegabytes = try c.decodeIfPresent(Double.self, forKey: .cacheMegabytes) ?? d.cacheMegabytes
         forbidHoles = try c.decodeIfPresent(Bool.self, forKey: .forbidHoles) ?? d.forbidHoles
-        keyboardTurnPivot = try c.decodeIfPresent(TurnPivot.self, forKey: .keyboardTurnPivot) ?? d.keyboardTurnPivot
         tileSource = (try? c.decodeIfPresent(TileSource.self, forKey: .tileSource)) ?? d.tileSource
     }
 
@@ -84,6 +72,8 @@ enum ViewPreferences {
     /// UserDefaults key: draw tiles with the app's Metal renderer instead of
     /// RealityKit (the map window on a screen, the immersive mode on visionOS).
     static let drawsWithMetalKey = "DrawsWithMetal"
+    /// UserDefaults key: show the wrench that opens the volume's debug panel.
+    static let showsDebugControlsKey = "ShowsDebugControls"
 
     /// The setting, or ALSOMAPS_METAL=1, which turns it on for a run.
     static var drawsWithMetal: Bool {

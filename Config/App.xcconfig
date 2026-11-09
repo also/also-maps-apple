@@ -5,4 +5,10 @@ GOOGLE_MAPS_API_KEY =
 // Optional: a Cesium ion token (assets:read only) for the ion tile sources.
 CESIUM_ION_TOKEN =
 CODE_SIGN_STYLE = Automatic
+// Entitlements for Debug and Optimised builds on visionOS and iOS. None by
+// default, so any team signs them with its wildcard profile. The app's key
+// needs App Attest, which only the maintainer's team can provision; it sets
+//   DEBUG_CODE_SIGN_ENTITLEMENTS = Config/AppAttest.entitlements
+// in Secrets.xcconfig. Release builds always have App Attest.
+DEBUG_CODE_SIGN_ENTITLEMENTS =
 #include? "Secrets.xcconfig"

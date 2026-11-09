@@ -81,10 +81,10 @@ enum LegacyMapping {
         StreamingAnchor(coordinate: state.focus, height: state.focusHeight)
     }
 
-    /// World → map frame, with Fly's scene pose (if flying) applied after.
+    /// World → map frame, with the old held-tile scene pose (if any) applied after.
     static func georeference(_ state: State, _ presentation: Presentation,
-                             fly: Similarity = .identity) -> Georeference {
-        Georeference(fly.after(placement(state, presentation)).after(anchor(state).ecefFromAnchor.inverse))
+                             heldPose: Similarity = .identity) -> Georeference {
+        Georeference(heldPose.after(placement(state, presentation)).after(anchor(state).ecefFromAnchor.inverse))
     }
 
     /// The LOD camera, region and anchor today's streaming uses.

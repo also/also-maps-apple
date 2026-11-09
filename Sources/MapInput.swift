@@ -13,11 +13,10 @@ struct MapInput {
     var move = SIMD2<Double>.zero
     /// Turn right (+) / left (−), −1…1.
     var turn = 0.0
-    /// Zoom in (+) / out (−), −1…1: triggers and =/−. In Fly, scales the
-    /// frozen scene instead.
+    /// Zoom in (+) / out (−), −1…1: triggers and =/−.
     var zoom = 0.0
     /// Climb (+) / descend (−), −1…1: right stick up/down and F/R. Normally
-    /// that's zooming out/in (altitude is zoom); in Fly it moves vertically.
+    /// that's zooming out/in (altitude is zoom).
     var altitude = 0.0
     /// Look up (+) / down (−), −1…1: T/G. Flat screens only; the visionOS
     /// hosts set pitch themselves.
@@ -26,7 +25,7 @@ struct MapInput {
 
     /// One-shot actions; reported while the button is held, so the model
     /// fires them on the frame a button goes down.
-    enum Action: Hashable { case previousPlace, nextPlace, faceNorth, toggleFly }
+    enum Action: Hashable { case previousPlace, nextPlace, faceNorth, toggleTileHold }
     var held: Set<Action> = []
 
     var isMoving: Bool { move != .zero || turn != 0 || zoom != 0 || altitude != 0 || pitch != 0 }
@@ -90,7 +89,7 @@ struct MapInput {
 
     // MARK: Game controller
 
-    static let controllerHint = "Left stick move · Right stick turn, climb/descend · RT LT zoom · LB faster · D-pad places · Y north · X fly"
+    static let controllerHint = "Left stick move · Right stick turn, climb/descend · RT LT zoom · LB faster · D-pad places · Y north · X hold tiles"
 
     /// The controller in use, if any (the most recently used one, or else
     /// the first connected).
@@ -113,7 +112,7 @@ struct MapInput {
         if pad.dpad.left.isPressed { input.held.insert(.previousPlace) }
         if pad.dpad.right.isPressed { input.held.insert(.nextPlace) }
         if pad.buttonY.isPressed { input.held.insert(.faceNorth) }
-        if pad.buttonX.isPressed { input.held.insert(.toggleFly) }
+        if pad.buttonX.isPressed { input.held.insert(.toggleTileHold) }
         return input
     }
 
