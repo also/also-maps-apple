@@ -3,7 +3,7 @@ import simd
 
 /// Today's focus-centric placement, extracted unchanged from MapModel
 /// so it can be expressed as a georeference and compared with the camera
-/// core. Temporary: stage 3 of docs/camera-core.md removes it.
+/// core. Temporary: to be removed.
 enum LegacyMapping {
     /// What the focus-centric model stores.
     struct State: Equatable {

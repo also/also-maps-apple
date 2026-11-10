@@ -1,6 +1,6 @@
 # Fundamentals
 
-The ideas behind how Also Maps places the world, for readers new to 3D and VR. [camera-core.md](camera-core.md) has the rules; this is the background.
+The ideas behind how Also Maps places the world, for readers new to 3D and VR.
 
 This doc describes the options, not what the app must do. Where the app's current behavior matches one of them, that's one choice among several. These choices should be cheap to change, can differ by mode, and more than one can exist at once. Nothing here is a rule.
 

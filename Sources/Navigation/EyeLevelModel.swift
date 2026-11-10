@@ -3,7 +3,7 @@ import simd
 
 /// The room hosts' presentation (the volume and the immersive space): the
 /// camera is at the design eye point at every altitude, and the map is level
-/// unless the tilt tips it. See docs/camera-core.md §5.
+/// unless the tilt tips it.
 ///
 /// - Untilted, the ground beneath the camera sits on the base plane below
 ///   the design eye point, and the camera's heading faces away from the

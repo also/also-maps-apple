@@ -2,8 +2,8 @@ import Foundation
 import simd
 import Testing
 
-/// Stage 2b: the volume placed like the immersive space (docs/camera-core.md
-/// §5), with its tilt a function of where the camera is.
+/// The volume placed like the immersive space, with its tilt a function of
+/// where the camera is.
 
 private let degrees = Double.pi / 180
 
