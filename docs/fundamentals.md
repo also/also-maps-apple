@@ -82,6 +82,40 @@ Placement decides where the scaled world sits in the room or the volume. **Place
 
 A mode can use either, or not line the ground up at all.
 
+## Design considerations
+
+Observations and opinions from using this app and others. They are about what the experience is like, not how to build it.
+
+### Choices of scale
+
+- **Human scale (1:1).**
+  - It's easy to build, easy to understand and consistent, and good to have as an option.
+  - Moving around the room is most interesting when the world's content is close, and pointless when it's far.
+  - It suits a flight simulator, a "street view" or driving. Seeing much depends on moving the world, not yourself.
+  - When you can see a lot of the world because you're far from it, it's disappointing that you can't put your head near it to see it from another angle or in more detail. It's far away.
+- **A fixed small scale, or a scale the user sets directly,** not derived from position. This is more interesting than human scale. An app limited to it would still be a good use of VR.
+- **A scale that varies as you move.** Moving around freely, anywhere from street level to orbit, pushes you toward this.
+  - Near content, the scale is at or close to human scale, so it doesn't look like you're flying around a small model. Further away, it's smaller.
+  - You can miss the cues that the scale has changed, and go on perceiving steady flight.
+  - At any point you can still move around the room and see the content from another angle, or feel like a giant.
+- **There is no well-defined, obvious scale for a given point in the world.**
+
+### Scale changes
+
+A scale change about your head is noticeable and close to disconcerting. Everything changes distance at once, so your eyes have to re-converge, and it can feel like crossing your eyes for a moment.
+
+It's worst when it's out of proportion to any other change or motion:
+
+- crossing a threshold, such as an altitude line or an exact distance to the mesh or the ground;
+- a toggle, such as human scale, flipped while nothing is moving.
+
+### Getting the ground
+
+With cesium-native and Google's 3D tiles, it can be surprisingly hard to get data that exists, and the data you want may not be provided at all.
+
+- **The tiles have no "ground".** They are a mesh that includes buildings and other features.
+- **The mesh under a point changes as tiles load.** A less detailed tile can load first and be replaced by a more detailed one for the same place, with different heights.
+
 ## Easily misused terms
 
 **Camera**, **viewpoint** and **eye** have no single meaning in VR, and this doc doesn't give them one. They come from 3D on a flat screen, where there is one image, drawn from one point, and the app decides where that point is. There, "camera" is clear enough. In VR there are two images, and the app doesn't decide where either is drawn from, so the words have nothing definite to attach to. Each has been used for all of these, often without saying which:
