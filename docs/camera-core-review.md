@@ -97,7 +97,7 @@ Prioritize:
 - Full-transform legacy conversion, including representative held-tile states.
 - Window gestures over non-planar geometry.
 
-The anchored solver needs a convergence criterion, iteration limit, and defined failure result. “One or two corrections” is not a sufficient correctness contract. Measure anchor error in room metres and use absolute positional tolerances where relative transform tolerances would hide visible errors.
+The anchored solver needs a convergence criterion, iteration limit, and defined failure result. “One or two corrections” is not a sufficient correctness contract. Measure anchor error in room meters and use absolute positional tolerances where relative transform tolerances would hide visible errors.
 
 ## Suggested decision
 

@@ -1,10 +1,10 @@
 # Navigation: goals and decisions (hand-off note)
 
-Written 2026-10-26 at the end of a long design and implementation session, to seed a fresh one. It separates what the project owner said or approved from what was only proposed. Check it for leftover assumptions before relying on it: it was written from inside the session it summarises.
+Written 2026-10-26 at the end of a long design and implementation session, to seed a fresh one. It separates what the project owner said or approved from what was only proposed. Check it for leftover assumptions before relying on it: it was written from inside the session it summarizes.
 
 ## Purpose (owner)
 
-A general-purpose app with Google Earth VR-like flying, from street level to the globe, and a flight-sim feel. Spatial visualisation and drawing come later. Today it's visionOS (a volume, and an immersive mode, formerly the "floor modes" 3×, 5× and 10×, in an immersive space), plus a static macOS view.
+A general-purpose app with Google Earth VR-like flying, from street level to the globe, and a flight-sim feel. Spatial visualization and drawing come later. Today it's visionOS (a volume, and an immersive mode, formerly the "floor modes" 3×, 5× and 10×, in an immersive space), plus a static macOS view.
 
 ## Decided by the owner
 
@@ -23,8 +23,8 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 - **Tilt isn't inherently tied to altitude.** It belongs to the camera or interaction mode.
   - **Drone mode (today's):** always a level base (tangent to the geoid). Far enough away you'd need to look straight down to see anything, so some tilt is helpful. The current tilt-versus-altitude curve is fairly arbitrary.
   - **Google Earth VR:** a button toggles tilt between two extremes ("ground" and "globe"), with overlapping altitude limits. You reach ground mode's maximum altitude, then toggle to globe mode to go higher.
-- **Flat screens** (macOS): some "looks level" behaviour tied to positions may make sense there. It isn't the VR rule.
-- **The camera is the eye, always.** In the immersive space the camera is never a point in space disconnected from the viewer's eye, at any altitude or tilt: tracks, speed, tile loading and saved views all mean "where you are". Tilt therefore turns the world about the eye. (An earlier tilt pivoted about the map's centre point and moved the camera off the eye above 50 km; recorded tracks exposed it.)
+- **Flat screens** (macOS): some "looks level" behavior tied to positions may make sense there. It isn't the VR rule.
+- **The camera is the eye, always.** In the immersive space the camera is never a point in space disconnected from the viewer's eye, at any altitude or tilt: tracks, speed, tile loading and saved views all mean "where you are". Tilt therefore turns the world about the eye. (An earlier tilt pivoted about the map's center point and moved the camera off the eye above 50 km; recorded tracks exposed it.)
 
 **Modes and streaming**
 
@@ -37,10 +37,10 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 **The "how does this work" mode (the grounding use case)**
 
 - **What's shown:** the relevant points as models: a head with a headset, and rays or cones from it.
-- **Where it sits:** normally at the real head's position. In this mode you can walk around the scene, or start a few metres away from the modelled user, watching it.
-- **Streaming:** it follows the modelled user, whose position can be animated to show how streaming is connected.
-- **Rendering:** ideally the same setup, with the modelled user's position decoupled from the real user's.
-- **Watching from a few metres away** is a transform of everything (the whole scene), not a special kind of room placement.
+- **Where it sits:** normally at the real head's position. In this mode you can walk around the scene, or start a few meters away from the modeled user, watching it.
+- **Streaming:** it follows the modeled user, whose position can be animated to show how streaming is connected.
+- **Rendering:** ideally the same setup, with the modeled user's position decoupled from the real user's.
+- **Watching from a few meters away** is a transform of everything (the whole scene), not a special kind of room placement.
 
 **Documents and process**
 
@@ -74,16 +74,16 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 
 - **Keeping the three things separate:**
   - placement is a function of the navigation camera and the mode (scale, yaw, an explicit tilt), with nothing about any viewer;
-  - the streaming viewpoint is an independent switch: a fixed design viewpoint, the tracked head (#4), or a modelled viewer;
+  - the streaming viewpoint is an independent switch: a fixed design viewpoint, the tracked head (#4), or a modeled viewer;
   - live/held is a second, independent switch.
 - **Room hosts:** scale so the ground beneath the camera sits on the base plane (low in the volume, the origin plane in an immersive space). Untested against the owner's intent.
 - **Layering:** room placement (how the user arranges the map in their room) and an observer offset (explain mode) as separate parent transforms over the whole scene.
-- **Tilt pivot and raised centre** for a "globe" state.
-- **Streaming defaults:** areas of interest per host (volume around the view centre, immersive blended toward the viewer) and level of detail from a fixed design viewpoint.
+- **Tilt pivot and raised center** for a "globe" state.
+- **Streaming defaults:** areas of interest per host (volume around the view center, immersive blended toward the viewer) and level of detail from a fixed design viewpoint.
 
 ## Engineering findings (observed, factual)
 
-- **Tile heights are unreliable while loading.** The lowest vertex of a coarse rendered tile can be kilometres below the real ground; −10,500 m was seen near San Francisco.
+- **Tile heights are unreliable while loading.** The lowest vertex of a coarse rendered tile can be kilometers below the real ground; −10,500 m was seen near San Francisco.
 - **Never let tile selection move the view.** Placing the map from rendered-tile heights each frame created a feedback loop: new height → rescaled map → moved level-of-detail camera → different tiles → new height. The view bounced. Rule: nothing derived from the current tile selection may continuously move the view.
 - **A newly opened RealityKit scene's first frames can have a near-zero time step.** Easing loops must test whether they've reached their target, not whether the last step was small.
 - **cesium-native can select tiles for several viewpoints at once.** `updateViewGroup` takes a list of views, which is relevant to the explain mode.
@@ -94,7 +94,7 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 
 **Tile loading (cesium-native v0.64.0, as built)**
 
-- **Tiles are chosen for one virtual camera (the LOD camera).** In immersive modes it sits at the assumed eye (1.6 m above the immersive origin), points at the map's centre point (about 16° down, 5.6 m ahead), and has a 60° view. It doesn't follow the head.
+- **Tiles are chosen for one virtual camera (the LOD camera).** In immersive modes it sits at the assumed eye (1.6 m above the immersive origin), points at the map's center point (about 16° down, 5.6 m ahead), and has a 60° view. It doesn't follow the head.
 - **Frustum culling is now off** (`23e2502`). It was on, so tiles outside that view were dropped, and the floor from the viewer's feet to about 1.5 m ahead had no tiles. This was a stage 2 regression: the area streamed around the viewer was loaded and then culled. The old 45° camera saw the whole map.
 - **Detail:** a tile is refined until its screen-space error (roughly geometric error ÷ distance, in pixels) meets **Detail** (16) inside the view or **Outer detail** (64) outside it. Outer detail had no effect while culling was on. Both fall with distance; setting them equal removes the direction penalty, not the distance falloff.
 - **Load order is fixed** (`computeTilePriority`): `(1 − cos angle) × distance` from each view's position and direction, best across views, smallest first, within the urgent, normal and preload groups. So tiles near the view's direction load first, even far away, and the floor under the viewer loads last. It isn't configurable without a patch (the xcframework is built locally from a tag, so a patch is possible).
@@ -103,8 +103,8 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 - **v0.65.0** (Oct 2026) adds a `ViewStateMeasureDelegate`: an app-defined error measure per tile, which can express detail by distance from a point with no frustum. Load priority is unchanged in v0.65.0. It has breaking `ViewState` changes.
 - **Fog culling with the default table never culls anything here.** The cutoff is about 27 ÷ density, which is 135 km or more at every height in the table, far beyond the area of interest. Fog-hidden tiles get Outer detail even with fog culling off, so that never triggers either.
 - **The area of interest (yellow in the overlay) is the hard limit** on what loads. The bridge's excluder skips tiles whose bounding sphere is entirely outside an east/north-aligned square around the streaming anchor, enlarged to contain the square turned to the heading. With culling off, it's the only limit on what loads behind the viewer.
-- **Ground estimates move the LOD camera:** the virtual camera sits (ray height − envelope height) below the navigation camera in the world. A new 3×3 sample moves it, which refines or coarsens some tiles. It can jump by hundreds of metres where the sample grid gains or loses a valley (for example around Ronda, where high relief also puts the viewer's head inside the terrain).
-- **Judgement:** cesium-native's selection and ordering are built around one view direction per camera, which is a poor fit for VR. Streaming, decoding, caching and hole-free loading are fine.
+- **Ground estimates move the LOD camera:** the virtual camera sits (ray height − envelope height) below the navigation camera in the world. A new 3×3 sample moves it, which refines or coarsens some tiles. It can jump by hundreds of meters where the sample grid gains or loses a valley (for example around Ronda, where high relief also puts the viewer's head inside the terrain).
+- **Judgment:** cesium-native's selection and ordering are built around one view direction per camera, which is a poor fit for VR. Streaming, decoding, caching and hole-free loading are fine.
 
 **Debugging tools**
 
@@ -136,8 +136,8 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
   **Placement uses the rejected "eye is the camera" rule.**
 - `23e2502` Frustum culling off.
 - `5137146`, `4eef2d4`, `6eb1796` Tile bounds debug overlay.
-- `2cdf8b1` **Immersive placement replaced** (`EyeLevelModel`): the camera at the eye, the map level whatever the pitch, scale from height above the ground, tilt following altitude directly about the map's centre point (5.6 m ahead). The volume still uses the adaptive model.
-- Then: one Immersive mode (10×'s geometry) instead of 3×/5×/10×, which differed only in where the centre point sat and the shown square's size; and an area of interest that covers everything visible: all around the ground beneath the eye's position in the world, out to the horizon plus a 3 km terrain allowance (the old "blended" policy faded out above 1 km and dropped to the shown square above 50 km). **Limit reach** in Tuning caps it at a multiple of height above the ground; Region is gone.
+- `2cdf8b1` **Immersive placement replaced** (`EyeLevelModel`): the camera at the eye, the map level whatever the pitch, scale from height above the ground, tilt following altitude directly about the map's center point (5.6 m ahead). The volume still uses the adaptive model.
+- Then: one Immersive mode (10×'s geometry) instead of 3×/5×/10×, which differed only in where the center point sat and the shown square's size; and an area of interest that covers everything visible: all around the ground beneath the eye's position in the world, out to the horizon plus a 3 km terrain allowance (the old "blended" policy faded out above 1 km and dropped to the shown square above 50 km). **Limit reach** in Tuning caps it at a multiple of height above the ground; Region is gone.
 
 **Likely keepable:** stage 1's pieces, the bridge changes, held tiles, view state v2's shape, the navigation operations (climb, turn, move with heading transport), the ground lesson, and the tests that don't assume the rejected rule.
 

@@ -7,7 +7,7 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 - `Sources/Cesium/CNTileStreamer.{h,mm}`: an Objective-C++ bridge that owns a cesium-native `Tileset`. It provides:
   - networking over `NSURLSession` (cesium-native is built without curl)
   - a GCD task processor
-  - an `IPrepareRendererResources` that flattens each tile's glTF into float positions (small offsets from the tile's own centre), UVs, indices and RGBA. Every frame each drawn tile gets a transform, computed in double, that places it relative to the current anchor. There's no global origin, so precision is the same anywhere on Earth
+  - an `IPrepareRendererResources` that flattens each tile's glTF into float positions (small offsets from the tile's own center), UVs, indices and RGBA. Every frame each drawn tile gets a transform, computed in double, that places it relative to the current anchor. There's no global origin, so precision is the same anywhere on Earth
   - an excluder that limits streaming to the area of interest, a square around the anchor measured in the anchor's own frame
   - a level-of-detail camera given as position, direction and up in the anchor's frame
 - `Sources/TileUploader.swift`: builds each loaded tile's RealityKit meshes and textures asynchronously, a few at a time, before cesium-native counts the tile as loaded. Meshes are built off the main thread.
@@ -29,7 +29,7 @@ A visionOS app that streams Google's Photorealistic 3D Tiles into a volumetric w
 
    Run on the Apple Vision Pro simulator or a device running visionOS 26 or later.
 
-   On a Vision Pro, run the **Also Maps visionOS (Optimised)** scheme unless you're debugging. It's the Debug build (the key from `Config/Secrets.xcconfig`, `DEBUG` code and logging) compiled with optimisation, and without Metal API validation or GPU frame capture. The unoptimised Debug build misses frame deadlines on the device. The debugger still attaches, but stepping through optimised code is less reliable.
+   On a Vision Pro, run the **Also Maps visionOS (Optimized)** scheme unless you're debugging. It's the Debug build (the key from `Config/Secrets.xcconfig`, `DEBUG` code and logging) compiled with optimization, and without Metal API validation or GPU frame capture. The unoptimized Debug build misses frame deadlines on the device. The debugger still attaches, but stepping through optimized code is less reliable.
 
 **Optional Cesium ion token:** to use the Cesium ion tile sources, add `CESIUM_ION_TOKEN` to `Config/Secrets.xcconfig`. Create the token with only the `assets:read` scope, restricted to the assets the app uses (1, Cesium World Terrain, and 96188, Cesium OSM Buildings).
 
@@ -73,7 +73,7 @@ The debug panel opens from the wrench in the toolbar, which shows when Settings 
 
 ## Places
 
-The pin button next to the mode picker jumps to a saved place: its position, zoom and facing. The defaults are in `Sources/Places/Places.json` (San Francisco, Boston, New York, Chicago, Grand Canyon and Puente Nuevo in Ronda). Each entry has an `id`, `name`, `latitude`, `longitude`, `radius` (view half-width in metres) and an optional `heading` (degrees clockwise from north). `PlaceLibrary` is where user-added places, stored locally or in iCloud, would be merged in later. `ALSOMAPS_PLACE=<id>` starts at that place.
+The pin button next to the mode picker jumps to a saved place: its position, zoom and facing. The defaults are in `Sources/Places/Places.json` (San Francisco, Boston, New York, Chicago, Grand Canyon and Puente Nuevo in Ronda). Each entry has an `id`, `name`, `latitude`, `longitude`, `radius` (view half-width in meters) and an optional `heading` (degrees clockwise from north). `PlaceLibrary` is where user-added places, stored locally or in iCloud, would be merged in later. `ALSOMAPS_PLACE=<id>` starts at that place.
 
 The remote config can replace these defaults; see below.
 
@@ -133,7 +133,7 @@ Whoever owns the Google Maps Platform key a build uses must follow the [Google M
 
 ## Views
 
-The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's centre point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
+The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's center point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
 
 `ALSOMAPS_PRESENTATION=immersive` (or `volume`) starts in that mode. Saved view states from the earlier 3×, 5× and 10× modes restore into Immersive.
 
@@ -155,7 +155,7 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 - **Tiles** picks the source: Google Photorealistic, or Cesium OSM Buildings or Cesium World Terrain via Cesium ion. The ion sources are untextured, so they're drawn lit. Buildings use their own normals, or flat normals computed per triangle. Terrain uses smooth normals generated by cesium-native, in a flat earth tone until imagery overlays arrive (#8). Switching restarts streaming at the same view. Credits that carry a logo, such as Cesium ion's, show it in the attribution panel.
 - **Show stats** adds tiles drawn, entities, load progress and request counts to the panel over the map: the ornament on visionOS, the top-left overlay on iPhone and the Mac (which adds fps and the camera's position). Keyboard and controller hints show there whether or not stats are on.
 - **Terms** links the app's [Terms of Use](https://maps.also.dev/terms/), the Google Maps/Google Earth Additional Terms of Service and the Google Privacy Policy. See [Google Maps Platform terms](#google-maps-platform-terms).
-- **Turn and zoom around** (visionOS): the map's centre, or **where you are**: the ground beneath the viewer stays fixed, so zooming is moving straight up or down and turning is turning on the spot. The viewer is where you stood when the immersive mode opened, or, for the volume, just in front of it. This applies to every input: sticks, triggers, keys, pinch and twist. The pivot is full strength up to a 50 km half-width and fades to the map's centre by 500 km, where there's no meaningful "beneath you" on the curved map. Over the same range the map tilts to face you, like a globe in Google Earth VR. Its centre rises toward eye level and turns so your line of sight meets it head-on, and level-of-detail selection looks down to match. Fully tilted, the bigger immersive modes extend below the floor, so Immersive 3× works best for this.
+- **Turn and zoom around** (visionOS): the map's center, or **where you are**: the ground beneath the viewer stays fixed, so zooming is moving straight up or down and turning is turning on the spot. The viewer is where you stood when the immersive mode opened, or, for the volume, just in front of it. This applies to every input: sticks, triggers, keys, pinch and twist. The pivot is full strength up to a 50 km half-width and fades to the map's center by 500 km, where there's no meaningful "beneath you" on the curved map. Over the same range the map tilts to face you, like a globe in Google Earth VR. Its center rises toward eye level and turns so your line of sight meets it head-on, and level-of-detail selection looks down to match. Fully tilted, the bigger immersive modes extend below the floor, so Immersive 3× works best for this.
 
 **Immersion** (visionOS): **Full immersion**, **Human scale (test)**, and
 - **Limit reach** (Immersive only): by default Immersive streams everything you could see, all around you out to the horizon (plus ~200 km for mountains beyond it), measured from where your eye is in the world, so a tilted globe shows its whole visible face. Turn this on to stream only **Reach** around you instead: 5× to 100× your height above the ground (the same multiple of your eye height above the floor).
@@ -171,7 +171,7 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 `ALSOMAPS_OPEN_SETTINGS=1` opens the window at launch on visionOS.
 
 **Debugging** (Advanced, visionOS):
-- **Show pivot and centre markers** draws a red post where turns and zooms pivot, and a blue post at the map's centre.
+- **Show pivot and center markers** draws a red post where turns and zooms pivot, and a blue post at the map's center.
 - **Copy View State** copies the whole view as JSON (position, zoom, heading, presentation, held tiles and settings) and prints it to the console.
 - **Restore from Clipboard** brings a copied state back.
 
