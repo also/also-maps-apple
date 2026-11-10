@@ -12,7 +12,7 @@ Status: revision 7 (2026-11-09).
 ### What the app is for
 
 - **Fly anywhere, from street level to the whole globe,** as in Google Earth VR, with a flight-sim feel.
-- **Later:** spatial visualisation and drawing on top of the map.
+- **Later:** spatial visualization and drawing on top of the map.
 
 ### How navigation should feel
 
@@ -41,7 +41,7 @@ Status: revision 7 (2026-11-09).
 
 ### Engineering goals
 
-8. **Platform-neutral core.** The navigation maths is Foundation and simd only, tested on macOS without a scene (`Also Maps Core Tests`).
+8. **Platform-neutral core.** The navigation math is Foundation and simd only, tested on macOS without a scene (`Also Maps Core Tests`).
 9. **Total and stable.** Every input has a defined result, with no NaN transforms. Estimates that move the view change only when they're trustworthy, and they ease when they do.
 
 ### Non-goals
@@ -63,19 +63,19 @@ Status: revision 7 (2026-11-09).
 | **View tilt** (τ) | How far the world is deliberately tipped toward the viewer in a room host: 0 is level with the floor, 90° faces you. It's chosen by the interaction mode. |
 | **Design eye point** (E) | A fixed point in a room host that stands in for the viewer's position: in front of the volume, or the headset's position measured once when the immersive space opens. It never follows the tracked head. |
 | **Head pose** | The real head (ARKit's `DeviceAnchor`), in immersive spaces only. Used for level of detail later (#4), never for placement. |
-| **Reference space** | The host's origin: the volume's centre, or the immersive space's origin (the floor where the user stood when it opened). |
+| **Reference space** | The host's origin: the volume's center, or the immersive space's origin (the floor where the user stood when it opened). |
 | **Base plane** | The horizontal plane the map's ground is placed on: low in the volume, or the immersive space's origin plane (y = 0). |
 | **View center** | The ground point treated as the middle of what's shown. `georeferencePoint` in code. |
 | **Room placement** | A rigid transform (translation and yaw) from the map frame to the reference space. Only the user and the system change it (§10). |
 | **Georeference** | Which world point sits where in the map frame, with what scale and rotation (Cesium's term). |
-| **Area of interest** (AOI) | The geographic square eligible for streaming. Its centre is the streaming anchor. |
+| **Area of interest** (AOI) | The geographic square eligible for streaming. Its center is the streaming anchor. |
 | **LOD viewpoint** | The frustum cesium-native selects detail for. |
 
 ## 3. Concepts
 
 ### 3.1 The camera is the state
 
-Navigation stores one camera pose. A focus, radius, scale and view centre may be useful to a presentation style, but they're derived from the camera, never stored separately.
+Navigation stores one camera pose. A focus, radius, scale and view center may be useful to a presentation style, but they're derived from the camera, never stored separately.
 
 ### 3.2 The level baseline
 
@@ -89,7 +89,7 @@ In a room host the map frame's up is the room's up.
 Tilt is a separate, explicit value τ, owned by the interaction mode, not derived from pitch, host geometry or altitude. Different modes choose it differently:
 
 - **Drone (today).**
-  - **Behaviour:** the base is always level. That could stay true at every altitude, but far enough away you'd need to look straight down to see anything, so the mode adds an optional tilt assist that tips the world toward you as you climb.
+  - **Behavior:** the base is always level. That could stay true at every altitude, but far enough away you'd need to look straight down to see anything, so the mode adds an optional tilt assist that tips the world toward you as you climb.
   - **The curve:** today's curve (0 below 50 km, rising to full weight by 500 km on a smoothstep in log altitude) is fairly arbitrary. It's a tunable setting, not a principle.
   - **Measured from the ellipsoid:** the weight follows the camera's height above the ellipsoid, so the tilt never depends on a ground estimate.
   - **Per host:** each host turns the weight into its own angle.
@@ -129,7 +129,7 @@ Each of "stream around the viewer", "stream ahead" and "stream around what's sho
 reference space ──room placement⁻¹──▶ map frame ──georeference⁻¹──▶ world (ECEF)
 ```
 
-- **ECEF:** all geo maths in double.
+- **ECEF:** all geo math in double.
 - **Anchor frame A** (x east, y up, z south at the streaming anchor): where the bridge places tiles.
 - **Map frame:** where host geometry and gestures live.
 - **Reference space:** the host's origin.
@@ -186,19 +186,19 @@ There are two estimates, with different jobs and different trust requirements.
 
 **Lesson from stage 2.** Reading the placement ground from rendered tiles continuously made the view bounce:
 
-- coarse tiles' lowest vertices can be kilometres below the real ground;
+- coarse tiles' lowest vertices can be kilometers below the real ground;
 - each new value rescaled the map, which moved the LOD camera, which changed the tiles, which changed the value again.
 
 **Rule:** nothing derived from the current tile selection may move the view continuously.
 
 ## 8. Area of interest and level of detail
 
-| Policy | Centre | Half-width | Default for |
+| Policy | Center | Half-width | Default for |
 |---|---|---|---|
-| `.georeference` | The view centre | ρ × region multiplier | The volume, which clips to the shown region anyway |
+| `.georeference` | The view center | ρ × region multiplier | The volume, which clips to the shown region anyway |
 | `.viewer` | Ground beneath the viewer | 3 × agl, from 1 km to the horizon | The Mac window |
 | `.forward` | Ahead of the viewer | Reach with a lead | — |
-| `.blended` | Viewer near the ground, view centre higher up | Covers both | — |
+| `.blended` | Viewer near the ground, view center higher up | Covers both | — |
 | `.horizon` | Ground beneath the viewer | Out to the horizon | The immersive space |
 
 - **Outside the frustum:** cesium-native already uses a coarser screen-space error (Outer Detail) outside the frustum, and the AOI only bounds what's eligible.
@@ -211,7 +211,7 @@ A user-facing choice (Hold tiles in the debug panel, or X on a controller). Flyi
 - **Live:** the streaming inputs (anchor, AOI, LOD viewpoint) follow the camera each frame. They're applied in the same tick as the tiles root.
 - **Held:**
   - the inputs are frozen and cesium-native keeps updating with them, so loaded detail stays and nothing new is requested;
-  - zooming in magnifies what's loaded, and travelling reveals the edge of the held area;
+  - zooming in magnifies what's loaded, and traveling reveals the edge of the held area;
   - limits stop travel at 1.5×, and climbing or zooming out at 3×, the held area;
   - the placement ground is frozen.
 - **Releasing:** streams from the current camera in one tick. Nothing jumps.
@@ -221,7 +221,7 @@ A user-facing choice (Hold tiles in the debug panel, or X on a controller). Flyi
 
 Map frame → reference space, rigid. It's independent of navigation: navigation never changes it, and it never changes the camera.
 
-- **visionOS recentring:** this moves the immersive space's origin, and the map comes with it, so it needs no code. `onWorldRecenter` exists only for Compositor Services layers, not RealityView spaces.
+- **visionOS recentering:** this moves the immersive space's origin, and the map comes with it, so it needs no code. `onWorldRecenter` exists only for Compositor Services layers, not RealityView spaces.
 - **Later controls:** a grab handle, "Place here" and "Reset".
 
 ## 11. Interaction (drone mode, today)
@@ -246,7 +246,7 @@ All rates are starting values for tuning.
 - With a level world, pinch scales about the grab point (an altitude change plus a horizontal shift) and twist turns about it. Drag moves horizontally.
 - The solve is local, with a bounded correction for curvature. It's tested to under 1 mm.
 
-**Places.** A place (centre, radius, heading) maps to a camera whose shown region is that radius in the current host, with the place as the view center.
+**Places.** A place (center, radius, heading) maps to a camera whose shown region is that radius in the current host, with the place as the view center.
 
 ## 12. Persistence
 
