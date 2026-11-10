@@ -82,6 +82,10 @@ Placement decides where the scaled world sits in the room or the volume. **Place
 
 A mode can use either, or not line the ground up at all.
 
+## Tilt
+
+TODO.
+
 ## Design considerations
 
 Observations and opinions from using this app and others. They are about what the experience is like, not how to build it.
