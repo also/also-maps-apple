@@ -18,7 +18,7 @@ Some features plainly need the ground, and some plainly don't. The interesting o
 
 - **Minimum altitude:** keeping the camera above the terrain.
 - **Speed**, when it's defined relative to the ground, so it's the same over hills and valleys.
-- **Placing a view in the volume:** the map has to sit inside the box, so the ground has to land on its base plane.
+- **Placing terrain in the volume:** to put the ground somewhere in the box, you need to know where it is.
 
 **Doesn't need the ground:**
 
@@ -35,18 +35,18 @@ Scale on its own doesn't need the ground. It can be:
 - set by the user, with a slider;
 - a function of height above the ellipsoid.
 
-Scale only matters in VR. On a flat screen, rescaling the world about the viewpoint gives exactly the same image, so you can't see the scale. In VR two things give it away:
+In a single perspective image, rescaling the world about the viewing position leaves the image unchanged: objects change size and distance by the same factor. In VR two things let you perceive the difference:
 
 - **Stereo:** your eyes are about 63 mm apart.
 - **Parallax:** your head moves through real metres.
 
-So in VR scale is something you perceive, not just a number: up close, a tower at 1:1,000 reads as a model, not as a real tower far away. Stereo and parallax show the scale when things are close enough in the room: a few tens of metres for stereo, which works from your eyes' 63 mm, and further the more your head moves for parallax. The same view of the whole Earth is a ball a metre away at adaptive scale, and a small head movement shows it; at 1:1 it's thousands of kilometres away, and nothing tells it from a huge distant planet.
+In VR, a small tower nearby can occupy the same amount of your view as a full-size tower far away. But the different views from your two eyes, and how the tower shifts as you move your head, let you perceive it as a nearby model. Stereo and parallax show the scale when things are close enough in the room: a few tens of metres for stereo, which works from your eyes' 63 mm, and further the more your head moves for parallax. The whole Earth can appear as a ball a metre away at model scale, and a small head movement reveals its depth. At 1:1 it's thousands of kilometres away: moving your head barely changes the view, which tells you it's distant, but gives little sense of just how far away it is.
 
 **Placement is where the ground comes in.** Choosing a scale so that the ground lands on the floor (or on the volume's base plane) means scaling from AGL, and that needs a terrain estimate. Immersive does this today. Human scale doesn't, so its ground lands wherever it is.
 
 ### Human scale or model scale
 
-Human scale is honest about distance, but far up it puts everything beyond the reach of stereo and parallax: moving your head changes nothing, and the world reads as a backdrop. In mixed immersion that sits next to a real room with full depth; in full immersion there's nothing near to move relative to. Model scale brings the world back into reach, so you can lean around it. A near frame of reference, such as a cockpit, vehicle or platform, is another way to keep depth cues while the world is far away.
+Human scale preserves real-world distances, but far away it makes stereo and head-motion parallax negligible, so the world can read as a backdrop. In mixed immersion that sits next to a real room with full depth; in full immersion there's nothing near to move relative to. Model scale brings the world back into reach, so you can lean around it. A near frame of reference, such as a cockpit, vehicle or platform, is another way to keep depth cues while the world is far away.
 
 ### A scale change needs a fixed point
 
