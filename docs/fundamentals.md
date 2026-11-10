@@ -114,7 +114,8 @@ It's worst when it's out of proportion to any other change or motion:
 With cesium-native and Google's 3D tiles, it can be surprisingly hard to get data that exists, and the data you want may not be provided at all.
 
 - **The tiles have no "ground".** They are a mesh that includes buildings and other features.
-- **The mesh under a point changes as tiles load.** A less detailed tile can load first and be replaced by a more detailed one for the same place, with different heights.
+- **The mesh under a point changes as tiles load.** A less detailed tile can load first and be replaced by a more detailed one for the same place, with different heights. A height read from the tiles loaded for rendering changes with them.
+- **Or you fetch more detail than you need.** cesium-native's `sampleHeightMostDetailed` always gives the most detailed height. To do that it fetches tiles more detailed than rendering needs at greater distances, and the answer arrives later.
 
 ## Easily misused terms
 
