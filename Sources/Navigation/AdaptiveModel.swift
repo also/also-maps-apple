@@ -176,8 +176,9 @@ extension AdaptiveModel {
     /// `anchor.target` with the requested scale and heading, starting from
     /// `guess` (the previous solution). The heading is carried along the
     /// globe from `anchor.headingOrigin` as the camera moves, as travel does.
-    /// The error counts both the grab point's distance from the target and
-    /// the scale's, as the distance it would move the eye-to-placement span. A bounded iteration corrects scale
+    /// The error counts both the grab point's distance from the target along
+    /// the map (not along its up, which moving can't correct) and the
+    /// scale's, as the distance it would move the eye-to-placement span. A bounded iteration corrects scale
     /// and position together; it returns the best pose found and its
     /// remaining error in map-frame metres. See docs/camera-core.md §11.1.
     static func solve(_ anchor: AnchorTarget, from guess: CameraPose, room: RoomGeometry,
@@ -208,7 +209,16 @@ extension AdaptiveModel {
             let error = anchor.target - framing.georeference.map(anchor.grab)
             let scaleRatio = framing.georeference.scale / anchor.scale
             let span = simd_distance(framing.placementPoint, room.designEye)
-            let errorLength = max(simd_length(error), abs(scaleRatio - 1) * span)
+            // Only the error along the map can be corrected: moving the
+            // camera shifts it east and north, and its height is set by the
+            // scale. A grab off the ground (a far point on the flat gesture
+            // slab sits above the curved Earth) keeps an offset along the
+            // map's up that grows with the scale. Counting it made the
+            // unmoved guess look best, so the view froze, then jumped.
+            let frame = Geodesy.enu(latitude: pose.latitude, longitude: pose.longitude)
+            let up = simd_normalize(framing.georeference.rotation.act(frame.up))
+            let alongMap = error - up * simd_dot(error, up)
+            let errorLength = max(simd_length(alongMap), abs(scaleRatio - 1) * span)
             if errorLength < best.error { best = (pose, errorLength) }
             if errorLength < tolerance { break }
 
@@ -220,7 +230,6 @@ extension AdaptiveModel {
             // Position: shifting the camera (and G with it) by Δ moves the
             // grab point by −s·q·Δ in the map frame.
             let shift = -framing.georeference.rotation.inverse.act(error) / framing.georeference.scale
-            let frame = Geodesy.enu(latitude: pose.latitude, longitude: pose.longitude)
             let east = simd_dot(shift, frame.east), north = simd_dot(shift, frame.north)
             let moved = GeoMath.offset(pose.coordinate, east: east, north: north)
             pose.latitude = moved.latitude

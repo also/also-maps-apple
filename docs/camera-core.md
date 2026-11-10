@@ -239,7 +239,7 @@ All rates are starting values for tuning.
 **Gestures.** Drag, pinch and twist compose into one anchored manipulation: the grabbed world point stays under the hand.
 
 - With a level world, pinch scales about the grab point (an altitude change plus a horizontal shift) and twist turns about it. Drag moves horizontally.
-- The solve is local, with a bounded correction for curvature. It's tested to under 1 mm.
+- The solve is local, with a bounded correction for curvature. It's tested to under 1 mm. It matches the grab point along the map only: a grab above the ground (a far point on the flat gesture slab sits above the curved Earth) can't also be held at the hand's height, since the camera's height comes from the scale.
 
 **Places.** A place (centre, radius, heading) maps to a camera whose shown region is that radius in the current host, centred on the place, untilted.
 
