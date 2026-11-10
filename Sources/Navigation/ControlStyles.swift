@@ -31,8 +31,23 @@ struct ModelFlightStyle {
     var dollyRate = 1.0
     /// Radians per second.
     var pitchRate = Double.pi / 4
-    /// Surface the dolly target is found on, metres above the ellipsoid.
+    /// Surface the dolly target is found on along the view, metres above
+    /// the ellipsoid.
     var dollySurfaceHeight = 0.0
+    /// A point (ECEF) to dolly toward instead of along the view, leaving
+    /// pitch alone: the view centre in a room host, where pitch doesn't show.
+    var dollyTarget: SIMD3<Double>?
+    /// A height above the ellipsoid zoom works below, if any: zooming out
+    /// stops 1% short of it, so there's room to zoom back in, and above it
+    /// (climbed to) zoom does nothing either way. Climbing isn't limited.
+    ///
+    /// Nothing about the world needs this limit. It's there because we
+    /// haven't found a model of zooming that works with the room hosts' tilt
+    /// assist (the point zoom heads for moves as the map tilts), and it keeps
+    /// zooming out and back in from drifting confusingly.
+    var zoomCeiling: Double?
+    /// How far short of `zoomCeiling` zooming out stops, as a fraction.
+    static let zoomCeilingMargin = 0.01
 
     /// Takes over from another style: the view is unchanged, and movement
     /// heading follows the view from here on.
@@ -58,12 +73,21 @@ struct ModelFlightStyle {
             let target = altitude * exp(input.climb * climbRate * boost * deltaTime)
             state = NavigationOperations.climb(state, by: target - altitude, context: context)
         }
-        if input.dolly != 0 {
+        let belowCeiling = zoomCeiling.map { state.camera.height < $0 } ?? true
+        if input.dolly != 0, belowCeiling {
+            var context = context
+            if let zoomCeiling {
+                let stop = zoomCeiling * (1 - Self.zoomCeilingMargin)
+                context.maximumAltitude = min(context.maximumAltitude,
+                                              max(stop, state.camera.height) - context.cameraGround)
+            }
             let camera = state.camera
             let ray = Ray(origin: camera.position, direction: camera.basis.forward)
-            // Declines on a miss: there's nothing to approach.
-            if case let .hit(point, _) = Geodesy.intersect(ray: ray, surfaceHeight: dollySurfaceHeight) {
-                let fraction = 1 - exp(-input.dolly * dollyRate * boost * deltaTime)
+            let fraction = 1 - exp(-input.dolly * dollyRate * boost * deltaTime)
+            if let dollyTarget {
+                state = NavigationOperations.approach(state, toward: dollyTarget, fraction: fraction, context: context)
+            } else if case let .hit(point, _) = Geodesy.intersect(ray: ray, surfaceHeight: dollySurfaceHeight) {
+                // Declines on a miss: there's nothing to approach.
                 state = NavigationOperations.dolly(state, toward: point, fraction: fraction, context: context)
             }
         }
