@@ -1,4 +1,4 @@
-# Volume placement (stage 2b)
+# Volume placement
 
 Status: **merged** in [also/also-maps-apple#66](https://github.com/also/also-maps-apple/pull/66). This note keeps the log of what was tried and found. Section numbers such as §5 refer to `docs/camera-core.md`, which has since been removed and is in the git history.
 
