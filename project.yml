@@ -99,6 +99,8 @@ targets:
         GCSupportsControllerUserInteraction: true
         GCSupportedGameControllers:
           - ProfileName: ExtendedGamepad
+        # Hand controls in the Metal immersive space (MetalHandControls).
+        NSHandsTrackingUsageDescription: Hand controls (Settings › Immersion) let you point at, grab and fly over the map with your hands.
         # Documents (camera tracks) shows in the Files app.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true

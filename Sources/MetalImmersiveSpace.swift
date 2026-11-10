@@ -8,7 +8,8 @@ import SwiftUI
 /// with Metal): the same MapModel, placement and streaming as
 /// ImmersiveMapView, but the tiles are drawn by MetalTileRenderer into a
 /// CompositorLayer, with their real depth. The volume stays the control
-/// panel; look-and-pinch on the map isn't available, but controllers are.
+/// panel; look-and-pinch on the map isn't available, but controllers are,
+/// and the hand-tracked schemes in MetalHandControls.
 struct MetalImmersiveContent: CompositorContent {
     static let spaceID = "metal-map"
 
@@ -57,6 +58,9 @@ final class MetalImmersiveRenderer {
     private let session = ARKitSession()
     private let worldTracking = WorldTrackingProvider()
     private let queue: MTLCommandQueue?
+    /// Hand-tracked controls (Settings › Immersion) and what they draw.
+    private let hands: MetalHandControls
+    private let handOverlay: MetalHandOverlay?
     private var measuredEye = false
     private var drawLog = MetalDrawLog()
     private var log = (frames: 0, anchored: 0, lastPrint: Date())
@@ -66,6 +70,8 @@ final class MetalImmersiveRenderer {
         self.layerRenderer = layerRenderer
         self.metal = metal
         queue = metal.device.makeCommandQueue()
+        hands = MetalHandControls(model: model)
+        handOverlay = MetalHandOverlay(device: metal.device)
     }
 
     func run() async {
@@ -79,6 +85,7 @@ final class MetalImmersiveRenderer {
         while true {
             switch layerRenderer.state {
             case .invalidated:
+                hands.stop()
                 session.stop()
                 return
             case .paused:
@@ -104,7 +111,11 @@ final class MetalImmersiveRenderer {
 
             frame.startUpdate()
             let tick = signposter.beginInterval("ImmersiveTick", id: signposter.makeSignpostID())
-            model.metalImmersiveTick(deltaTime: min(max(deltaTime, 0), 0.1))
+            let step = min(max(deltaTime, 0), 0.1)
+            hands.update(time: Self.seconds(LayerRenderer.Clock.Instant.epoch.duration(to: presentation)),
+                         deltaTime: step)
+            model.metalImmersiveTick(deltaTime: step)
+            hands.castPointer()
             signposter.endInterval("ImmersiveTick", tick)
             frame.endUpdate()
 
@@ -160,6 +171,7 @@ final class MetalImmersiveRenderer {
         let root = model.tilesInImmersiveSpace
         let tiles = model.streaming.drawnTiles
         var statistics = MetalDrawStatistics()
+        let handSegments = hands.segments
         // Views sharing a texture (the shared layout) are drawn in one pass,
         // cleared once, each in its own viewport.
         let byTexture = Dictionary(grouping: drawable.views.indices) { drawable.views[$0].textureMap.textureIndex }
@@ -192,6 +204,14 @@ final class MetalImmersiveRenderer {
                              root: root, tiles: tiles))
                 // Sky left at the far plane would be dropped as clipped.
                 metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat)
+                if !handSegments.isEmpty {
+                    let originFromView = originFromDevice * view.transform
+                    handOverlay?.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
+                                        viewProjection: drawable.computeProjection(viewIndex: index) * originFromView.inverse,
+                                        eye: SIMD3(originFromView.columns.3.x, originFromView.columns.3.y,
+                                                   originFromView.columns.3.z),
+                                        segments: handSegments)
+                }
             }
             encoder.endEncoding()
         }

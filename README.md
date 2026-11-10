@@ -75,6 +75,17 @@ On iPhone and iPad, drag to pan, pinch to zoom, twist to turn and move two finge
 
 `ALSOMAPS_HEADING`, in degrees clockwise from north, sets the starting direction.
 
+### Hand controls (visionOS, Draw with Metal)
+
+In the Metal immersive space (Settings › General › Draw with Metal), Settings › Immersion › **Hand controls** picks a hand-tracked scheme. They read the hands with ARKit, so the app asks for hand tracking the first time one is used. They work alongside controllers and the keyboard. None of them works in the simulator, which has no hand tracking: they all still need testing on a Vision Pro, and the thresholds are first guesses. `ALSOMAPS_HAND_CONTROLS=<scheme>` (`pointAndJump`, `grabWorld`, `pointToFly`) picks one for a run.
+
+- **None** (the default): no hand tracking.
+- **Point and jump:** point with one hand (index out, other fingers curled). A ray goes from the fingertip to where it meets the map, with a ring there. Pinch with the other hand to fly there: the world slides (no turning) until that point is under you, at your current height above the ground, rising part-way for long jumps. The hit is found by casting the ray against the ground the map is placed on, then refined a few times a second with cesium-native's height sampler so it lands on hills.
+- **Grab the world:** make a fist to hold the map and move it, as with pinch and drag. With both fists, move them apart or together to zoom and turn the line between them to rotate, about their midpoint. A small cross shows each holding fist.
+- **Point to fly:** point with one hand, then pinch with the other to fly along the ray: the tighter the pinch, the faster (up to a stick's full speed, which scales with height above the ground). Pointing up or down climbs or descends.
+
+Ideas not built yet: **superman flight** (the direction of both palms steers, how far the arms are stretched sets the speed) and a **wrist mini-map** (a compass and overview drawn on the back of one wrist, tap a point to go there).
+
 ## Holding tiles
 
 **Hold tiles**, in the debug panel, or X on a controller, freezes streaming, so the loaded tiles stay as they are. Every control then does exactly what it does with live tiles: the same moves, turns and zoom and at the same rates, applied to the frozen scene instead of the live map. The surface stays on the base plane. Releasing the tiles resumes streaming from where you are, without anything visibly moving. While tiles are held and the debug panel is closed, the toolbar shows a Tiles Held button that releases them.
@@ -117,7 +128,7 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 - **Draw with Metal** draws the map with the app's own experimental Metal renderer instead of RealityKit. On visionOS it applies to Immersive, always in full immersion, from the next time it opens; pinching the map isn't available there. Tracks and tile bounds aren't drawn with it. See [notes/metal-renderer.md](notes/metal-renderer.md).
 - **Terms** links the app's [Terms of Use](https://maps.also.dev/terms/), the Google Maps/Google Earth Additional Terms of Service and the Google Privacy Policy. See [Google Maps Platform terms](#google-maps-platform-terms).
 
-**Immersion** (visionOS): **Full immersion**, **Human scale (test)**, and
+**Immersion** (visionOS): **Full immersion**, **Human scale (test)**, **Hand controls** (see [Hand controls](#hand-controls-visionos-draw-with-metal)), and
 - **Limit reach** (Immersive only): by default Immersive streams everything you could see, all around you out to the horizon (plus ~200 km for mountains beyond it), measured from where your eye is in the world, so a tilted globe shows its whole visible face. Turn this on to stream only **Reach** around you instead: 5× to 100× your height above the ground (the same multiple of your eye height above the floor).
 
 **Detail** (visionOS): cesium-native's screen-space error thresholds, for tiles inside and outside the LOD camera's view. Most of the area of interest is outside that view, so Outer detail controls how sharp the far map is and how many tiles it costs. On iPhone and the Mac, detail is set from the window's pixels instead.

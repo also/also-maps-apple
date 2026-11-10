@@ -74,6 +74,38 @@ quality.
 
 ## Log
 
+### 2026-11-04: Point and jump landed short, even behind you
+
+- **Observed (owner, on a device):** the jump was right at human scale but
+  wrong otherwise; pointing at a spot in front could move you backwards.
+- **Inferred (code):** the jump framed the pointed-at spot on the placement
+  point C₀, which is 5.6 m in front of the eye in the room. At human scale
+  that's 5.6 m of world; scaled down it can be kilometres, so any hit
+  nearer than C₀ in the room pulled the camera back. It now lands straight
+  above the hit (`CameraFlight.jump`), keeping height above ground, heading
+  and pitch. Not yet rechecked on a device.
+
+### 2026-11-04: hand-tracked control schemes (untested on a device)
+
+- **Built:** Settings › Immersion › Hand controls: Point and jump, Grab the
+  world, Point to fly (README, "Hand controls"). Pose and gesture logic,
+  the ray–map cast and the camera flight are in
+  `Sources/Navigation/HandControls.swift`, tested on macOS with synthetic
+  hands; `MetalHandControls` reads ARKit's hands in its own `ARKitSession`;
+  `MetalHandOverlay` draws the ray, ring and grab crosses after the sky
+  depth pass, faint through terrain and solid in front.
+- **Inferred, to check on a device:** the thresholds (pinch 1.5/3 cm, the
+  pointing and fist straightness cut-offs) are guesses from synthetic
+  hands. A fingertip ray (knuckle to tip) may be too jittery at range even
+  smoothed; a shoulder-to-fingertip ray is the usual fix.
+- **Inferred:** the ray is cast against the ellipsoid at a height, first the
+  placed ground and then cesium-native's 3×3 sample near the hit (4 Hz).
+  Grazing rays over relief can still be off until a sample lands, and the
+  sampler may load tiles for far hits.
+- **Open:** the pinch in Point and jump and Point to fly is also a system
+  pinch; if look-and-pinch on the map lands in the Metal space, the two may
+  both act on one pinch.
+
 ### 2026-11-04: eye height is measured twice
 
 - **Observed (code):** both immersive spaces place the map around an eye

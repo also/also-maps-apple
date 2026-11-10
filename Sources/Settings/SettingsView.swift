@@ -21,6 +21,7 @@ struct SettingsView: View {
     #endif
     #if os(visionOS)
     @Environment(MapModel.self) private var model
+    @AppStorage(HandControlScheme.storageKey) private var handControls = HandControlScheme.none
     @AppStorage(ViewPreferences.showsDebugControlsKey) private var showsDebugControls = false
     #endif
 
@@ -172,6 +173,17 @@ struct SettingsView: View {
                 }
             } footer: {
                 Text("Immersive streams everything you could see, out to the horizon. Turn this on to stream less.")
+            }
+
+            Section {
+                Picker("Hand controls", selection: $handControls) {
+                    ForEach(HandControlScheme.allCases) { scheme in
+                        Text(scheme.title).tag(scheme)
+                    }
+                }
+            } footer: {
+                Text(handControls.summary + (handControls.usesHands
+                     ? " Only with Draw with Metal (General), which asks to track your hands the first time." : ""))
             }
 
             Section {
