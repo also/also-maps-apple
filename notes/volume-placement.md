@@ -4,6 +4,10 @@ Status: **implemented as checkpoints, not merged.** Proposal written 2026-11-05 
 
 ## Log (newest first)
 
+**2026-11-09: the immersive space's view centre**
+
+- **Observed (git history):** the immersive space's view centre (the ground beneath C₀ as placed level) was the tilt's pivot in `2cdf8b1`. When `2fb7061` moved the pivot to the design eye point, the view centre stayed and wasn't re-derived. **Inferred:** it no longer means anything; far out it's past the horizon. It still sets the gesture slab, the LOD camera's direction, place framing, the hold-tiles travel limit and the ground sample's centre, on `main` too. **Owner decision:** eliminate it rather than move it ([also/also-maps-apple#67](https://github.com/also/also-maps-apple/issues/67)).
+
 **2026-11-09: zoom**
 
 - **Observed (owner, headset; reproduced in a core simulation):** with zoom capped, holding zoom out at the stop turned the view 180°. **Cause, observed in the simulation:** at the stop each step moves the camera by a rounding error, and `GeoMath.bearingChange` carried the heading across that move using bearings computed from rounding noise. **Fix:** `bearingChange` treats moves under 1 mm as no change. That hides the symptom; the method is still ill-conditioned for short moves ([also/also-maps-apple#65](https://github.com/also/also-maps-apple/issues/65)).
@@ -24,7 +28,7 @@ The volume's map tilt becomes a pure function of the camera's position and headi
 ## What's there today
 
 - **Volume (`AdaptiveModel.framing`):** G, where the camera's view ray meets the ray surface, goes on C(θ), which slides from C₀ (level) to C₁ (straight down) with pitch. The camera sits on E. Tilt is therefore whatever the stored pitch is, and the pitch assist (`pitchTarget`/`easedPitch`, eased at 6/s, plus `settlesPitch` after a host switch) drives that pitch from altitude. Pitch that lags its target is tilt that lags.
-- **Immersive (`EyeLevelModel.framing`):** camera on E, yaw-only level rotation, s = eye height / agl, then tilt about the eye by `tiltWeight(altitude) · 90°`. Pitch isn't used.
+- **Immersive (`EyeLevelModel.framing`):** camera on E, yaw-only level rotation, s = eye height / agl, then tilt about E by `tiltWeight(altitude) · 90°`. Pitch isn't used.
 
 One observation that makes the move cheap: **at its level pitch, today's volume placement is already §5's τ = 0 placement.** The camera maps to E, the view ray at θ₀ maps onto E→C₀ (also θ₀ down), so the rotation is yaw-only and s = |C₀ − E| / range = (E.y − y_g) / agl. The change only removes the cases where pitch differs from θ₀.
 
@@ -37,9 +41,9 @@ Generalise `EyeLevelModel.framing` and use it for the volume too:
 1. **Scale:** s = (E.y − y_g) / agl, agl over the placement ground (§7 below). Unchanged from §5.
 2. **Level rotation:** yaw only; the level frame at the camera maps up → up, heading → −z.
 3. **Translation:** the camera lands on E. The ground beneath it lands at N₀ = (E.x, y_g, E.z).
-4. **Tilt:** rotate by τ about the room's right axis **through E** (as immersive does today, and as the owner's "the camera is always the eye" requires), with τ = w · τ_max.
+4. **Tilt:** rotate by τ about the room's right axis **through E** (as immersive does today, so the camera stays on E), with τ = w · τ_max.
 
-This differs from §5's text, which pivots about C and lets the camera leave E. Immersive already chose the eye pivot (`2cdf8b1`) after recorded tracks showed the camera leaving the eye, so I'd update §5 to match rather than give the volume a different pivot.
+This differs from §5's text, which pivots about C and lets the camera leave E. Immersive already moved its pivot to E (`2fb7061`) after recorded tracks showed the camera leaving E, so I'd update §5 to match rather than give the volume a different pivot.
 
 **What plays C₀/C₁'s role in the box:**
 
@@ -47,7 +51,7 @@ This differs from §5's text, which pivots about C and lets the camera leave E. 
 - **C₁** becomes *where the nadir points at full tilt*, and that sets the host's full tilt: τ_max = 90° − depression(E→C₁).
   - **Volume:** C₁ = (0, 0, 0), the box centre: τ_max = 70.6°. At full tilt the globe's nadir faces you along your line of sight to the box centre.
   - **Immersive:** τ_max stays 90° (the ground below comes up to straight ahead, as now). I'd store τ_max per host explicitly (`RoomGeometry.fullTilt`) rather than derive immersive's from its C₁ (0, 1.3, −5.6), which would give 87° and drift with the measured eye.
-- A 90° tilt about the eye doesn't work in the box: the nadir lands on the box's top edge and half the globe is above it. Hence the per-host τ_max.
+- A 90° tilt about E doesn't work in the box: the nadir lands on the box's top edge and half the globe is above it. Hence the per-host τ_max.
 
 **The weight w** is the mode's choice (§3.3). Drone mode keeps today's curve, `EyeLevelModel.tiltWeight` (0 below 50 km, 1 by 500 km, smoothstep in log altitude), now for both hosts. Hosts map w = 1 to their own τ_max, so at w = 0 every host is exactly level, and a host switch keeps w. (Above 50 km the absolute angle differs between hosts, 70.6° vs 90° at full tilt; flagging that against §1's "nothing about the map's tilt changes because you switched host".)
 
@@ -117,7 +121,7 @@ Tests: `MappingTests`' framing/nadir tests and `Stage2Tests`' assist and pitch t
 
 ## Questions for the owner
 
-1. **Tilt pivot:** about the eye in both hosts (camera always on E, per-host τ_max), or §5's pivot about a raised C (one τ for all hosts, camera leaves E in the volume)? I recommend the eye.
+1. **Tilt pivot:** about E in both hosts (camera always on E, per-host τ_max), or §5's pivot about a raised C (one τ for all hosts, camera leaves E in the volume)? I recommend E.
 2. **Tilt altitude from the ellipsoid** rather than over the ground estimate. OK?
 3. **Volume scale far out:** §5's fixed eye height / agl (globe about 0.6× today's size), or grow toward |C₁ − E| with tilt to keep today's size?
 4. **Zoom (dolly) toward the view centre** in room hosts, rather than along the frozen pitch?
@@ -129,18 +133,18 @@ The owner asked to try it before deciding. What was built, with the open questio
 
 **Decisions taken for the trial**
 
-- **Pivot:** tilt about the eye in both hosts (question 1). Full tilt is 70.6° in the volume (`RoomGeometry.fullTilt`, from `RoomGeometry.tiltFacing(C₁, from: E)`) and 90° in Immersive.
+- **Pivot:** tilt about the design eye point in both hosts (question 1). Full tilt is 70.6° in the volume (`RoomGeometry.fullTilt`, from `RoomGeometry.tiltFacing(C₁, from: E)`) and 90° in Immersive.
 - **Tilt altitude:** the camera's height above the ellipsoid (question 2), in both hosts: `EyeLevelModel.tiltWeight(for:)`.
 - **Scale:** §5's fixed eye height / agl (question 3).
 - **Zoom:** in `9dcad75`, the volume's zoom headed for the view centre and Immersive's still went along the stored pitch. I narrowed that myself, without asking, and it left pitch in use in Immersive. Superseded by `c63a61e` (see the log).
 - **Names:** no renames (question 5). `AdaptiveModel` keeps `Framing`, `minimumRange`, `pitchLimit`, `lodCamera`, `AnchorTarget` and the generic `solve`. The view-ray framing, the nadir fallback, `placementPoint`, `pitchTarget`, `framePlace` and the ray/envelope `solve` overload are gone. So are `RoomGeometry.levelPitch` and, in `MapModel`, the pitch easing, `settlesPitch`, the steering pitch clamp and the horizon clamp on restore.
-- **Immersive's C₀ uses are unchanged** (agreed in discussion). The shared placement needs only the eye. The view centre that rises from C₀ to C₁ is the volume's alone (`RoomGeometry.viewCentreFollowsTilt`). Immersive keeps the ground beneath level C₀ for its slab, ground sample and place framing. Moving those to the eye is a follow-up, and the gesture slab is [also/also-maps-apple#61](https://github.com/also/also-maps-apple/issues/61).
+- **Immersive's C₀ uses are unchanged** (agreed in discussion). The shared placement needs only the design eye point. The view centre that rises from C₀ to C₁ is the volume's alone (`RoomGeometry.viewCentreFollowsTilt`). Immersive keeps the ground beneath level C₀ for its slab, ground sample and place framing. Replacing those is a follow-up ([also/also-maps-apple#67](https://github.com/also/also-maps-apple/issues/67)), and the gesture slab is [also/also-maps-apple#61](https://github.com/also/also-maps-apple/issues/61).
 - **Ground:** one placement ground (`MapModel.placementGround`), the 3×3 sample, no curvature envelope. Saved states write it to both `ray` and `envelope`; restoring reads `ray`. `pitchFollowsAltitude` is now `tiltFollowsAltitude`.
 - **Places** frame with the tilt their height gives, with the centre as the view centre. Every place in the library is below 50 km, so they all frame level.
 
 **Found by the tests** (`Tests/Navigation/VolumePlacementTests.swift`, `Stage2Tests.swift`)
 
-- **Observed: pinching between 50 and 500 km can't keep the grabbed point under the hand.** A pinch changes height, which changes the tilt, and tilting about the eye swings the ground plane through the box. A ×1.6 pinch from 120 km turns it about 19°, and the best the solve can do leaves the grab 8–12 cm from the hand (the scale is exact). The old volume, measured the same way on `b7bf38d`, left it 0.5–4.6 cm off, because its tilt pivoted near the content, where you grab. Immersive already behaves like the new volume. This is the main cost of the eye pivot: worth feeling on the headset. If it's bad, options are pivoting about C (§5's original, camera off the eye) or letting the pinch give up exact scale to hold the point.
+- **Observed: pinching between 50 and 500 km can't keep the grabbed point under the hand.** A pinch changes height, which changes the tilt, and tilting about the design eye point swings the ground plane through the box. A ×1.6 pinch from 120 km turns it about 19°, and the best the solve can do leaves the grab 8–12 cm from the hand (the scale is exact). The old volume, measured the same way on `b7bf38d`, left it 0.5–4.6 cm off, because its tilt pivoted near the content, where you grab. Immersive already behaves like the new volume. This is the main cost of pivoting about the design eye point: worth feeling on the headset. If it's bad, options are pivoting about C (§5's original, camera off E) or letting the pinch give up exact scale to hold the point.
 - **Observed: high up, the box's floor cuts the tilted globe.** Above about 450 km some of the visible globe falls below the floor (lowest visible ground at −0.43 to −1.7 m against a floor at −0.3 m). The old volume did the same, measured the same way: −0.27 m at 72 km, down to −3.4 m at 760 km. Below 50 km, with no curvature envelope, all visible ground stays above the floor.
 - **Observed:** below 50 km the view centre is within 1 cm of C₀; the line of sight meets the curved ground just past it. At 600 m the placement matches the original (legacy) placement to within 1 mm.
 

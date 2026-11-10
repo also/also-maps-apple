@@ -1,5 +1,7 @@
 # Camera-centric navigation core
 
+**Who this is for.** LLM sessions wrote and maintain this document, mostly for other LLM sessions. The owner hasn't reviewed most of it. Its terms, rules and "decisions" aren't owner-approved unless marked so. Don't cite it to the owner as if they know what it says (section numbers included); say the thing itself.
+
 Status: revision 7 (2026-11-09).
 
 - **Implemented:** stages 1 and 2 are merged. Stage 2b (§13) is implemented as checkpoints on `claude/volume-explicit-tilt-bcfcc9`, not merged: both room hosts are placed by §5, and pitch no longer affects what they show or how they respond.
@@ -66,7 +68,7 @@ Status: revision 7 (2026-11-09).
 | **Reference space** | The host's origin: the volume's centre, or the immersive space's origin (the floor where the user stood when it opened). |
 | **Base plane** | The horizontal plane the map's ground is placed on: low in the volume, or the immersive space's origin plane (y = 0). |
 | **Content centre** (C₀, C₁) | C₀: the middle of the shown region on the base plane (the box floor's centre in the volume, 5.6 m ahead in the immersive space). C₁: a raised point the volume's view centre rises toward as the map tilts (the box's centre). |
-| **View centre** (G) | The ground point treated as the middle of what's shown: what the gesture slab, the ground sample, the volume's area of interest and zoom use. `georeferencePoint` in code. In the volume, the ground along the line of sight from E to the content centre, which moves from C₀ toward C₁ as the map tilts. In the immersive space, the ground beneath C₀ as placed level, carried by the tilt. |
+| **View centre** (G) | The ground point treated as the middle of what's shown: what the gesture slab, the LOD camera's direction, place framing, the ground sample, the volume's area of interest and zoom use. `georeferencePoint` in code. In the volume, the ground along the line of sight from E to the content centre, which moves from C₀ toward C₁ as the map tilts. In the immersive space, the ground beneath C₀ as placed level, carried by the tilt: a leftover to eliminate (#67). |
 | **Full tilt** | The tilt a host applies at full tilt weight: 90° in the immersive space; 70.6° in the volume, which points the ground below the camera at C₁. |
 | **Placement ground** | The estimated ground height that sets the scale (§7). |
 | **Room placement** | A rigid transform (translation and yaw) from the map frame to the reference space. Only the user and the system change it (§10). |
@@ -289,7 +291,7 @@ The tilt isn't stored: it follows from the camera. The one placement ground is w
   - **Tests:** level at w = 0 in every host and across host switches and place jumps; pitch has no effect; tilt ignores the ground estimate; zoom's limits.
   - **Overlap:** conflicts with PR #59 (`camera-diagrams`) in `MapModel.swift` and `AdaptiveModel.swift`.
 - **Next for room hosts:**
-  - the immersive space's remaining uses of C₀ (gesture slab, ground sample, hold-tiles travel limit) on the design eye point instead; its view centre runs past the horizon far out;
+  - eliminate the immersive space's view centre ([also/also-maps-apple#67](https://github.com/also/also-maps-apple/issues/67)). It's left over from when the tilt pivoted about C₀ (`2cdf8b1`); since the pivot moved to the design eye point (`2fb7061`) it's just a point about 3.5× the camera's height ahead, past the horizon far out. The gesture slab, the LOD camera's direction, place framing, the hold-tiles travel limit and the ground sample still use it;
   - gestures from the gaze ray rather than a flat slab ([also/also-maps-apple#61](https://github.com/also/also-maps-apple/issues/61));
   - a representation of direction better than heading, at least in operations ([also/also-maps-apple#65](https://github.com/also/also-maps-apple/issues/65));
   - later, separate control styles for the volume and the immersive space.
