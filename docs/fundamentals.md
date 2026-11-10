@@ -1,14 +1,14 @@
-# Camera fundamentals
+# Fundamentals
 
-The ideas behind how Also Maps places the camera and the world, for readers new to 3D and VR. [camera-core.md](camera-core.md) has the rules; this is the background.
+The ideas behind how Also Maps places the world, for readers new to 3D and VR. [camera-core.md](camera-core.md) has the rules; this is the background.
 
 ## Heights
 
 Three heights come up again and again:
 
-- **Height above the ellipsoid** (`height` in the code): how far the camera is above a smooth mathematical Earth, WGS84. It needs nothing but the camera's position.
-- **Terrain height:** how far the ground is above that ellipsoid at some point. It has to be estimated from the loaded tiles. Sea level (the geoid) sits up to about 100 m off the ellipsoid, which rarely matters here.
-- **Altitude above ground level (AGL):** the camera's height minus the terrain height beneath it. It's only as good as the terrain estimate.
+- **Height above the ellipsoid** (`height` in the code): how far a point is above a smooth mathematical Earth, WGS84.
+- **Terrain height:** how far the ground is above that ellipsoid at some point. It has to be estimated from the loaded tiles (or another source). Sea level (the geoid) sits up to about 100 m off the ellipsoid, which rarely matters here.
+- **Altitude above ground level (AGL):** a height minus the terrain height beneath it. It's only as good as the terrain estimate.
 
 ## Where the ground comes in
 
@@ -16,13 +16,13 @@ Some features plainly need the ground, and some plainly don't. The interesting o
 
 **Needs the ground:**
 
-- **Minimum altitude:** keeping the camera above the terrain.
+- **Minimum altitude:** keeping a point above the terrain.
 - **Speed**, when it's defined relative to the ground, so it's the same over hills and valleys.
 - **Placing terrain in the volume:** to put the ground somewhere in the box, you need to know where it is.
 
 **Doesn't need the ground:**
 
-- **Immersive at human scale:** the camera is your eye, at 1:1, level, facing its heading. The ground ends up wherever it really is below you.
+- **Immersive at human scale:** the world is presented at 1:1, without trying to line the ground up with the room’s floor. No terrain estimate is needed for that placement.
 - **Far out:** terrain is at most about 9 km high, so at 1,000 km up the ellipsoid is close enough.
 
 **In between: scale and placement.**
@@ -42,7 +42,7 @@ In a single perspective image, rescaling the world about the viewing position le
 
 In VR, a small tower nearby can occupy the same amount of your view as a full-size tower far away. But the different views from your two eyes, and how the tower shifts as you move your head, let you perceive it as a nearby model. Stereo and parallax show the scale when things are close enough in the room: a few tens of metres for stereo, which works from your eyes' 63 mm, and further the more your head moves for parallax. The whole Earth can appear as a ball a metre away at model scale, and a small head movement reveals its depth. At 1:1 it's thousands of kilometres away: moving your head barely changes the view, which tells you it's distant, but gives little sense of just how far away it is.
 
-**Placement is where the ground comes in.** Choosing a scale so that the ground lands on the floor (or on the volume's base plane) means scaling from AGL, and that needs a terrain estimate. Immersive does this today. Human scale doesn't, so its ground lands wherever it is.
+**Placement is where the ground comes in.** To line the ground up with the room's floor or the volume's base plane, you need a terrain estimate.
 
 ### Human scale or model scale
 
@@ -53,7 +53,7 @@ Human scale preserves real-world distances, but far away it makes stereo and hea
 Changing the scale shrinks or grows everything about some point, and that point decides what you see:
 
 - **About the point between your eyes:** everything gets nearer and smaller by the same factor, so the picture from that point doesn't change. Each eye sits slightly to one side, so its view changes a little, and so does the view when you move your head. Those changes are stereo and parallax, and they show things as smaller and closer.
-- **About the Earth's centre:** the surface drops away below you, and what's on it shrinks and recedes until it disappears. That looks like climbing, and is equivalent to it.
+- **About the Earth's centre:** the surface drops away below you, and what's on it shrinks and recedes until it disappears.
 - **About a point on the map:** that point stays put and you seem to fly away from it.
 
 ### Easily confused with scale
