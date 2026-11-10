@@ -62,16 +62,13 @@ A general-purpose app with Google Earth VR-like flying, from street level to the
 
 **Decided in the stage 2b session (2026-11-05 to 11-09)**
 
-- **Tilt is a function of position.** The owner's question was whether everything a room host shows could be a pure function of the camera's position and heading. The volume's tilt came from stored, eased pitch; it now comes from the camera's height above the ellipsoid, as the immersive space's does.
-- **Pitch is irrelevant in VR.** Nothing a room host shows or does should depend on the stored pitch. It's fine for places to keep setting it for now.
-- **Simplicity and the immersive space first,** since controller controls matter more there. Separate control styles for the volume and the immersive space may come later.
-- **Zoom only below where the tilt starts.** Zooming past it made no sense to the viewer, and zooming in from above moved toward a point they weren't looking at. So zoom does nothing above 50 km, and zooming out stops short of it with room to zoom back in. The limit is a workaround for not having a zoom model that works with the tilt, not a property of the world, and the code says so.
-- **Heading:** consider a better representation of direction than heading, at least in operations ([also/also-maps-apple#65](https://github.com/also/also-maps-apple/issues/65)). Not prescriptive.
+- **Tilt is a function of position.** It comes from the camera's height above the ellipsoid, not from stored pitch.
+- **Pitch is irrelevant in VR.** Nothing a room host shows or does should depend on the stored pitch.
+- **Simplicity and the immersive space first.** Separate control styles for the volume and the immersive space may come later.
+- **Zoom only below where the tilt starts.** The limit is a workaround for not having a zoom model that works with the tilt assist.
 - **Process:**
-  - While implementing an agreed change, don't make further design decisions; stop and ask. Two were made and backed out in this session.
+  - While implementing an agreed change, don't make further design decisions; stop and ask.
   - Notes on trade-offs come after the owner has tried and reviewed the change, not before.
-  - Use `docs/camera-core.md` §2's terms. In particular, "the design eye point" is a fixed, assumed position; don't call it "your eye" to the owner.
-  - Checkpoint commits are fine when the owner asks for them.
 
 ## Rejected
 

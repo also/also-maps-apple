@@ -4,8 +4,7 @@
 
 Status: revision 7 (2026-11-09).
 
-- **Implemented:** stages 1 and 2 are merged. Stage 2b (§13) is implemented as checkpoints on `claude/volume-explicit-tilt-bcfcc9`, not merged: both room hosts are placed by §5, and pitch no longer affects what they show or how they respond.
-- **Changed here:** §5's tilt now pivots about the design eye point, as the immersive space's did, and each host sets its full tilt. Terms for the view centre, the content centre and pitch's uses are in §2. Zoom in room hosts (§11) heads for the view centre, below where the tilt starts.
+- **Implemented:** stages 1, 2 and 2b (§13).
 - **Working log:** `notes/volume-placement.md`.
 
 ## 1. Goals
@@ -62,15 +61,11 @@ Status: revision 7 (2026-11-09).
 | **Host** | The physical container and its fixed geometry: the volume, an immersive N× layout on the immersive space's origin plane, or the macOS window. |
 | **Level frame** | East, north and up at a point, with up along the ellipsoid normal. The geoid's vertical differs by under 0.02°, which is negligible here. |
 | **View tilt** (τ) | How far the world is deliberately tipped toward the viewer in a room host: 0 is level with the floor, 90° faces you. It's chosen by the interaction mode. |
-| **Design eye point** (E) | The assumed viewer position in a room host: a fixed point in front of the volume, or the headset's position measured once when the immersive space opens (an assumed point if that fails). It never follows the tracked head. Say "the design eye point", not "your eye". |
-| **Pitch** | The camera pose's up/down angle. Its uses differ and should be named: the *pitch assist* (removed: it eased pitch with altitude); places *set* it; gestures and moves *carry it through*; flat screens *render* with it; tracks and saved views *record* it. Room hosts don't read it. |
+| **Design eye point** (E) | A fixed point in a room host that stands in for the viewer's position: in front of the volume, or the headset's position measured once when the immersive space opens. It never follows the tracked head. |
 | **Head pose** | The real head (ARKit's `DeviceAnchor`), in immersive spaces only. Used for level of detail later (#4), never for placement. |
 | **Reference space** | The host's origin: the volume's centre, or the immersive space's origin (the floor where the user stood when it opened). |
 | **Base plane** | The horizontal plane the map's ground is placed on: low in the volume, or the immersive space's origin plane (y = 0). |
-| **Content centre** (C₀, C₁) | C₀: the middle of the shown region on the base plane (the box floor's centre in the volume, 5.6 m ahead in the immersive space). C₁: a raised point the volume's view centre rises toward as the map tilts (the box's centre). |
-| **View centre** (G) | The ground point treated as the middle of what's shown: what the gesture slab, the LOD camera's direction, place framing, the ground sample, the volume's area of interest and zoom use. `georeferencePoint` in code. In the volume, the ground along the line of sight from E to the content centre, which moves from C₀ toward C₁ as the map tilts. In the immersive space, the ground beneath C₀ as placed level, carried by the tilt: a leftover to eliminate (#67). |
-| **Full tilt** | The tilt a host applies at full tilt weight: 90° in the immersive space; 70.6° in the volume, which points the ground below the camera at C₁. |
-| **Placement ground** | The estimated ground height that sets the scale (§7). |
+| **View center** | The ground point treated as the middle of what's shown. `georeferencePoint` in code. |
 | **Room placement** | A rigid transform (translation and yaw) from the map frame to the reference space. Only the user and the system change it (§10). |
 | **Georeference** | Which world point sits where in the map frame, with what scale and rotation (Cesium's term). |
 | **Area of interest** (AOI) | The geographic square eligible for streaming. Its centre is the streaming anchor. |
@@ -96,19 +91,19 @@ Tilt is a separate, explicit value τ, owned by the interaction mode, not derive
 - **Drone (today).**
   - **Behaviour:** the base is always level. That could stay true at every altitude, but far enough away you'd need to look straight down to see anything, so the mode adds an optional tilt assist that tips the world toward you as you climb.
   - **The curve:** today's curve (0 below 50 km, rising to full weight by 500 km on a smoothstep in log altitude) is fairly arbitrary. It's a tunable setting, not a principle.
-  - **Measured from the ellipsoid:** the weight follows the camera's height above the ellipsoid, so the tilt depends only on where the camera is, never on a ground estimate. Terrain shifts a 50–500 km curve negligibly.
-  - **Per host:** the mode chooses a weight from 0 to 1; each host turns full weight into its own full tilt (§2).
+  - **Measured from the ellipsoid:** the weight follows the camera's height above the ellipsoid, so the tilt never depends on a ground estimate.
+  - **Per host:** each host turns the weight into its own angle.
 - **Ground/globe toggle (Google Earth VR-style, future).**
   - **Two states:** ground (τ = 0) and globe (τ at full tilt). A button toggles between them, easing the tilt over a short transition.
   - **Altitude limits:** each state has its own range, and the ranges overlap. Ground mode has a maximum altitude, and globe mode a minimum one. To climb higher than ground mode allows, you toggle to globe first.
 - **Fixed level (simplest).** τ = 0 always. Useful for checking the baseline, and for a fixed human-scale presentation style.
 
-Whatever the mode, the tilt weight is part of the presentation, so switching host, jumping to a place or turning your head never changes it. **Not yet met above 50 km:** the hosts' full tilts differ (§2), so the same weight is a different angle in each host.
+Whatever the mode, the tilt weight is part of the presentation, so switching host, jumping to a place or turning your head never changes it.
 
 ### 3.4 Pitch
 
 - **Flat screen:** the camera's pitch is the render camera's pitch.
-- **VR room host:** the viewer's head does the looking. Nothing a room host shows or does reads the stored pitch: not placement, tilt, zoom or gestures. Places still set it, gestures and moves carry it through, and tracks and saved views record it, so switching to a flat-screen view has a direction to use. Head tracking (#4) may later supply a real one.
+- **VR room host:** the viewer's head does the looking. Room hosts don't read the stored pitch. It's kept so that a flat-screen view has a direction to use.
 
 ### 3.5 Scale (adaptive scale presentation style)
 
@@ -145,43 +140,37 @@ The core types live in `Sources/Navigation/`: `CameraPose`, `NavigationState` (m
 
 ## 5. Room host placement (adaptive scale)
 
-Both room hosts use this (`EyeLevelModel.framing`). It replaces revision 5's ray-and-placement-point construction.
+Both room hosts use this (`EyeLevelModel.framing`).
 
 **Inputs:**
 
 - camera X with heading ψ;
-- the host's design eye point E, base plane height y_g and full tilt;
+- the host's design eye point E and base plane height y_g;
 - the camera's height above ground, `agl` (from the placement ground);
-- the tilt weight w, chosen by the interaction mode (§3.3).
+- the view tilt τ, from the interaction mode (§3.3).
 
-**Untilted (w = 0):**
+**Untilted (τ = 0):**
 
 1. **Scale:** s = (E.y − y_g) / agl.
 2. **Rotation:** yaw only. The level frame at the ground beneath the camera maps to the room with up → up and the camera's heading → −z (away from the viewer).
 3. **Translation:** the camera lands on E. The ground beneath it then lands at (E.x, y_g, E.z), on the base plane.
 
-**Tilted (w > 0):** rotate by w × the host's full tilt about the room's horizontal right axis **through E**, after the untilted placement. The camera stays on E at every tilt, and the ground below comes up toward straight ahead. (Revision 6 pivoted about the content centre, which moves the camera off E; the immersive space dropped that after recorded tracks showed it, and the volume now does the same.)
+**Tilted (τ > 0):** rotate by τ about the room's horizontal right axis through E, after the untilted placement. The camera stays on E.
 
 **Shown region:** half-width ρ = contentHalfWidth / s, used by the gesture slab, AOI and ground sampling.
 
 **Properties this guarantees:**
 
-- At w = 0 the map is exactly level, in every host, at any altitude.
-- Switching hosts changes s (each host's eye is at a different height) and where content sits, but never the tilt weight.
+- At τ = 0 the map is exactly level, in every host, at any altitude.
+- Switching hosts changes s (each host's eye is at a different height) and where content sits.
 - Pitch has no effect.
 - No surface intersection is needed to place the world, so there's no horizon miss case for placement.
-
-**Known costs:**
-
-- **Pinching between 50 and 500 km:** a pinch changes height, which changes the tilt, which swings the ground about E. The grabbed point can't stay exactly under the hand: about 8–12 cm in the volume for ×1.6 at 120 km. Revision 5's volume, which pivoted near the content, was off by 0.5–4.6 cm.
-- **The volume:** E is in front of the box, so the ground beneath the camera is outside what's shown, and climb, turn and speed pivot on it. Far out, the box's floor cuts the tilted globe (as revision 5's did).
 
 ## 6. Surfaces and the horizon
 
 `Geodesy.intersect` returns hit, miss or invalid ray, against a scaled ellipsoid at a given height. Hits are refined with a bounded iteration, and every result is finite.
 
 - **Callers decide what a miss means.** A pointer or pivot keeps its last value, uses a declared fallback, or declines.
-- **The horizon pitch limit (`AdaptiveModel.pitchLimit`)** is only for modes that need a view ray to meet the ground: a flat-screen orbit pivot, say. Nothing calls it now.
 
 ## 7. Ground estimates
 
@@ -190,14 +179,10 @@ There are two estimates, with different jobs and different trust requirements.
 | | **Placement ground** | **Camera ground** |
 |---|---|---|
 | Used for | Scale and where the map sits (§5) | Speed, minimum and maximum altitude |
-| Source | The 3×3 `sampleHeightMostDetailed` across the shown region, around the view centre, once motion settles (lowest hit). Skipped when the shown half-width is 50 km or more | Rendered-tile height ranges, only from tiles no wider than max(2·agl, 500 m) |
+| Source | The 3×3 `sampleHeightMostDetailed` across the shown region once motion settles (lowest hit) | Rendered-tile height ranges, only from tiles no wider than max(2·agl, 500 m) |
 | Updates | On settle and after gestures, eased. The first sample after a place jump moves the camera with the ground instead | Every frame, eased |
 | While held or during a gesture | Frozen | Continues |
 | Can move the view? | Yes, so it must be stable | Never |
-
-**One placement ground.** There used to be two (the surface the view ray met, and a lower envelope that far out followed the Earth's curve). Placement no longer uses a view ray, and the curvature envelope is gone. It once carried a −20.8 km estimate from the volume into the immersive space ([also/also-maps-apple#60](https://github.com/also/also-maps-apple/issues/60)).
-
-**Open:** far out the sample doesn't run, so an estimate taken elsewhere can persist and still sets the scale. One idea: use the estimate near the ground and blend toward the ellipsoid as altitude grows.
 
 **Lesson from stage 2.** Reading the placement ground from rendered tiles continuously made the view bounce:
 
@@ -214,10 +199,10 @@ There are two estimates, with different jobs and different trust requirements.
 | `.viewer` | Ground beneath the viewer | 3 × agl, from 1 km to the horizon | The Mac window |
 | `.forward` | Ahead of the viewer | Reach with a lead | — |
 | `.blended` | Viewer near the ground, view centre higher up | Covers both | — |
-| `.horizon` | Ground beneath the viewer | Out to the horizon plus a terrain allowance, optionally capped per altitude | The immersive space |
+| `.horizon` | Ground beneath the viewer | Out to the horizon | The immersive space |
 
 - **Outside the frustum:** cesium-native already uses a coarser screen-space error (Outer Detail) outside the frustum, and the AOI only bounds what's eligible.
-- **LOD viewpoint:** the design eye point through the georeference, which in room hosts is the camera's position, looking at the view centre, until head tracking (#4).
+- **LOD viewpoint:** the design eye point through the georeference, looking at the view center, until head tracking (#4).
 
 ## 9. Live and held tiles
 
@@ -248,7 +233,7 @@ Map frame → reference space, rigid. It's independent of navigation: navigation
 - **Move:** 0.75 × agl per second along the movement heading.
 - **Turn:** 60°/s.
 - **Climb:** height changes by e^±1 per second of agl.
-- **Zoom (`=` and `−`, RT and LT):** on flat screens, along the view. In room hosts, toward the view centre, leaving pitch alone; at a height limit it stops on its line rather than being pushed off it. In room hosts zoom only works below where the tilt starts: zooming out stops 1% short of 50 km above the ellipsoid, and above that (reachable by climbing) zoom does nothing. **This limit is a workaround, not a property of the world:** there's no model yet of zooming that works with the tilt assist, because the view centre zoom heads for moves as the map tilts. The limit also keeps a zoom out and back in close to where it started (within tens of metres on a 600 m view).
+- **Zoom (`=` and `−`, RT and LT):** on flat screens, along the view. In room hosts, toward the view center, and only below where the tilt starts. That limit is a workaround, not a property of the world.
 - **Faster:** ×3 with Shift or LB.
 - **Y** faces north, and **X** toggles held tiles.
 
@@ -261,7 +246,7 @@ All rates are starting values for tuning.
 - With a level world, pinch scales about the grab point (an altitude change plus a horizontal shift) and twist turns about it. Drag moves horizontally.
 - The solve is local, with a bounded correction for curvature. It's tested to under 1 mm.
 
-**Places.** A place (centre, radius, heading) maps to a camera whose shown region is that radius in the current host, with the place as the view centre, tilted as its height gives. Every place in the library is below 50 km, so they frame level. A place sets the camera's pitch to look at its centre.
+**Places.** A place (centre, radius, heading) maps to a camera whose shown region is that radius in the current host, with the place as the view center.
 
 ## 12. Persistence
 
@@ -273,7 +258,7 @@ View state version 2 stores:
 - the host and room placement;
 - the tile mode, with the held streaming inputs if held.
 
-The tilt isn't stored: it follows from the camera. The one placement ground is written to both of the ground estimate's fields (`ray` and `envelope`), and restoring reads `ray`, since older states can hold a curvature envelope in `envelope`. Old focus-centric states are rejected with a clear message.
+The tilt isn't stored: it follows from the camera. Old focus-centric states are rejected with a clear message.
 
 ## 13. Implementation status and next steps
 
@@ -281,20 +266,8 @@ The tilt isn't stored: it follows from the camera. The one placement ground is w
 - **Stage 2 (done, `5bc6e91`, fixes `ff2eb9e` and `1cb1bf4`):**
   - **In:** the camera as the stored state, model-flight controls, anchored gestures, speed from agl, held tiles, view state v2, and per-host place framing.
   - **Still on revision 5's rule:** placement from a view ray, with tilt derived from pitch.
-- **Stage 2b (checkpoints `9dcad75`, `c63a61e` on `claude/volume-explicit-tilt-bcfcc9`, not merged):**
-  - **Placement:** both room hosts by §5, sharing `EyeLevelModel.framing`; the volume's view-ray placement, nadir fallback and pitch assist are gone.
-  - **Tilt:** the drone tilt assist's weight from the camera's height above the ellipsoid, in both hosts.
-  - **Pitch:** not read by room hosts.
-  - **Ground:** one placement ground; no curvature envelope.
-  - **Zoom:** toward the view centre, below 50 km (§11).
-  - **Places:** framed with the place as the view centre.
-  - **Tests:** level at w = 0 in every host and across host switches and place jumps; pitch has no effect; tilt ignores the ground estimate; zoom's limits.
-  - **Overlap:** conflicts with PR #59 (`camera-diagrams`) in `MapModel.swift` and `AdaptiveModel.swift`.
-- **Next for room hosts:**
-  - eliminate the immersive space's view centre ([also/also-maps-apple#67](https://github.com/also/also-maps-apple/issues/67)). It's left over from when the tilt pivoted about C₀ (`2cdf8b1`); since the pivot moved to the design eye point (`2fb7061`) it's just a point about 3.5× the camera's height ahead, past the horizon far out. The gesture slab, the LOD camera's direction, place framing, the hold-tiles travel limit and the ground sample still use it;
-  - gestures from the gaze ray rather than a flat slab ([also/also-maps-apple#61](https://github.com/also/also-maps-apple/issues/61));
-  - a representation of direction better than heading, at least in operations ([also/also-maps-apple#65](https://github.com/also/also-maps-apple/issues/65));
-  - later, separate control styles for the volume and the immersive space.
+- **Stage 2b:** both room hosts placed by §5; tilt from the camera's height above the ellipsoid; pitch not read by room hosts; one placement ground; zoom toward the view center.
+- **Next for room hosts:** [also/also-maps-apple#67](https://github.com/also/also-maps-apple/issues/67), [also/also-maps-apple#61](https://github.com/also/also-maps-apple/issues/61) and [also/also-maps-apple#65](https://github.com/also/also-maps-apple/issues/65); later, separate control styles for the volume and the immersive space.
 - **Stage 3:** remove the leftover old code (`LegacyMapping`, the turn-pivot setting) and update Tuning and the README.
 - **Stage 4:** the macOS window on the core: the real camera, pitch as the render camera's, the `.viewer` AOI.
 - **Later:**
@@ -312,10 +285,10 @@ The tilt isn't stored: it follows from the camera. The one placement ground is w
 ## 14. Open questions
 
 1. **Drone tilt:** keep the assist curve as the default, or start the drone at fixed level and add the ground/globe toggle sooner?
-2. **Tilt pivot:** about the design eye point keeps the camera on E, but a pinch while the tilt changes can't hold the grabbed point (§5). Acceptable, or does the pinch need to trade exact scale for holding the point?
-3. **Zoom with tilt:** what should zoom do once the map tilts? Today it's limited to the untilted range.
-4. **The volume's controls:** climb, turn and speed pivot on a point outside the box. Camera over the box centre, or volume-specific control styles?
-5. **Ground far out:** blend the placement ground toward the ellipsoid with altitude?
+2. **Tilt pivot:** with the pivot at the design eye point, a pinch while the tilt changes can't hold the grabbed point. Is that acceptable?
+3. **Zoom with tilt:** what should zoom do once the map tilts?
+4. **The volume's controls:** climb, turn and speed pivot on a point outside the box.
+5. **Ground far out:** an estimate taken elsewhere can persist and still set the scale.
 6. **Ground changes while live:** today the camera stays put and the map eases. Would moving the camera with the ground feel better at all altitudes, not just after place jumps?
 7. **Defaults for AOI and detail:** are `.horizon` and today's detail settings right for the immersive space?
 8. **Held-tile limits** (1.5× travel, 3× climb).
