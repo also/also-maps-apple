@@ -34,7 +34,7 @@ final class ScreenMap {
 
     @ObservationIgnored private var flight = ModelFlightStyle()
     @ObservationIgnored private var cameraGround = CameraGround()
-    /// The ground under the camera, metres above the ellipsoid. Not observed:
+    /// The ground under the camera, meters above the ellipsoid. Not observed:
     /// read it alongside the camera.
     var groundHeight: Double { cameraGround.value }
     @ObservationIgnored private var heldActions: Set<MapInput.Action> = []

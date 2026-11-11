@@ -22,7 +22,7 @@ struct MapPresentation: Identifiable, Hashable {
     /// descending in place.
     let viewerPosition: SIMD3<Float>
 
-    /// Volume extents in metres (width, height, depth).
+    /// Volume extents in meters (width, height, depth).
     static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
 
     static let volume = MapPresentation(

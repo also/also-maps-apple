@@ -14,7 +14,7 @@ struct CameraDiagramWorldView: View {
 
             // The Earth below the ellipsoid.
             if let ellipsoid = d.surfaces.first(where: { $0.kind == .ellipsoid }) {
-                context.fill(fit.ground(ellipsoid.world, centre: d.earthCentre, closes: ellipsoid.closesWorld),
+                context.fill(fit.ground(ellipsoid.world, center: d.earthCenter, closes: ellipsoid.closesWorld),
                              with: .color(.gray.opacity(0.12)))
             }
             context.stroke(fit.line(d.streamedArea), with: .color(DiagramStyle.streamed.opacity(0.3)), lineWidth: 13)
@@ -37,7 +37,7 @@ struct CameraDiagramWorldView: View {
                     DiagramStyle.label("placed", at: fit.point(placed), in: &context)
                 }
                 DiagramStyle.cross(at: fit.point(g), in: &context)
-                DiagramStyle.label("view centre", at: fit.point(g), in: &context)
+                DiagramStyle.label("view center", at: fit.point(g), in: &context)
             }
 
             DiagramStyle.marker(camera: d.camera, viewer: d.viewer, viewerName: DiagramStyle.viewerName(d),
@@ -58,7 +58,7 @@ struct CameraDiagramRoomView: View {
             let fit = DiagramFit(bounds: room.bounds, size: size)
 
             if let terrain = diagram.surfaces.first(where: { $0.kind == .terrain }), !terrain.room.isEmpty {
-                context.fill(fit.ground(terrain.room, centre: room.earthCentre, closes: false),
+                context.fill(fit.ground(terrain.room, center: room.earthCenter, closes: false),
                              with: .color(.brown.opacity(0.12)))
             }
             if let container = room.container {
@@ -83,7 +83,7 @@ struct CameraDiagramRoomView: View {
                 DiagramStyle.label(name, at: fit.point(point), in: &context)
             }
             DiagramStyle.cross(at: fit.point(room.placement), in: &context)
-            DiagramStyle.label("view centre", at: fit.point(room.placement), in: &context, below: true, left: true)
+            DiagramStyle.label("view center", at: fit.point(room.placement), in: &context, below: true, left: true)
 
             let camera = CameraDiagram.Viewpoint(position: room.camera, direction: room.lod.direction)
             let eye = CameraDiagram.Viewpoint(position: room.eye, direction: room.lod.direction)
@@ -123,21 +123,21 @@ struct CameraDiagramLegend: View {
     }
 }
 
-/// Fits side-view metres into a view: uniform scale, y up, centred.
+/// Fits side-view meters into a view: uniform scale, y up, centerd.
 struct DiagramFit {
     let scale: Double
-    let centre: SIMD2<Double>
+    let center: SIMD2<Double>
     let size: CGSize
 
     init(bounds: CameraDiagram.Bounds, size: CGSize) {
         self.size = size
-        centre = bounds.centre
+        center = bounds.center
         scale = min(size.width / bounds.size.x, size.height / bounds.size.y)
     }
 
     func point(_ p: SIMD2<Double>) -> CGPoint {
-        CGPoint(x: size.width / 2 + (p.x - centre.x) * scale,
-                y: size.height / 2 - (p.y - centre.y) * scale)
+        CGPoint(x: size.width / 2 + (p.x - center.x) * scale,
+                y: size.height / 2 - (p.y - center.y) * scale)
     }
 
     func distance(_ a: SIMD2<Double>, _ b: SIMD2<Double>) -> Double { simd_distance(a, b) * scale }
@@ -147,7 +147,7 @@ struct DiagramFit {
         return CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y))
     }
 
-    /// The view's diagonal, in side-view metres.
+    /// The view's diagonal, in side-view meters.
     var reach: Double { hypot(size.width, size.height) / scale }
 
     func line(_ points: [SIMD2<Double>]) -> Path {
@@ -159,10 +159,10 @@ struct DiagramFit {
     }
 
     /// The ground's far side: a surface closed round the Earth, or a wedge
-    /// from it to the Earth's centre, whichever way the ground is turned.
-    func ground(_ points: [SIMD2<Double>], centre: SIMD2<Double>, closes: Bool) -> Path {
+    /// from it to the Earth's center, whichever way the ground is turned.
+    func ground(_ points: [SIMD2<Double>], center: SIMD2<Double>, closes: Bool) -> Path {
         var path = line(points)
-        if !closes { path.addLine(to: point(centre)) }
+        if !closes { path.addLine(to: point(center)) }
         path.closeSubpath()
         return path
     }

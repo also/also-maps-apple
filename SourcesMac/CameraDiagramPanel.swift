@@ -259,9 +259,9 @@ struct CameraDiagramPanel: View {
         }
     }
 
-    private static func distance(_ metres: Double) -> String {
-        abs(metres) < 1_000
-            ? "\(metres.formatted(.number.precision(.fractionLength(0)))) m"
-            : "\((metres / 1_000).formatted(.number.precision(.fractionLength(1)))) km"
+    private static func distance(_ meters: Double) -> String {
+        abs(meters) < 1_000
+            ? "\(meters.formatted(.number.precision(.fractionLength(0)))) m"
+            : "\((meters / 1_000).formatted(.number.precision(.fractionLength(1)))) km"
     }
 }

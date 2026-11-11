@@ -57,7 +57,7 @@ struct CameraDiagramTests {
         }
         let (low, lowRoom) = try at(20_000)
         #expect(low.tiltWeight == 0)
-        #expect(simd_distance(lowRoom.contentCentre, lowRoom.levelPlacement) < 1e-9)
+        #expect(simd_distance(lowRoom.contentCenter, lowRoom.levelPlacement) < 1e-9)
 
         let (mid, midRoom) = try at(150_000)
         #expect(mid.tiltWeight > 0 && mid.tiltWeight < 1)
@@ -66,11 +66,11 @@ struct CameraDiagramTests {
         let (high, highRoom) = try at(1_000_000)
         #expect(high.tiltWeight == 1)
         #expect(abs(highRoom.tilt - volume.fullTilt) < 1e-9)
-        #expect(simd_distance(highRoom.contentCentre, highRoom.downPlacement) < 1e-9)
-        // The volume's view centre is on the line of sight through C(w).
-        let toCentre = simd_normalize(highRoom.contentCentre - highRoom.eye)
+        #expect(simd_distance(highRoom.contentCenter, highRoom.downPlacement) < 1e-9)
+        // The volume's view center is on the line of sight through C(w).
+        let toCenter = simd_normalize(highRoom.contentCenter - highRoom.eye)
         let toPlacement = simd_normalize(highRoom.placement - highRoom.eye)
-        #expect(simd_distance(toCentre, toPlacement) < 1e-3)
+        #expect(simd_distance(toCenter, toPlacement) < 1e-3)
     }
 
     @Test func aGivenTiltWeightOverridesTheAssist() throws {

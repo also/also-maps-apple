@@ -21,9 +21,9 @@ Each panel is a host's room seen from the side, with you on the left looking rig
 How to read it:
 
 - **The ring** is the reference head pose. In both hosts the navigation position is placed there, and the tilt turns the world about it, so it stays put. The figures use each host's assumed pose; the immersive space measures it when it opens.
-- **The dashed line** is the base plane: the floor in the immersive space, low in the box in the volume. **C₀** is where the view centre sits while the world is level, and **C₁** is a raised point the host uses at full tilt.
+- **The dashed line** is the base plane: the floor in the immersive space, low in the box in the volume. **C₀** is where the view center sits while the world is level, and **C₁** is a raised point the host uses at full tilt.
 - **Orange** is the placement ground, the ground estimate the scale is set from. Level, it lies on the base plane. The terrain is drawn too, at the same height here.
-- **The cross** is the view centre, which gestures grab and streaming centres on. In the volume it's the ground along your line of sight to a point that rises from C₀ toward C₁ as the tilt grows, which keeps it in the box. In the immersive space it's the ground that was beneath C₀ while level, carried by the tilt.
+- **The cross** is the view center, which gestures grab and streaming centers on. In the volume it's the ground along your line of sight to a point that rises from C₀ toward C₁ as the tilt grows, which keeps it in the box. In the immersive space it's the ground that was beneath C₀ while level, carried by the tilt.
 - **The box** (volume only) is the volume's bounds. **Teal** is the content square on the base plane: what the box shows, or in the immersive space, the area for gestures and the ground sample.
 - **Purple** is the LOD camera streaming uses, and **green** the streamed area.
 

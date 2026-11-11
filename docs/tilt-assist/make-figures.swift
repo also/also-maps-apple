@@ -29,7 +29,7 @@ struct Host {
 
 let hosts = [Host(name: "Volume", presentation: .volume), Host(name: "Immersive", presentation: .immersive)]
 
-/// The lowest height (metres above the ellipsoid) where the assist's weight
+/// The lowest height (meters above the ellipsoid) where the assist's weight
 /// reaches `weight`, by bisection: the weight only grows with height.
 func height(reaching weight: Double) -> Double {
     var low = 1.0, high = 40_000_000.0
@@ -66,10 +66,10 @@ func diagram(_ host: Host, _ stage: Stage) -> CameraDiagram {
                                        terrainHeight: 0, groundHeight: 0, containerSize: host.containerSize))
 }
 
-func distance(_ metres: Double) -> String {
-    metres < 1_000 ? String(format: "%.0f m", metres)
-        : metres < 100_000 ? String(format: "%.1f km", metres / 1_000)
-        : String(format: "%.0f km", metres / 1_000)
+func distance(_ meters: Double) -> String {
+    meters < 1_000 ? String(format: "%.0f m", meters)
+        : meters < 100_000 ? String(format: "%.1f km", meters / 1_000)
+        : String(format: "%.0f km", meters / 1_000)
 }
 
 func scale(_ s: Double?) -> String {

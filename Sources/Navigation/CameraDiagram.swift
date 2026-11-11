@@ -7,7 +7,7 @@ import simd
 /// framing models, the LOD camera, geodesy), so it shows what the app does,
 /// not a drawing of it.
 ///
-/// Side views are 2D, in metres: the world's x runs along the camera's
+/// Side views are 2D, in meters: the world's x runs along the camera's
 /// heading and y up from the ellipsoid beneath it; the room's x runs away
 /// from the viewer (map frame −z) and y up.
 struct CameraDiagram {
@@ -29,7 +29,7 @@ struct CameraDiagram {
     struct Inputs: Equatable {
         var camera: CameraPose
         var presentation: Presentation
-        /// Metres above the ellipsoid. The terrain stands in for the
+        /// Meters above the ellipsoid. The terrain stands in for the
         /// rendered ground near the camera (the camera ground); the placement
         /// ground is the estimate a room host puts on its base plane.
         var terrainHeight: Double
@@ -40,7 +40,7 @@ struct CameraDiagram {
         /// A room host's fixed scale (1 is human scale), or nil to put the
         /// placement ground on the base plane.
         var fixedScale: Double?
-        /// The container's size, centred on the reference space's origin
+        /// The container's size, centerd on the reference space's origin
         /// (the volume), if it has one.
         var containerSize: SIMD3<Double>?
         /// A room host's area of interest policy (MapModel's per host). The
@@ -85,7 +85,7 @@ struct CameraDiagram {
         }
 
         var size: SIMD2<Double> { max - min }
-        var centre: SIMD2<Double> { (min + max) / 2 }
+        var center: SIMD2<Double> { (min + max) / 2 }
 
         /// Grown by `fraction` of its size on every side, then to a square
         /// at least `minimumSize` across, so views of any shape fit it the
@@ -93,7 +93,7 @@ struct CameraDiagram {
         func padded(_ fraction: Double, minimumSize: Double) -> Bounds {
             let grown = size * (0.5 + fraction)
             let half = SIMD2(repeating: Swift.max(grown.x, grown.y, minimumSize / 2))
-            return Bounds([centre - half, centre + half])
+            return Bounds([center - half, center + half])
         }
     }
 
@@ -111,7 +111,7 @@ struct CameraDiagram {
         }
 
         var kind: Kind
-        /// Metres above the ellipsoid.
+        /// Meters above the ellipsoid.
         var height: Double
         var world: [SIMD2<Double>]
         /// As placed in the room; empty for the window.
@@ -126,9 +126,9 @@ struct CameraDiagram {
         /// C₀ and C₁: where the georeference point goes level and looking down.
         var levelPlacement: SIMD2<Double>
         var downPlacement: SIMD2<Double>
-        /// C(w): the content centre at the current tilt weight.
-        var contentCentre: SIMD2<Double>
-        /// Where the view centre is placed now.
+        /// C(w): the content center at the current tilt weight.
+        var contentCenter: SIMD2<Double>
+        /// Where the view center is placed now.
         var placement: SIMD2<Double>
         /// Where the camera itself lands: on the eye.
         var camera: SIMD2<Double>
@@ -139,8 +139,8 @@ struct CameraDiagram {
         var container: Bounds?
         /// The LOD camera: from the eye, toward C.
         var lod: Viewpoint
-        /// The Earth's centre as placed, for filling the ground's far side.
-        var earthCentre: SIMD2<Double>
+        /// The Earth's center as placed, for filling the ground's far side.
+        var earthCenter: SIMD2<Double>
         /// The streamed area as placed, on the terrain.
         var streamedArea: [SIMD2<Double>]
         var bounds: Bounds
@@ -153,36 +153,36 @@ struct CameraDiagram {
     /// window's is the camera; a room host's is the design eye point
     /// through the georeference.
     let viewer: Viewpoint
-    /// G: a room host's view centre, on the placement ground; the window's
+    /// G: a room host's view center, on the placement ground; the window's
     /// view ray's hit on the terrain. Nil if the ray misses.
     let georeferencePoint: SIMD2<Double>?
     /// The world point the framing places, back in the world: G itself.
     let placedPoint: SIMD2<Double>?
     /// ±ρ around G along the plane, on the placement ground, sampled along it.
     let shownRegion: [SIMD2<Double>]
-    /// The Earth's centre, for filling the ground's far side.
-    let earthCentre: SIMD2<Double>
-    /// The area of interest streaming is given, across its centre along the
+    /// The Earth's center, for filling the ground's far side.
+    let earthCenter: SIMD2<Double>
+    /// The area of interest streaming is given, across its center along the
     /// plane, on the terrain. The window's and the immersive space's reach
     /// to the horizon; the volume's is the shown region.
     let streamedArea: [SIMD2<Double>]
-    /// Its half-width, metres.
+    /// Its half-width, meters.
     let streamingRadius: Double
     let surfaces: [Surface]
     let room: Room?
-    /// Room metres per world metre.
+    /// Room meters per world meter.
     let scale: Double?
-    /// ρ: half-width of the shown region, world metres.
+    /// ρ: half-width of the shown region, world meters.
     let shownRadius: Double?
     /// A room host's tilt weight (0...1); 0 for the window.
     let tiltWeight: Double
     let worldBounds: Bounds
-    /// The camera's and the viewer's heights above the terrain, metres.
+    /// The camera's and the viewer's heights above the terrain, meters.
     /// A negative viewer altitude is underground.
     let cameraAltitude: Double
     let viewerAltitude: Double
     /// From the camera to G, and along the ground from beneath the camera
-    /// to G (negative behind), metres. Nil if the view ray misses.
+    /// to G (negative behind), meters. Nil if the view ray misses.
     let rangeToGeoreference: Double?
     let groundDistanceToGeoreference: Double?
     /// Where the terrain's horizon is seen ahead, and how far along the
@@ -259,9 +259,9 @@ struct CameraDiagram {
             return plane.point(point).x >= 0 ? d : -d
         }
         let halfTurn = Double.pi * GeoMath.earthRadius
-        /// Along-track distances across `centre` ± `radius`, within a half turn.
-        func span(_ centre: Double, _ radius: Double, count: Int = 64) -> [Double] {
-            Self.samples(from: max(centre - radius, -halfTurn), to: min(centre + radius, halfTurn), count: count)
+        /// Along-track distances across `center` ± `radius`, within a half turn.
+        func span(_ center: Double, _ radius: Double, count: Int = 64) -> [Double] {
+            Self.samples(from: max(center - radius, -halfTurn), to: min(center + radius, halfTurn), count: count)
         }
         let gDistance = g.map(alongTrack) ?? 0
         rangeToGeoreference = g.map { simd_distance($0, camera.position) }
@@ -283,7 +283,7 @@ struct CameraDiagram {
         } else {
             shownRegion = []
         }
-        earthCentre = plane.point(.zero)
+        earthCenter = plane.point(.zero)
 
         var key = [self.camera.position, viewer.position, SIMD2(0, inputs.terrainHeight)]
         // Tilting up, G slides out to the horizon; past it, frame on the
@@ -322,17 +322,17 @@ struct CameraDiagram {
             }
             let level = Self.side(room.placementLevel)
             let roomCamera = Self.side(framing.georeference.map(camera.position))
-            let centre = Self.side(room.contentCentre(tiltWeight: weight))
+            let center = Self.side(room.contentCentre(tiltWeight: weight))
             var points = [eye, level, Self.side(room.placementDown), placement, roomCamera,
                           level - SIMD2(room.contentHalfWidth, 0), level + SIMD2(room.contentHalfWidth, 0)]
             if let container { points += [container.min, container.max] }
             self.room = Room(eye: eye, levelPlacement: level, downPlacement: Self.side(room.placementDown),
-                             contentCentre: centre, placement: placement, camera: roomCamera,
+                             contentCenter: center, placement: placement, camera: roomCamera,
                              tilt: weight * room.fullTilt, basePlaneHeight: room.placementLevel.y,
                              contentHalfWidth: room.contentHalfWidth, container: container,
                              lod: Viewpoint(position: eye, direction: simd_normalize(placement - eye),
                                             fieldOfView: lod.fieldOfView),
-                             earthCentre: Self.side(framing.georeference.map(.zero)),
+                             earthCenter: Self.side(framing.georeference.map(.zero)),
                              streamedArea: span(areaDistance, streamingRadius, count: 200).map {
                                  Self.side(framing.georeference.map(track($0, height: inputs.terrainHeight)))
                              },
