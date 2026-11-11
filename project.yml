@@ -51,6 +51,11 @@ settingGroups:
       - LIBASYNC_STATIC
       - SPDLOG_COMPILED_LIB
       - SPDLOG_FMT_EXTERNAL
+      # The xcframework is a Release build. Without NDEBUG, a Debug build
+      # sees an extra thread-ID field in cesium-native's non-thread-safe
+      # ReferenceCounted (e.g. RasterOverlay), so inline reference counting
+      # here reads past the library's objects and asserts.
+      - NDEBUG
   # One app on every platform. The Mac shows this name, not the display name, in
   # Finder and the menu bar; Swift module names can't have spaces.
   AppName:
