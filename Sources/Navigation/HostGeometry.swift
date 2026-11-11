@@ -13,7 +13,7 @@ struct RoomGeometry: Equatable {
     /// C₀: the content center on the base plane, where the view center sits
     /// while the map is level.
     var placementLevel: SIMD3<Double>
-    /// Half-width of the shown region and the gesture slab.
+    /// Half-width of the shown region.
     var contentHalfWidth: Double
     /// The tilt at full weight, radians about the room's right axis through
     /// E: 0 level, π/2 the ground below straight ahead.

@@ -24,8 +24,11 @@ final class MapModel {
     let placementRoot = Entity()
     /// The map frame: tiles plus the gesture target.
     let root = Entity()
-    /// Invisible slab that receives drag, pinch and twist gestures.
+    /// Invisible cap of the ground that receives drag, pinch and twist
+    /// gestures (`GestureSurface`).
     let gestureTarget = Entity()
+    /// The cap the gesture target has now, nil until one is built.
+    private var gestureSurface: GestureSurface?
 
     /// The tiles, their credits and stats.
     let streaming: TileStreaming
@@ -37,7 +40,6 @@ final class MapModel {
             // A new source drops every tile, held or not.
             if settings.tileSource != oldValue.tileSource, tilesHeld { setTilesHeld(false) }
             streaming.settings = settings
-            layOutGestureTarget()
             requestGroundSample()
             applyView()
         }
@@ -51,7 +53,7 @@ final class MapModel {
             stopPlayback()
             endManipulation()
             reparentRoot()
-            layOutGestureTarget()
+            gestureSurface = nil
             applyView()
         }
     }
@@ -156,6 +158,9 @@ final class MapModel {
         var start: SIMD3<Double>
         /// The world point that was there, ECEF.
         var grab: SIMD3<Double>
+        /// Where gaze hit the gesture target, before it was put on the
+        /// ground, ECEF. For the debug markers.
+        var hit: SIMD3<Double>
         var startPose: CameraPose
         var startScale: Double
         /// The latest solution, the next solve's starting guess.
@@ -205,7 +210,6 @@ final class MapModel {
         // dragged the map with no pinch at all.
         gestureTarget.components.set(InputTargetComponent(allowedInputTypes: .indirect))
         root.addChild(gestureTarget)
-        layOutGestureTarget()
     }
 
     /// Called from each host's RealityView. Adds that host's anchor, routes
@@ -284,26 +288,6 @@ final class MapModel {
         placementRoot.transform = Transform(roomPlacement.similarity)
     }
 
-    /// The gesture target is a thin slab at ground level covering the shown
-    /// square. Gaze passes through terrain and buildings (they have no
-    /// collision) to the slab, while looking past the map's edges or over it
-    /// no longer hits an invisible box.
-    /// How far the immersive gesture slab reaches from the map's center
-    /// point, meters in the room.
-    private static let immersiveGestureHalfWidth = 50.0
-
-    private func layOutGestureTarget() {
-        // Immersive: wide enough to pinch anywhere nearby on the map.
-        let halfWidth = presentation.host == .immersive
-            ? max(room.contentHalfWidth, Self.immersiveGestureHalfWidth)
-            : room.contentHalfWidth
-        let width = Float(2 * halfWidth)
-        let thickness = Float(0.02 * presentation.magnification)
-        gestureTarget.components.set(CollisionComponent(shapes: [
-            .generateBox(size: [width, thickness, width])
-        ]))
-    }
-
     private var started = false
 
     private func start() {
@@ -358,11 +342,12 @@ final class MapModel {
 
     // MARK: Gestures
 
-    /// `start` and `current` are the drag's scene positions, in meters.
+    /// `start` and `current` are the drag's positions in the map frame
+    /// (`root`), in meters.
     func drag(from start: SIMD3<Float>, to current: SIMD3<Float>) {
         guard beginOrContinue(.drag, at: start) else { return }
         // Content follows the hand, along the map's surface.
-        var translation = SIMD3<Double>(roomPlacement.similarity.inverse.rotation.act(SIMD3<Double>(current - start)))
+        var translation = SIMD3<Double>(current - start)
         let up = mapUp(at: manipulation!.grab)
         translation -= up * simd_dot(translation, up)
         manipulation?.translation = translation
@@ -372,7 +357,7 @@ final class MapModel {
     func endDrag() { end(.drag) }
 
     /// `magnification` is relative to the pinch's start, which was at
-    /// `start` (scene meters).
+    /// `start` (map frame, meters).
     func magnify(by magnification: Double, startedAt start: SIMD3<Float>) {
         // A canceled pinch never reaches endMagnify; a pause in updates
         // means this is a new pinch.
@@ -386,7 +371,7 @@ final class MapModel {
     func endMagnify() { end(.magnify) }
 
     /// `rotation` is the two-handed twist since the gesture began, already in
-    /// scene space. The map turns with the hands, about where they pinched.
+    /// the map frame. The map turns with the hands, about where they pinched.
     func rotate(by rotation: simd_quatf, startedAt start: SIMD3<Float>) {
         guard beginOrContinue(.rotate, at: start) else { return }
         // Signed angle about +Y (counterclockwise seen from above): the
@@ -406,9 +391,13 @@ final class MapModel {
         if let existing = manipulation?.starts[kind], existing != start { endManipulation() }
         if manipulation == nil {
             guard let framing else { return false }
-            let mapStart = roomPlacement.similarity.inverse.apply(SIMD3<Double>(start))
-            manipulation = Manipulation(start: mapStart,
-                                        grab: framing.georeference.ecef(map: mapStart),
+            // Gaze hit the gesture cap, which lies a little inside the
+            // curved ground between its points: grab the ground itself.
+            let hit = framing.georeference.ecef(map: SIMD3<Double>(start))
+            let grab = GestureSurface.snap(hit, toHeight: placementGround.value)
+            manipulation = Manipulation(start: framing.georeference.map(grab),
+                                        grab: grab,
+                                        hit: hit,
                                         startPose: navigation.camera,
                                         startScale: framing.georeference.scale,
                                         pose: navigation.camera)
@@ -699,7 +688,7 @@ final class MapModel {
     }
 
     /// Places everything from the camera: the georeference, the tiles root
-    /// relative to whichever anchor is streaming, the gesture slab and, while
+    /// relative to whichever anchor is streaming, the gesture target and, while
     /// live, the streaming inputs. Called every frame.
     private func applyView() {
         guard streaming.isStreaming else { return }
@@ -712,13 +701,43 @@ final class MapModel {
         let georeference = framing.georeference
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
 
-        // The slab lies on the ground at the view center, level with the
-        // ground there as shown.
-        let g = Geodesy.geodetic(framing.georeferencePoint).coordinate
-        let level = simd_quatd(Geodesy.anchorFrameRotation(latitude: g.latitude, longitude: g.longitude))
-        gestureTarget.orientation = simd_quatf(vector: SIMD4<Float>((georeference.rotation * level).vector))
-        gestureTarget.position = SIMD3<Float>(framing.placementPoint)
+        placeGestureSurface(framing)
         updateDebugMarkers()
+    }
+
+    /// Fits the gesture target to the ground as shown: a cap of the
+    /// ellipsoid at the placement ground. The volume's covers twice the
+    /// shown region around the view center; Immersive's reaches the horizon
+    /// around the point beneath the camera, so gaze anywhere on the ground
+    /// finds it. Rebuilt only when the view has moved enough to need it.
+    private func placeGestureSurface(_ framing: AdaptiveModel.Framing) {
+        let ground = placementGround.value
+        let shownReach = 2 * framing.shownRadius(room) / GeoMath.earthRadius
+        let desired: GestureSurface
+        if presentation.host == .immersive {
+            let camera = navigation.camera
+            let horizon = GestureSurface.horizonAngle(cameraHeight: camera.height, groundHeight: ground)
+            desired = .desired(center: camera.coordinate, height: ground, reach: max(horizon, shownReach))
+        } else {
+            let g = Geodesy.geodetic(framing.georeferencePoint).coordinate
+            desired = .desired(center: g, height: ground, reach: shownReach)
+        }
+        if gestureSurface?.needsRebuild(for: desired) ?? true {
+            let surface = GestureSurface.built(for: desired)
+            gestureTarget.components.set(CollisionComponent(shapes: [
+                .generateConvex(from: surface.localPoints())
+            ]))
+            gestureSurface = surface
+        }
+        guard let surface = gestureSurface else { return }
+        // At the current ground height; a small change since it was built
+        // doesn't need a rebuild.
+        let c = surface.center
+        let level = simd_quatd(Geodesy.anchorFrameRotation(latitude: c.latitude, longitude: c.longitude))
+        let georeference = framing.georeference
+        gestureTarget.orientation = simd_quatf(vector: SIMD4<Float>((georeference.rotation * level).vector))
+        gestureTarget.position = SIMD3<Float>(georeference.map(Geodesy.ecef(c, height: ground)))
+        gestureTarget.scale = SIMD3(repeating: Float(georeference.scale * surface.unit))
     }
 
     /// The area of interest each host streams by default, and the LOD camera
@@ -837,7 +856,10 @@ final class MapModel {
 
     /// Posts at the ground beneath the camera (red: where you are), the
     /// georeference point (blue: what's on the placement point) and the
-    /// area of interest's center (green), in the map frame.
+    /// area of interest's center (green), in the map frame. While a gesture
+    /// runs: a post at the grabbed point (orange), a ball where the hand
+    /// wants it (white; the two should coincide) and a ball where gaze hit
+    /// the gesture target before it was put on the ground (purple).
     var showsDebugMarkers = false {
         didSet { updateDebugMarkers() }
     }
@@ -865,6 +887,14 @@ final class MapModel {
             debugMarkers.addChild(post(.systemRed))    // beneath the camera
             debugMarkers.addChild(post(.systemBlue))   // georeference point
             debugMarkers.addChild(post(.systemGreen))  // area of interest
+            debugMarkers.addChild(post(.systemOrange)) // grabbed point
+            func ball(_ color: UIColor) -> ModelEntity {
+                var material = UnlitMaterial()
+                material.color = .init(tint: color)
+                return ModelEntity(mesh: .generateSphere(radius: 1), materials: [material])
+            }
+            debugMarkers.addChild(ball(.white))        // where the hand wants the grab
+            debugMarkers.addChild(ball(.systemPurple)) // gaze hit, before snapping
         }
         let georeference = framing.georeference
         let camera = navigation.camera
@@ -876,9 +906,20 @@ final class MapModel {
         ]
         let size = Float(presentation.magnification)
         let height = 0.25 * size
-        for (post, point) in zip(debugMarkers.children, points) {
+        let posts = Array(debugMarkers.children)
+        for (post, point) in zip(posts, points) {
             post.scale = [0.006 * size, height, 0.006 * size]
             post.position = SIMD3<Float>(georeference.map(point)) + [0, height / 2, 0]
         }
+
+        let grabPost = posts[3], target = posts[4], hit = posts[5]
+        for marker in [grabPost, target, hit] { marker.isEnabled = manipulation != nil }
+        guard let m = manipulation else { return }
+        grabPost.scale = [0.004 * size, height, 0.004 * size]
+        grabPost.position = SIMD3<Float>(georeference.map(m.grab)) + [0, height / 2, 0]
+        target.scale = SIMD3(repeating: 0.008 * size)
+        target.position = SIMD3<Float>(m.start + m.translation)
+        hit.scale = SIMD3(repeating: 0.005 * size)
+        hit.position = SIMD3<Float>(georeference.map(m.hit))
     }
 }

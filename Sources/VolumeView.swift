@@ -252,8 +252,8 @@ extension View {
                 DragGesture()
                     .targetedToEntity(model.gestureTarget)
                     .onChanged { value in
-                        let start = value.convert(value.startLocation3D, from: .local, to: .scene)
-                        let now = value.convert(value.location3D, from: .local, to: .scene)
+                        let start = value.convert(value.startLocation3D, from: .local, to: model.root)
+                        let now = value.convert(value.location3D, from: .local, to: model.root)
                         model.drag(from: start, to: now)
                     }
                     .onEnded { _ in model.endDrag() }
@@ -262,7 +262,7 @@ extension View {
                 MagnifyGesture()
                     .targetedToEntity(model.gestureTarget)
                     .onChanged { value in
-                        let start = value.convert(value.startLocation3D, from: .local, to: .scene)
+                        let start = value.convert(value.startLocation3D, from: .local, to: model.root)
                         model.magnify(by: value.magnification, startedAt: start)
                     }
                     .onEnded { _ in model.endMagnify() }
@@ -273,8 +273,8 @@ extension View {
                 RotateGesture3D(constrainedToAxis: .y)
                     .targetedToEntity(model.gestureTarget)
                     .onChanged { value in
-                        let rotation = value.convert(value.rotation, from: .local, to: .scene)
-                        let start = value.convert(value.startLocation3D, from: .local, to: .scene)
+                        let rotation = value.convert(value.rotation, from: .local, to: model.root)
+                        let start = value.convert(value.startLocation3D, from: .local, to: model.root)
                         model.rotate(by: rotation, startedAt: start)
                     }
                     .onEnded { _ in model.endRotate() }
