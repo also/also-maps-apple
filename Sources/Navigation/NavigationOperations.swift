@@ -22,7 +22,7 @@ struct NavigationContext: Equatable {
 
 /// Pure operations on navigation state. "View heading" is camera.heading;
 /// under `.linked`, every change to it is applied to the movement heading
-/// too. See docs/camera-core.md §11.
+/// too.
 enum NavigationOperations {
     /// Changes height only: latitude, longitude and both headings stay.
     static func climb(_ state: NavigationState, by delta: Double, context: NavigationContext) -> NavigationState {

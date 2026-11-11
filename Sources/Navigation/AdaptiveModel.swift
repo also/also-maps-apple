@@ -3,8 +3,8 @@ import simd
 
 /// What's left of the adaptive model presentation style, shared by the room
 /// hosts' placement (`EyeLevelModel`): the framing it produces, the LOD
-/// camera, anchored manipulation, and the horizon pitch limit (docs/camera-core.md
-/// §6, for modes that need a view ray to meet the ground).
+/// camera, anchored manipulation, and the horizon pitch limit (for modes
+/// that need a view ray to meet the ground).
 enum AdaptiveModel {
     struct Framing: Equatable {
         var georeference: Georeference
@@ -83,8 +83,7 @@ extension AdaptiveModel {
     /// counts both the grab point's distance from the target and the scale's,
     /// as the distance it would move the eye-to-placement span. A bounded
     /// iteration corrects scale and position together; it returns the best
-    /// pose found and its remaining error in map-frame metres. See
-    /// docs/camera-core.md §11.
+    /// pose found and its remaining error in map-frame metres.
     static func solve(_ anchor: AnchorTarget, from guess: CameraPose, room: RoomGeometry,
                       scaleSurface: Double, context: NavigationContext,
                       iterations: Int = 8, tolerance: Double = 1e-4,

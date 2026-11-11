@@ -19,7 +19,7 @@ struct ControlInput: Equatable {
 /// Model flight, today's controls on the camera core: forward/right along
 /// the movement heading (linked to the view heading), climb straight up,
 /// turn in place, dolly along the view. Rates are starting values for
-/// tuning (docs/camera-core.md §12.2).
+/// tuning.
 struct ModelFlightStyle {
     /// Fraction of height above ground travelled per second.
     var moveRate = 0.75

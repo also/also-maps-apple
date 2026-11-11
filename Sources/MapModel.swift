@@ -8,7 +8,7 @@ import UIKit
 /// (`navigation`); each host shows it through the eye-level placement, which
 /// puts the camera at the design eye point and the ground beneath it on the
 /// host's base plane, level unless the tilt tips it. Tiles come from
-/// `streaming`. See docs/camera-core.md §5.
+/// `streaming`.
 @MainActor
 @Observable
 final class MapModel {
@@ -83,8 +83,8 @@ final class MapModel {
     private(set) var navigation: NavigationState
     private var flight = ModelFlightStyle()
     /// Drone mode's tilt assist: the map tilts toward you as you climb, from
-    /// none below 50 km to the host's full tilt by 500 km
-    /// (docs/camera-core.md §3.3). Off, the map stays level.
+    /// none below 50 km to the host's full tilt by 500 km. Off, the map
+    /// stays level.
     var tiltFollowsAltitude = true
     /// Lowest camera height above the estimated ground in room hosts.
     private static let minimumAltitude = 55.0
@@ -92,7 +92,7 @@ final class MapModel {
     /// 10,000 km in half-width, roughly a hemisphere.
     private static let maximumAltitude = 11_000_000.0
 
-    // Ground estimates (docs/camera-core.md §7): the placement ground, put
+    // Ground estimates: the placement ground, put
     // on the base plane, and the ground under the camera, for speed and
     // limits.
     private var placementGround = EasedHeight(0)

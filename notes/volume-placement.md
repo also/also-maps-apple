@@ -1,6 +1,6 @@
-# Volume placement on §5 (stage 2b): design for review
+# Volume placement
 
-Status: **implemented as checkpoints, not merged.** Proposal written 2026-11-05 from `main` at `081538b`. Built on `claude/volume-explicit-tilt-bcfcc9` from `b7bf38d`: `9dcad75` (placement) and `c63a61e` (zoom), so the owner can try it on the headset. The settled parts are in `docs/camera-core.md` (revision 7); this note keeps the log of what was tried and found.
+Status: **merged** in [also/also-maps-apple#66](https://github.com/also/also-maps-apple/pull/66). This note keeps the log of what was tried and found. Section numbers such as §5 refer to `docs/camera-core.md`, which has since been removed and is in the git history.
 
 ## Log (newest first)
 
