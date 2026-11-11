@@ -57,7 +57,7 @@ the screen FPS overlay counts RealityKit updates, and the immersive log counts
 frame-loop iterations.
 
 `MetalEncode` signposts (subsystem `dev.also.maps`, category `Frame`) cover
-culling and draw encoding for one view; record and summarise them as in
+culling and draw encoding for one view; record and summarize them as in
 [docs/profiling.md](../docs/profiling.md). Use Metal System Trace or GPU timing
 for GPU execution and missed deadlines: fewer submitted triangles alone don't
 prove a frame-rate gain.
@@ -73,6 +73,92 @@ quality, both eyes and compositor depth. The simulator can't show foveation
 quality.
 
 ## Log
+
+### 2026-11-08: system environments don't show behind the Metal layer
+
+- **Decided:** the Metal space no longer asks to coexist with the system
+  environment, so the system puts the environment away when it opens.
+- **Observed (Vision Pro):** without `.coexist`, the Digital Crown does
+  nothing in the Metal space, in mixed or full, so the black sky can't
+  happen. Every state looks right.
+
+With the Metal space in mixed immersion and `.immersiveEnvironmentBehavior(.coexist)`,
+turning the Digital Crown to bring in a system environment. The tests
+below drew patterns in place of the map through a temporary debug switch,
+since removed (commit f832a68 in PR #38, if it's needed again):
+
+- **Observed (Vision Pro):** the SwiftUI controls take on the environment's
+  lighting, but where the map is transparent you keep seeing the room
+  partway up, and once the environment is all the way on the sky turns
+  black. Without Metal (RealityKit), the environment shows behind the map.
+- **Observed (Vision Pro):** the same with the layer drawing nothing, only
+  a transparent clear: room, then black.
+  So it isn't the tiles, the sky's depth, or the far-plane rule. Lifting
+  the transparent sky off the far plane (running the sky depth pass in
+  mixed too) didn't change it either.
+- **Observed (Vision Pro):** opaque magenta 1 m away stays
+  magenta at every Crown position; the environment never draws in front
+  of it.
+- **Inferred:** the system doesn't composite its environment behind a
+  CompositorLayer. What's behind the layer is passthrough, or nothing once
+  the environment replaces passthrough. CompositorServices has no API
+  touching system environments (none in the visionOS 27.2 SDK headers or
+  Swift interface), and Apple documents `.coexist` only as a preference.
+- **Observed (simulator):** opaque colour at the far plane (depth 0) was
+  shown, not dropped, unlike the device in full immersion (the 2026-11-04
+  entry below). The simulator's compositor may differ here.
+- Never submitting a drawable isn't a usable test: the app was shut down
+  within seconds in the simulator.
+
+### 2026-11-04: immersion styles (mixed works, progressive needs layered)
+
+- **Observed (simulator):** the Metal space now opens mixed or full,
+  following Settings › Immersion › Full immersion (`model.fullImmersion`),
+  as the RealityKit space does. It first also asked to coexist with the
+  system environment; that didn't work and was dropped (2026-11-08).
+  In mixed, the simulator's room shows wherever there's no map; in full,
+  the sky as before. Both on the visionOS 27 Vision Pro simulator with
+  `ALSOMAPS_METAL=1 ALSOMAPS_PRESENTATION=immersive` (plus
+  `ALSOMAPS_FULL_IMMERSION=1` for full). Not yet checked on a device, nor
+  switching the toggle while the space is open.
+- What mixed needed, per WWDC24 "Render Metal with passthrough in
+  visionOS" (10092): clear colour to all zeros (premultiplied alpha; full
+  clears opaque), depth still cleared to 0, and real depth for every drawn
+  pixel. Nothing in `LayerRenderer.Configuration` changes. The sky's
+  depth-only pass is skipped in mixed: sky pixels stay at the far plane,
+  which the compositor drops, so passthrough shows there. The style is read
+  each frame, so the toggle should apply live.
+- **Inferred:** tile fragments write their texture's alpha unblended. Google's
+  photorealistic textures are opaque, so this should be fine; content with
+  alpha below 1 would show as unpremultiplied, translucent colour in mixed.
+  Worth a look on the device.
+- **Progressive (Digital Crown) isn't done.** visionOS 26 adds it for
+  CompositorServices ("Controlling Metal rendering immersion level"; WWDC25
+  "What's new in Metal rendering for immersive apps", 294), but only with
+  the **layered** layout. The space declares `.progressive` (with `.full`),
+  the configuration sets `drawableRenderContextStencilFormat` (checked
+  against `drawableRenderContextSupportedStencilFormats`), and each frame
+  calls `drawable.addRenderContext(commandBuffer:)`, then
+  `drawMaskOnStencilAttachment(commandEncoder:value:)` before drawing, a
+  stencil test against that value, and `renderContext.endEncoding` in place
+  of `endEncoding`; the system draws the portal's faded edge. The SDK
+  headers (`drawable_render_context.h`) say the encoder must have
+  `renderTargetArrayLength` equal to the drawable's view count and that
+  dedicated and shared layouts aren't supported, except on one-view
+  platforms such as the simulator. So this renderer, which draws each eye
+  in its own pass into dedicated textures, would need both eyes in one
+  layered pass: vertex amplification (or instancing) writing
+  `[[render_target_array_index]]`, per-eye view-projections in the
+  uniforms, and culling against both eyes. That's a change to
+  `MetalTiles.swift`'s shaders and `encode`, so it's left as its own piece
+  of work. It would also bring the vertex amplification the foveation note
+  above mentions.
+- **Not done: an edge fade.** In mixed the map ends in a hard cut against
+  passthrough at the streaming reach, as the RealityKit space's does. A
+  fade would be a premultiplied alpha ramp by horizontal distance from the
+  viewer in the tile fragment shader, with blending on; a shader change,
+  so left for whoever owns the shaders. Progressive's portal edge is
+  faded by the system and wouldn't need it.
 
 ### 2026-11-04: eye height is measured twice
 
@@ -109,13 +195,13 @@ quality.
   and the compositor drops pixels at the far plane as clipped; only the
   terrain, with real depth, showed. Fixed by a depth-only full-screen pass
   after the tiles that raises any pixel still at 0 to `skyDepth` (about
-  100 km), leaving colour alone. Clearing to that depth instead would have
+  100 km), leaving color alone. Clearing to that depth instead would have
   hidden tiles beyond it. Sky shows on the device since.
 - **Inferred:** the stepped band was foveation's coarse blocks near the
   horizon mixing terrain depth into a few sky pixels. The Mac remote spike
   hit the same far-plane rule as a fully blank frame.
 
-### 2026-11-03: the same, with an optimised build
+### 2026-11-03: the same, with an optimized build
 
 The Debug configuration rebuilt with `GCC_OPTIMIZATION_LEVEL=s
 SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule
@@ -131,9 +217,9 @@ tile builds).
 - **Observed:** by eye in the headset, smooth while streaming near dense
   terrain, where the Debug build stuttered.
 - **Inferred:** the stutters in the Debug recording below were Debug-build
-  overhead: unoptimised cesium-native destructors, Swift at `-Onone` and Metal's
+  overhead: unoptimized cesium-native destructors, Swift at `-Onone` and Metal's
   debug layers. The main-thread design leaves about 7 ms a frame spare here.
-  Judging the renderer's smoothness, or profiling it, needs an optimised build.
+  Judging the renderer's smoothness, or profiling it, needs an optimized build.
 
 ### 2026-11-03: stutters while streaming on a Vision Pro (Debug build)
 
@@ -158,14 +244,14 @@ while it streamed. The Metal space ran for the last 23.5 s of 90.
     (`unloadCachedBytes` → `~ModelSpec` → each glTF image's
     `std::vector<std::byte>` destroyed byte by byte). These destructors are
     inline, so they're compiled into `Also Maps.debug.dylib` at `-O0`; an
-    optimised build would free each buffer in one call.
+    optimized build would free each buffer in one call.
   - 15% is the selection pass itself (`updateViewGroup`, with
     `estimateGlobeRectangle` prominent).
   - Metal's debug and capture layers (`MTLDebugCommandBuffer`,
     `CaptureMTLRenderCommandEncoder`) take a noticeable share of encoding,
     and `MetalFrustum` about 9% (Swift at `-Onone`).
 - **Inferred:** much of this is Debug-build overhead, so the next step is the
-  same recording with an optimised build and Metal validation off. What
+  same recording with an optimized build and Metal validation off. What
   would remain regardless: selection and unloading run on the main thread
   inside the frame, in series with rendering, and cesium-native keeps each
   tile's decoded images after we've uploaded them, so unloading them is main-

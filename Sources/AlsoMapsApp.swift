@@ -63,10 +63,16 @@ struct AlsoMapsApp: App {
         .immersiveEnvironmentBehavior(.coexist)
 
         // The same immersive presentation drawn with Metal, when Settings
-        // says so (MapModel.drawsImmersiveWithMetal).
+        // says so (MapModel.drawsImmersiveWithMetal). Mixed or full, like
+        // the RealityKit space; the renderer clears to transparent in mixed.
+        // Not progressive: that needs the layered layout and a stencil mask
+        // (notes/metal-renderer.md, "Immersion styles"). No `.coexist`: the
+        // system doesn't draw its environment behind a CompositorLayer, so
+        // bringing one in with the Digital Crown left a black sky
+        // (notes/metal-renderer.md, "System environments").
         ImmersiveSpace(id: MetalImmersiveContent.spaceID) {
             MetalImmersiveContent(model: model)
         }
-        .immersionStyle(selection: .constant(.full), in: .full)
+        .immersionStyle(selection: immersionStyle, in: .mixed, .full)
     }
 }

@@ -51,9 +51,12 @@ enum GeoMath {
     /// How much a direction's bearing changes when carried along the great
     /// circle from `a` to `b`, radians: the final bearing on arrival minus the
     /// initial bearing. Zero along a meridian; π when the path crosses a pole,
-    /// where north reverses; small but real on long east–west legs.
+    /// where north reverses; small but real on long east–west legs. Zero
+    /// for points under a millimetre apart, where the bearings between them
+    /// are rounding noise (a move of a rounding error once reversed the
+    /// heading).
     static func bearingChange(from a: GeoCoordinate, to b: GeoCoordinate) -> Double {
-        guard a != b else { return 0 }
+        guard distance(from: a, to: b) >= 1e-3 else { return 0 }
         let initial = bearing(from: a, to: b)
         let final = bearing(from: b, to: a) + .pi
         return remainder(final - initial, 2 * .pi)
