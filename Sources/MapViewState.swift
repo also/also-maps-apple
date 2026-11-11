@@ -6,8 +6,7 @@ import simd
 /// the settings that shape navigation. Copied as JSON from Settings; restored
 /// from the clipboard or, at launch, from ALSOMAPS_STATE.
 ///
-/// Version 2 is camera-centric. Older (focus, radius, held-tile pose) states aren't
-/// supported.
+/// Only the current version is restored.
 struct MapViewState: Codable {
     static let currentVersion = 2
 
@@ -107,17 +106,13 @@ struct MapViewState: Codable {
         }
     }
 
-    /// Parses and validates a view state. Older focus-centric states are
-    /// recognised and rejected with a clear message.
+    /// Parses and validates a view state of the current version.
     static func parse(_ text: String) throws -> MapViewState {
         let data = Data(text.utf8)
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ParseError.notAViewState
         }
-        guard let version = object["version"] as? Int else {
-            throw object["radius"] != nil
-                ? ParseError.unsupportedVersion : ParseError.notAViewState
-        }
+        guard let version = object["version"] as? Int else { throw ParseError.notAViewState }
         guard version == currentVersion else { throw ParseError.unsupportedVersion }
         let state: MapViewState
         do {

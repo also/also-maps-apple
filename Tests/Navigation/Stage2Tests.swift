@@ -239,9 +239,9 @@ struct ViewStateTests {
         #expect(abs(restored.roomPlacement.placement.yaw - 0.25) < 1e-12)
     }
 
-    @Test func legacyStatesAreRejectedClearly() {
-        let legacy = #"{"focusHeight":-32,"headingDegrees":25,"latitude":37.7955,"longitude":-122.3937,"presentation":"volume","radius":600}"#
-        #expect(throws: MapViewState.ParseError.unsupportedVersion) { try MapViewState.parse(legacy) }
+    @Test func statesOfOtherVersionsAreRejected() {
+        #expect(throws: MapViewState.ParseError.unsupportedVersion) { try MapViewState.parse(#"{"version":1}"#) }
+        #expect(throws: MapViewState.ParseError.notAViewState) { try MapViewState.parse(#"{"radius":600}"#) }
         #expect(throws: MapViewState.ParseError.notAViewState) { try MapViewState.parse("hello") }
     }
 
