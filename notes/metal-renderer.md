@@ -48,9 +48,6 @@ Environment variables:
 - `ALSOMAPS_METAL_CULLING=0`: turn culling off, for a baseline. On by default.
 - `ALSOMAPS_METAL_FOVEATION=0`: turn visionOS foveation off, for a baseline.
   On by default where the dedicated layout supports it.
-- `ALSOMAPS_METAL_DEBUG_DRAW=empty`, `tint` or `magenta`: immersive
-  visionOS draws a test pattern instead of the map, for checking how the
-  compositor treats the layer (`MetalImmersiveDebug`).
 
 The log reports submitted out of considered tiles, draws and triangles,
 summed over the interval. "Considered" is what would be submitted with
@@ -80,23 +77,26 @@ quality.
 ### 2026-11-08: system environments don't show behind the Metal layer
 
 - **Decided:** the Metal space no longer asks to coexist with the system
-  environment, so the system puts the environment away when it opens, as
-  it did before. Not yet checked on a device that the Crown can't bring the
-  black sky back.
+  environment, so the system puts the environment away when it opens.
+- **Observed (Vision Pro):** without `.coexist`, the Digital Crown does
+  nothing in the Metal space, in mixed or full, so the black sky can't
+  happen. Every state looks right.
 
 With the Metal space in mixed immersion and `.immersiveEnvironmentBehavior(.coexist)`,
-turning the Digital Crown to bring in a system environment:
+turning the Digital Crown to bring in a system environment. The tests
+below drew patterns in place of the map through a temporary debug switch,
+since removed (commit f832a68 in PR #38, if it's needed again):
 
 - **Observed (Vision Pro):** the SwiftUI controls take on the environment's
   lighting, but where the map is transparent you keep seeing the room
   partway up, and once the environment is all the way on the sky turns
   black. Without Metal (RealityKit), the environment shows behind the map.
 - **Observed (Vision Pro):** the same with the layer drawing nothing, only
-  a transparent clear (`ALSOMAPS_METAL_DEBUG_DRAW=empty`): room, then black.
+  a transparent clear: room, then black.
   So it isn't the tiles, the sky's depth, or the far-plane rule. Lifting
   the transparent sky off the far plane (running the sky depth pass in
   mixed too) didn't change it either.
-- **Observed (Vision Pro):** opaque magenta 1 m away (`magenta`) stays
+- **Observed (Vision Pro):** opaque magenta 1 m away stays
   magenta at every Crown position; the environment never draws in front
   of it.
 - **Inferred:** the system doesn't composite its environment behind a

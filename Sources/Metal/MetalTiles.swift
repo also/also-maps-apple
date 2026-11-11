@@ -272,12 +272,11 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// to `skyDepth`, leaving colour alone. Tiles farther than that keep
     /// their colour and only have their depth raised, so nothing is hidden.
     /// Only a compositor needs it: a window shows the cleared sky as is.
-    func encodeSkyDepth(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
-                        at value: Float = skyDepth) {
+    func encodeSkyDepth(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat) {
         guard let pipeline = pipeline(colour: colour, depth: depth, skyDepth: true) else { return }
         encoder.setRenderPipelineState(pipeline)
         encoder.setDepthStencilState(depthState)
-        var depth = value
+        var depth = Self.skyDepth
         encoder.setVertexBytes(&depth, length: MemoryLayout<Float>.size, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
     }

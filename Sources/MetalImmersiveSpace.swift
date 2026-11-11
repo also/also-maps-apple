@@ -166,7 +166,6 @@ final class MetalImmersiveRenderer {
         // plane, where the compositor drops it. Full: an opaque sky that
         // has to be lifted off the far plane to be shown at all.
         let passthrough = !model.fullImmersion
-        let debug = MetalImmersiveDebug.current
         var statistics = MetalDrawStatistics()
         // Views sharing a texture (the shared layout) are drawn in one pass,
         // cleared once, each in its own viewport.
@@ -176,8 +175,8 @@ final class MetalImmersiveRenderer {
             let pass = MTLRenderPassDescriptor()
             pass.colorAttachments[0].texture = colour
             pass.colorAttachments[0].loadAction = .clear
-            pass.colorAttachments[0].clearColor = debug.clear
-                ?? (passthrough ? MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0) : MetalTileRenderer.skyColour)
+            pass.colorAttachments[0].clearColor = passthrough ? MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+                : MetalTileRenderer.skyColour
             pass.colorAttachments[0].storeAction = .store
             pass.depthAttachment.texture = depth
             pass.depthAttachment.loadAction = .clear
@@ -195,21 +194,14 @@ final class MetalImmersiveRenderer {
                 encoder.setViewport(view.textureMap.viewport)
                 // The compositor's projection: reverse Z over its default
                 // depth range, which the cleared 0 is the far end of.
-                if debug.drawsTiles {
-                    statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
-                                 viewProjection: drawable.computeProjection(viewIndex: index)
-                                     * (originFromDevice * view.transform).inverse,
-                                 root: root, tiles: tiles))
-                }
+                statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
+                             viewProjection: drawable.computeProjection(viewIndex: index)
+                                 * (originFromDevice * view.transform).inverse,
+                             root: root, tiles: tiles))
                 // Sky left at the far plane would be dropped as clipped,
                 // which is what mixed immersion wants.
-                switch debug.skyDepth {
-                case .automatic where !passthrough:
+                if !passthrough {
                     metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat)
-                case .at(let value):
-                    metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat, at: value)
-                default:
-                    break
                 }
             }
             encoder.endEncoding()
@@ -230,54 +222,5 @@ final class MetalImmersiveRenderer {
     private static func seconds(_ duration: Duration) -> TimeInterval {
         let parts = duration.components
         return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) * 1e-18
-    }
-}
-
-/// Debug tests for what the immersive layer draws, for working out how the
-/// compositor treats it (notes/metal-renderer.md, "System environments").
-/// Set `ALSOMAPS_METAL_DEBUG_DRAW` to one test's name:
-///
-/// - `empty`: no tiles; only the style's clear (transparent in mixed).
-/// - `tint`: no tiles; a translucent blue clear (premultiplied), with
-///   transparent pixels lifted 1 m away.
-/// - `magenta`: no tiles; opaque magenta 1 m away.
-struct MetalImmersiveDebug: CustomStringConvertible {
-    enum SkyDepth { case automatic, at(Float) }
-
-    var name = "off"
-    var drawsTiles = true
-    var skyDepth = SkyDepth.automatic
-    var clear: MTLClearColor?
-
-    /// 1 m away in reverse Z, with the compositor's 0.1 m near plane.
-    private static let oneMetre: Float = 0.1
-
-    static let current: MetalImmersiveDebug = {
-        var debug = MetalImmersiveDebug()
-        let name = ProcessInfo.processInfo.environment["ALSOMAPS_METAL_DEBUG_DRAW"]
-        switch name {
-        case "empty":
-            debug.drawsTiles = false
-        case "tint":
-            debug.drawsTiles = false
-            debug.clear = MTLClearColor(red: 0, green: 0, blue: 0.5, alpha: 0.5)
-            debug.skyDepth = .at(oneMetre)
-        case "magenta":
-            debug.drawsTiles = false
-            debug.clear = MTLClearColor(red: 1, green: 0, blue: 1, alpha: 1)
-            debug.skyDepth = .at(oneMetre)
-        case let other?:
-            print("[AlsoMaps] ALSOMAPS_METAL_DEBUG_DRAW=\(other) isn't a test: empty, tint or magenta")
-        case nil:
-            return debug
-        }
-        if let name { debug.name = name }
-        print("[AlsoMaps] Metal immersive debug: \(debug)")
-        return debug
-    }()
-
-    var description: String {
-        let clearText = clear.map { "\($0.red),\($0.green),\($0.blue),\($0.alpha)" } ?? "style"
-        return "\(name): tiles \(drawsTiles), sky depth \(skyDepth), clear \(clearText)"
     }
 }
