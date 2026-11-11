@@ -38,6 +38,18 @@ render pass. Unsupported configurations keep the unfoveated dedicated or
 shared layout. Stereo still uses a separate draw loop per eye; vertex
 amplification would be a later change.
 
+### Tracks
+
+`MetalTrackRenderer` (Sources/Metal/MetalTrack.swift) draws the same tube
+TrackOverlay builds for RealityKit: TubeExtruder now returns the triangles on
+the CPU, TrackOverlay keeps the last build with a generation count, and each
+host's track renderer uploads new buffers when that changes. It draws after
+the tiles with the same reverse-Z depth test, before the sky-depth pass, at
+the overlay root's transform (on a screen, in the scene; immersive, under
+`placementRoot` and `root`, `MapModel.trackInImmersiveSpace`). Lit in the
+track's orange by a light from above, without RealityKit's PBR. No culling:
+one draw.
+
 ## Measuring
 
 Environment variables:
@@ -109,6 +121,15 @@ since removed (commit f832a68 in PR #38, if it's needed again):
   entry below). The simulator's compositor may differ here.
 - Never submitting a drawable isn't a usable test: the app was shut down
   within seconds in the simulator.
+
+### 2026-11-04: tracks drawn with Metal on macOS
+
+- **Observed:** Mac app, Debug, `ALSOMAPS_METAL=1 ALSOMAPS_METAL_STATS=1`,
+  `ALSOMAPS_TRACK` set to a synthetic loop over downtown San Francisco 40 to
+  110 m above the ground. The tube drew in orange and passed behind nearer
+  towers (depth-tested against tiles); it rebuilt at a new radius on zooming
+  in, as with RealityKit.
+- Not run: iOS, visionOS (simulator or device). Those build only.
 
 ### 2026-11-04: immersion styles (mixed works, progressive needs layered)
 

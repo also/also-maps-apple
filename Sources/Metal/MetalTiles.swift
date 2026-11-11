@@ -12,7 +12,8 @@ import simd
 /// Used when Settings › General › Draw with Metal is on
 /// (ViewPreferences.drawsWithMetal): for the map window on macOS and iOS
 /// (MetalMapView), and for the immersive mode on visionOS
-/// (MetalImmersiveContent). Tracks and tile bounds aren't drawn.
+/// (MetalImmersiveContent). Tracks are drawn by MetalTrackRenderer; tile
+/// bounds aren't drawn.
 final class MetalTileRenderer: @unchecked Sendable {
     /// Made on first use; nil if Metal isn't available.
     static let shared: MetalTileRenderer? = {

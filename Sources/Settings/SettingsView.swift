@@ -130,9 +130,9 @@ struct SettingsView: View {
                 Toggle("Draw with Metal", isOn: $drawsWithMetal)
             } footer: {
                 #if os(visionOS)
-                Text("Draws the immersive map with the app's own Metal renderer instead of RealityKit, always in full immersion, with real depth. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
+                Text("Draws the immersive map with the app's own Metal renderer instead of RealityKit, always in full immersion, with real depth. Takes effect the next time you open Immersive. Pinching the map and tile bounds aren't available with it.")
                 #else
-                Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
+                Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tile bounds aren't drawn with it.")
                 #endif
             }
             #endif

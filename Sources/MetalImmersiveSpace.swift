@@ -58,6 +58,7 @@ final class MetalImmersiveRenderer {
     private let session = ARKitSession()
     private let worldTracking = WorldTrackingProvider()
     private let queue: MTLCommandQueue?
+    private let track: MetalTrackRenderer
     private var measuredEye = false
     private var drawLog = MetalDrawLog()
     private var log = (frames: 0, anchored: 0, lastPrint: Date())
@@ -67,6 +68,7 @@ final class MetalImmersiveRenderer {
         self.layerRenderer = layerRenderer
         self.metal = metal
         queue = metal.device.makeCommandQueue()
+        track = MetalTrackRenderer(device: metal.device)
     }
 
     func run() async {
@@ -160,6 +162,7 @@ final class MetalImmersiveRenderer {
         guard let commands = queue?.makeCommandBuffer() else { return }
         let root = model.tilesInImmersiveSpace
         let tiles = model.streaming.drawnTiles
+        let trackRoot = model.trackInImmersiveSpace
         // Mixed immersion (Settings › Immersion): passthrough wherever
         // there's no map. The compositor takes premultiplied colour, so the
         // sky clears to transparent black, and its depth stays at the far
@@ -194,10 +197,12 @@ final class MetalImmersiveRenderer {
                 encoder.setViewport(view.textureMap.viewport)
                 // The compositor's projection: reverse Z over its default
                 // depth range, which the cleared 0 is the far end of.
+                let viewProjection = drawable.computeProjection(viewIndex: index)
+                    * (originFromDevice * view.transform).inverse
                 statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
-                             viewProjection: drawable.computeProjection(viewIndex: index)
-                                 * (originFromDevice * view.transform).inverse,
-                             root: root, tiles: tiles))
+                             viewProjection: viewProjection, root: root, tiles: tiles))
+                track.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
+                             viewProjection: viewProjection, model: trackRoot, overlay: model.tracks.overlay)
                 // Sky left at the far plane would be dropped as clipped,
                 // which is what mixed immersion wants.
                 if !passthrough {
