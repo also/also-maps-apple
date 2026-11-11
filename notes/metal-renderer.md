@@ -57,7 +57,7 @@ the screen FPS overlay counts RealityKit updates, and the immersive log counts
 frame-loop iterations.
 
 `MetalEncode` signposts (subsystem `dev.also.maps`, category `Frame`) cover
-culling and draw encoding for one view; record and summarise them as in
+culling and draw encoding for one view; record and summarize them as in
 [docs/profiling.md](../docs/profiling.md). Use Metal System Trace or GPU timing
 for GPU execution and missed deadlines: fewer submitted triangles alone don't
 prove a frame-rate gain.
@@ -109,13 +109,13 @@ quality.
   and the compositor drops pixels at the far plane as clipped; only the
   terrain, with real depth, showed. Fixed by a depth-only full-screen pass
   after the tiles that raises any pixel still at 0 to `skyDepth` (about
-  100 km), leaving colour alone. Clearing to that depth instead would have
+  100 km), leaving color alone. Clearing to that depth instead would have
   hidden tiles beyond it. Sky shows on the device since.
 - **Inferred:** the stepped band was foveation's coarse blocks near the
   horizon mixing terrain depth into a few sky pixels. The Mac remote spike
   hit the same far-plane rule as a fully blank frame.
 
-### 2026-11-03: the same, with an optimised build
+### 2026-11-03: the same, with an optimized build
 
 The Debug configuration rebuilt with `GCC_OPTIMIZATION_LEVEL=s
 SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule
@@ -131,9 +131,9 @@ tile builds).
 - **Observed:** by eye in the headset, smooth while streaming near dense
   terrain, where the Debug build stuttered.
 - **Inferred:** the stutters in the Debug recording below were Debug-build
-  overhead: unoptimised cesium-native destructors, Swift at `-Onone` and Metal's
+  overhead: unoptimized cesium-native destructors, Swift at `-Onone` and Metal's
   debug layers. The main-thread design leaves about 7 ms a frame spare here.
-  Judging the renderer's smoothness, or profiling it, needs an optimised build.
+  Judging the renderer's smoothness, or profiling it, needs an optimized build.
 
 ### 2026-11-03: stutters while streaming on a Vision Pro (Debug build)
 
@@ -158,14 +158,14 @@ while it streamed. The Metal space ran for the last 23.5 s of 90.
     (`unloadCachedBytes` → `~ModelSpec` → each glTF image's
     `std::vector<std::byte>` destroyed byte by byte). These destructors are
     inline, so they're compiled into `Also Maps.debug.dylib` at `-O0`; an
-    optimised build would free each buffer in one call.
+    optimized build would free each buffer in one call.
   - 15% is the selection pass itself (`updateViewGroup`, with
     `estimateGlobeRectangle` prominent).
   - Metal's debug and capture layers (`MTLDebugCommandBuffer`,
     `CaptureMTLRenderCommandEncoder`) take a noticeable share of encoding,
     and `MetalFrustum` about 9% (Swift at `-Onone`).
 - **Inferred:** much of this is Debug-build overhead, so the next step is the
-  same recording with an optimised build and Metal validation off. What
+  same recording with an optimized build and Metal validation off. What
   would remain regardless: selection and unloading run on the main thread
   inside the frame, in series with rendering, and cesium-native keeps each
   tile's decoded images after we've uploaded them, so unloading them is main-

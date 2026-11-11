@@ -21,7 +21,7 @@ There is no `Age`, `Expires` or `Last-Modified`. The root tileset JSON is the ex
 Requests go through `URLSessionAssetAccessor` in `Sources/Cesium/CNTileStreamer.mm` (`NSURLSession`; cesium-native is built without curl). It uses:
 
 - **A dedicated `NSURLCache`** (`CNTileCache`): 64 MB memory, 1 GB disk, at `~/Library/Caches/<bundle id>/tiles/` (inside the container when sandboxed). The shared cache is about 10 MB on disk, and one scene is about 56 MB, so entries were evicted before the next load. `NSURLCache` doesn't store a response larger than 5% of its disk capacity, which is far above any tile.
-- **`must-revalidate` stripped on store**: By the HTTP spec the directive only applies once a response is stale. CFNetwork applies it to fresh entries too, so every request made a network round trip that came back 304. `CNTileCache` removes it in `storeCachedResponse:forRequest:`, so `max-age` is honoured as sent: tiles are served from disk for four hours, then revalidated by `ETag`.
+- **`must-revalidate` stripped on store**: By the HTTP spec the directive only applies once a response is stale. CFNetwork applies it to fresh entries too, so every request made a network round trip that came back 304. `CNTileCache` removes it in `storeCachedResponse:forRequest:`, so `max-age` is honored as sent: tiles are served from disk for four hours, then revalidated by `ETag`.
 - **Counters** from `URLSessionTaskMetrics` (`CNFetchStats`, via `CNTileStreamer.fetchStats`): served from cache, revalidated (304), or downloaded, plus bytes over the network. They show in the stats overlay (Settings → Show stats) and the DEBUG log line.
 
 `willCacheResponse` can't do the rewrite: it isn't called for completion-handler tasks, which this accessor uses.
@@ -71,7 +71,7 @@ Google's policy says clients must respect `max-age`, `stale-while-revalidate`, `
 | Stale (after `max-age`), server up | cache, then 304 | cache, then 304 (`If-None-Match`) |
 | Stale, server unreachable | error (-1004), stale copy not used | error (-1004), stale copy not used |
 
-Stripped, `max-age` is honoured, stale entries are revalidated by `ETag`, and a stale entry is never served without a successful revalidation. Those are the semantics of `must-revalidate`, even though the stored copy no longer carries the directive. `private` is kept in the header, and the cache is per-user on disk.
+Stripped, `max-age` is honored, stale entries are revalidated by `ETag`, and a stale entry is never served without a successful revalidation. Those are the semantics of `must-revalidate`, even though the stored copy no longer carries the directive. `private` is kept in the header, and the cache is per-user on disk.
 
 Not covered: Google doesn't currently send `stale-while-revalidate`, so nothing implements it. If it appears, check what CFNetwork does with it. This was tested against a local server, not Google's; the Google-header run showed the same cache and 304 behavior but wasn't repeated past 4 hours.
 

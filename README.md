@@ -19,7 +19,7 @@ You need Xcode 26 or later with the platform SDKs you want to build for, and [Xc
 
 2. **Pick a scheme and run it.** There's a scheme for each platform (Also Maps visionOS, iOS and macOS), each needing OS 26 or later.
 
-   On a Vision Pro, run the **Also Maps visionOS (Optimised)** scheme unless you're debugging. It's the Debug build (the key from `Config/Secrets.xcconfig`, `DEBUG` code and logging) compiled with optimisation, and without Metal API validation or GPU frame capture. The unoptimised Debug build misses frame deadlines on the device. The debugger still attaches, but stepping through optimised code is less reliable.
+   On a Vision Pro, run the **Also Maps visionOS (Optimized)** scheme unless you're debugging. It's the Debug build (the key from `Config/Secrets.xcconfig`, `DEBUG` code and logging) compiled with optimization, and without Metal API validation or GPU frame capture. The unoptimized Debug build misses frame deadlines on the device. The debugger still attaches, but stepping through optimized code is less reliable.
 
 3. **Add your own Google Maps key.** On first launch the app asks how to load the map. Builds from source can't use the app's shared key, because that is only handed to builds that pass App Attest as the published app (see [Keys](#keys)). Choose your own key and paste a Google Maps Platform API key with the Map Tiles API enabled. It's saved in the Keychain, so you enter it once per device. If you restrict the key to iOS apps, use your build's bundle ID: the app sends it as `X-Ios-Bundle-Identifier` on every platform.
 
@@ -37,7 +37,7 @@ You need Xcode 26 or later with the platform SDKs you want to build for, and [Xc
 
 cesium-native decides which tiles to load and fetches them; a thin bridge hands them to RealityKit; a platform-neutral navigation core owns the camera, and each platform presents that camera its own way.
 
-- **Streaming.** `Sources/Cesium/CNTileStreamer.{h,mm}` is an Objective-C++ bridge that owns a cesium-native `Tileset`. It supplies networking over `NSURLSession` (cesium-native is built without curl) and a GCD task processor, and flattens each tile's glTF into float positions relative to the tile's own centre, plus UVs, indices and RGBA. Every frame, each drawn tile gets a transform, computed in double, that places it relative to the current anchor. There's no global origin, so precision is the same anywhere on Earth. An excluder limits streaming to the area of interest, a square around the anchor, and level of detail comes from a camera given in the anchor's frame.
+- **Streaming.** `Sources/Cesium/CNTileStreamer.{h,mm}` is an Objective-C++ bridge that owns a cesium-native `Tileset`. It supplies networking over `NSURLSession` (cesium-native is built without curl) and a GCD task processor, and flattens each tile's glTF into float positions relative to the tile's own center, plus UVs, indices and RGBA. Every frame, each drawn tile gets a transform, computed in double, that places it relative to the current anchor. There's no global origin, so precision is the same anywhere on Earth. An excluder limits streaming to the area of interest, a square around the anchor, and level of detail comes from a camera given in the anchor's frame.
 - **Frames.** `Sources/TileStreaming.swift` runs one cesium-native update per frame from those inputs (anchor, area of interest, LOD camera), adds ready tiles, hides tiles that aren't selected and removes freed ones. `Sources/TileUploader.swift` builds each tile's RealityKit meshes and textures off the main thread, a few at a time, before cesium-native counts the tile as loaded.
 - **Navigation.** `Sources/Navigation/` holds WGS84 geodesy and surface queries, the camera pose and navigation state, the georeference (world to map frame), the streaming inputs and the control styles. It doesn't depend on RealityKit or a platform, and `Also Maps Core Tests` covers it on macOS. See [Tests](#tests), and [docs/fundamentals.md](docs/fundamentals.md) for the ideas behind scale and placement.
 - **Presentation.**
@@ -51,7 +51,7 @@ cesium-native decides which tiles to load and fetches them; a thin bridge hands 
 
 ## Views
 
-The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's centre point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
+The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's center point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
 
 `ALSOMAPS_PRESENTATION=immersive` (or `volume`) starts in that mode.
 
@@ -85,7 +85,7 @@ The debug panel opens from the wrench in the toolbar, which shows when Settings 
 
 ## Places
 
-The pin button next to the mode picker jumps to a saved place: its position, zoom and facing. The defaults are in `Sources/Places/Places.json` (San Francisco, Boston, New York, Chicago, Grand Canyon and Puente Nuevo in Ronda). Each entry has an `id`, `name`, `latitude`, `longitude`, `radius` (view half-width in metres) and an optional `heading` (degrees clockwise from north). `PlaceLibrary` is where user-added places, stored locally or in iCloud, would be merged in later. `ALSOMAPS_PLACE=<id>` starts at that place.
+The pin button next to the mode picker jumps to a saved place: its position, zoom and facing. The defaults are in `Sources/Places/Places.json` (San Francisco, Boston, New York, Chicago, Grand Canyon and Puente Nuevo in Ronda). Each entry has an `id`, `name`, `latitude`, `longitude`, `radius` (view half-width in meters) and an optional `heading` (degrees clockwise from north). `PlaceLibrary` is where user-added places, stored locally or in iCloud, would be merged in later. `ALSOMAPS_PLACE=<id>` starts at that place.
 
 The remote config can replace these defaults; see [docs/remote-config.md](docs/remote-config.md).
 
@@ -93,7 +93,7 @@ The remote config can replace these defaults; see [docs/remote-config.md](docs/r
 
 Release builds contain no keys, except on tvOS. Where there's no key yet, the first launch asks how to load the map: with the app's shared key, which may be throttled, or with your own. Change it later in Keys (in Settings on every platform but tvOS). `Sources/Credentials/` holds this.
 
-- **The app's key** comes from the app's credentials API, which needs App Attest, so `AppKeyClient` proves the app is genuine, saves what it gets in the Keychain and refreshes it daily. Where `isSupported` is false, the app offers only your own key: macOS 26, and simulators. The Mac needs macOS 27 or later, where the API also requires Apple's key policy (full security mode and System Integrity Protection). Refreshes run only while a window is active. The app needs App Attest, from `Config/AppAttest.entitlements`, which needs an explicit App ID on the maintainer's team. Release builds always have it. Debug and Optimised builds have it only when `Config/Secrets.xcconfig` sets `DEBUG_CODE_SIGN_ENTITLEMENTS = Config/AppAttest.entitlements`, so anyone else's team can sign them with its wildcard profile.
+- **The app's key** comes from the app's credentials API, which needs App Attest, so `AppKeyClient` proves the app is genuine, saves what it gets in the Keychain and refreshes it daily. Where `isSupported` is false, the app offers only your own key: macOS 26, and simulators. The Mac needs macOS 27 or later, where the API also requires Apple's key policy (full security mode and System Integrity Protection). Refreshes run only while a window is active. The app needs App Attest, from `Config/AppAttest.entitlements`, which needs an explicit App ID on the maintainer's team. Release builds always have it. Debug and Optimized builds have it only when `Config/Secrets.xcconfig` sets `DEBUG_CODE_SIGN_ENTITLEMENTS = Config/AppAttest.entitlements`, so anyone else's team can sign them with its wildcard profile.
 - **Your own key** is saved in the Keychain, and follows you between devices through iCloud Keychain. Saving one makes one request to check it, which for Google counts as a map session.
 - **Which wins**: a scheme's `GOOGLE_MAPS_API_KEY` or `CESIUM_ION_TOKEN`, then your own, then the app's, then one built in from `Config/Secrets.xcconfig` (Debug builds, and tvOS). `ALSOMAPS_CREDENTIALS_URL=<url>` points at another deployment of the API.
 - **Rotation**: streaming restarts whenever the key changes. When a service rejects the app's key, the app fetches a new one straight away, so an old key can be deleted at any time.
@@ -132,7 +132,7 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 
 **Debugging** (Advanced, visionOS): **Show debug controls** adds the wrench that opens these controls in a panel beside the map. The same controls are on this page:
 - **Hold tiles**: see [Holding tiles](#holding-tiles).
-- **Pivot and centre markers** draws a red post where turns and zooms pivot, and a blue post at the map's centre.
+- **Pivot and center markers** draws a red post where turns and zooms pivot, and a blue post at the map's center.
 - **Tile bounds** draws each drawn tile's box, cyan inside the LOD camera's view and orange outside, with the area of interest in yellow and the LOD camera's view in pink.
 - **Copy View State** copies the whole view as JSON (position, zoom, heading, presentation, held tiles and settings) and prints it to the console.
 - **Restore from Clipboard** brings a copied state back.
