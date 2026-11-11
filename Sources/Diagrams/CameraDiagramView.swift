@@ -31,10 +31,10 @@ struct CameraDiagramWorldView: View {
             DiagramStyle.label("horizon", at: fit.point(d.horizonPoint), in: &context, below: true)
             if let g = d.georeferencePoint {
                 if let placed = d.placedPoint, fit.distance(g, placed) > 10 {
-                    context.stroke(fit.line([g, placed]), with: .color(DiagramStyle.envelope),
+                    context.stroke(fit.line([g, placed]), with: .color(DiagramStyle.placement),
                                    style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
                     DiagramStyle.diamond(at: fit.point(placed), in: &context)
-                    DiagramStyle.label("placed on C", at: fit.point(placed), in: &context)
+                    DiagramStyle.label("placed", at: fit.point(placed), in: &context)
                 }
                 DiagramStyle.cross(at: fit.point(g), in: &context)
                 DiagramStyle.label("G", at: fit.point(g), in: &context)
@@ -111,8 +111,8 @@ struct CameraDiagramLegend: View {
             swatch(DiagramStyle.color(kind), DiagramStyle.name(kind))
         }
         swatch(DiagramStyle.lod, "LOD camera")
-        swatch(DiagramStyle.streamed, DiagramStyle.streamedAreaName(diagram.inputs.presentation))
-        if diagram.room != nil { swatch(DiagramStyle.shown, DiagramStyle.shownRegionName(diagram.inputs.presentation)) }
+        swatch(DiagramStyle.streamed, DiagramStyle.streamedAreaName(diagram))
+        if diagram.room != nil { swatch(DiagramStyle.shown, DiagramStyle.shownRegionName(diagram)) }
     }
 
     private func swatch(_ color: Color, _ name: String) -> some View {
@@ -185,30 +185,27 @@ enum DiagramStyle {
     static let lod = Color.purple
     static let shown = Color.teal
     static let streamed = Color.green
-    static let envelope = Color.orange
+    static let placement = Color.orange
 
-    /// What the host's content square is: the volume's box shows exactly
-    /// it; the immersive space uses it for gestures and the ground sample.
-    static func shownRegionName(_ presentation: CameraDiagram.Presentation) -> String {
-        switch presentation {
-        case .window, .adaptive: "shown region (the box)"
-        case .eyeLevel: "content square (gestures, ground sample)"
-        }
+    /// What the host's content square is: a box (the volume's) shows exactly
+    /// it; without one (the immersive space) it's for gestures and the
+    /// ground sample.
+    static func shownRegionName(_ diagram: CameraDiagram) -> String {
+        diagram.inputs.containerSize != nil ? "shown region (the box)" : "content square (gestures, ground sample)"
     }
 
-    static func streamedAreaName(_ presentation: CameraDiagram.Presentation) -> String {
-        switch presentation {
-        case .adaptive: "streamed area"
-        case .window, .eyeLevel: "streamed area (to the horizon)"
+    static func streamedAreaName(_ diagram: CameraDiagram) -> String {
+        guard diagram.room != nil, case .georeference = diagram.inputs.areaPolicy else {
+            return "streamed area (to the horizon)"
         }
+        return "streamed area"
     }
 
     static func color(_ kind: CameraDiagram.Surface.Kind) -> Color {
         switch kind {
         case .ellipsoid: .gray
         case .terrain: .brown
-        case .ray: .blue
-        case .envelope: envelope
+        case .placementGround: placement
         }
     }
 
@@ -216,8 +213,7 @@ enum DiagramStyle {
         switch kind {
         case .ellipsoid: "ellipsoid (h = 0)"
         case .terrain: "terrain"
-        case .ray: "ray surface"
-        case .envelope: "envelope"
+        case .placementGround: "placement ground"
         }
     }
 
@@ -225,8 +221,7 @@ enum DiagramStyle {
         let style: StrokeStyle = switch kind {
         case .ellipsoid: StrokeStyle(lineWidth: 1, dash: [2, 3])
         case .terrain: StrokeStyle(lineWidth: 2)
-        case .ray: StrokeStyle(lineWidth: 1.5, dash: [6, 3])
-        case .envelope: StrokeStyle(lineWidth: 1.5, dash: [3, 3])
+        case .placementGround: StrokeStyle(lineWidth: 1.5, dash: [3, 3])
         }
         context.stroke(path, with: .color(color(kind)), style: style)
     }
@@ -267,7 +262,7 @@ enum DiagramStyle {
             path.move(to: CGPoint(x: p.x, y: p.y - 4)); path.addLine(to: CGPoint(x: p.x + 4, y: p.y))
             path.addLine(to: CGPoint(x: p.x, y: p.y + 4)); path.addLine(to: CGPoint(x: p.x - 4, y: p.y))
             path.closeSubpath()
-        }, with: .color(envelope))
+        }, with: .color(placement))
     }
 
     static func tick(at p: CGPoint, in context: inout GraphicsContext) {

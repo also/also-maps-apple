@@ -56,15 +56,21 @@ struct MapPresentation: Identifiable, Hashable {
     }
 
     /// The same placement as host geometry for the camera core: the viewer
-    /// position is the design eye point, and the georeference point goes on
-    /// the ground position when the map is level, or on the facing tilt's
-    /// raised centre when looking straight down.
+    /// position is the design eye point, and the view centre is on the
+    /// ground position while the map is level.
     var geometry: HostGeometry {
         let level = SIMD3<Double>(groundPosition)
-        let downHeight = host == .volume ? 0 : Double(viewerPosition.y) - 0.3
-        return .room(RoomGeometry(designEye: SIMD3<Double>(viewerPosition),
+        let eye = SIMD3<Double>(viewerPosition)
+        let downHeight = host == .volume ? 0 : eye.y - 0.3
+        let down = SIMD3(level.x, downHeight, level.z)
+        // The volume tilts until the ground below faces you at the box's
+        // centre, and its view centre rises with it, to stay in the box.
+        // The immersive space tilts a quarter turn.
+        return .room(RoomGeometry(designEye: eye,
                                   placementLevel: level,
-                                  placementDown: SIMD3(level.x, downHeight, level.z),
-                                  contentHalfWidth: Self.volumeSize.x / 2 * magnification))
+                                  placementDown: down,
+                                  contentHalfWidth: Self.volumeSize.x / 2 * magnification,
+                                  fullTilt: host == .volume ? RoomGeometry.tiltFacing(down, from: eye) : .pi / 2,
+                                  viewCentreFollowsTilt: host == .volume))
     }
 }

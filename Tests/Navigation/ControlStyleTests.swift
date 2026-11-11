@@ -100,7 +100,7 @@ struct NavigationOperationTests {
 }
 
 /// The two-style prototype: model flight and orbit/pan/zoom over the same
-/// navigation state (docs/camera-core.md §15, stage 1).
+/// navigation state.
 struct ControlStyleTests {
     private let flight = ModelFlightStyle()
 

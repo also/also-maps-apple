@@ -1,17 +1,16 @@
 import Foundation
 import simd
 
-/// The adaptive model presentation style for room hosts: the world is
-/// scaled so a useful region fits in the room. The camera sits at the design
-/// eye point, and the point its view ray meets on the ground (the
-/// georeference point, G) sits at the placement point, C. See
-/// docs/camera-core.md §4.1.
+/// What's left of the adaptive model presentation style, shared by the room
+/// hosts' placement (`EyeLevelModel`): the framing it produces, the LOD
+/// camera, anchored manipulation, and the horizon pitch limit (for modes
+/// that need a view ray to meet the ground).
 enum AdaptiveModel {
     struct Framing: Equatable {
         var georeference: Georeference
-        /// G, ECEF.
+        /// G, the view centre, ECEF.
         var georeferencePoint: SIMD3<Double>
-        /// C, map frame.
+        /// Where G is placed, map frame.
         var placementPoint: SIMD3<Double>
         /// |G − X|, metres.
         var range: Double
@@ -22,71 +21,8 @@ enum AdaptiveModel {
         }
     }
 
-    /// Shortest range a framing uses, so scale stays finite.
+    /// Shortest height above the ground a framing uses, so scale stays finite.
     static let minimumRange = 1.0
-
-    /// The framing for `camera`, or nil when its view ray misses the surface
-    /// at `rayHeight`. The lowest ground of the footprint (`envelopeHeight`,
-    /// at most `rayHeight`) is what lands on the base plane.
-    static func framing(camera: CameraPose, room: RoomGeometry,
-                        rayHeight: Double, envelopeHeight: Double) -> Framing? {
-        let x = camera.position
-        let basis = camera.basis
-        guard case let .hit(g, _) = Geodesy.intersect(ray: Ray(origin: x, direction: basis.forward),
-                                                       surfaceHeight: rayHeight)
-        else { return nil }
-        return framing(camera: x, forward: basis.forward, right: basis.right, georeferencePoint: g,
-                       pitch: camera.pitch, room: room,
-                       rayHeight: rayHeight, envelopeHeight: envelopeHeight)
-    }
-
-    /// The fallback when there's no valid framing to keep: look straight
-    /// down at the ground beneath the camera, keeping its position and
-    /// heading. Always finite.
-    static func nadirFraming(camera: CameraPose, room: RoomGeometry,
-                             rayHeight: Double, envelopeHeight: Double) -> Framing {
-        let x = camera.position
-        let up = Geodesy.enu(latitude: camera.latitude, longitude: camera.longitude).up
-        let g = Geodesy.ecef(camera.coordinate, height: min(rayHeight, camera.height - minimumRange))
-        return framing(camera: x, forward: -up, right: camera.basis.right, georeferencePoint: g,
-                       pitch: -.pi / 2, room: room,
-                       rayHeight: rayHeight, envelopeHeight: envelopeHeight)
-    }
-
-    private static func framing(camera x: SIMD3<Double>, forward f: SIMD3<Double>, right r: SIMD3<Double>,
-                                georeferencePoint g: SIMD3<Double>, pitch: Double, room: RoomGeometry,
-                                rayHeight: Double, envelopeHeight: Double) -> Framing {
-        let range = max(simd_distance(g, x), minimumRange)
-
-        let c = placementPoint(room, pitch: pitch)
-
-        // Camera (right, up, back) → map-frame view basis (right, up, back).
-        let e = room.designEye
-        let u = simd_normalize(c - e)
-        let rightMap = simd_normalize(simd_cross(u, SIMD3(0, 1, 0)))
-        let upMap = simd_cross(rightMap, u)
-        let up = simd_cross(r, f)
-        let cameraBasis = simd_double3x3(columns: (r, up, -f))
-        let mapBasis = simd_double3x3(columns: (rightMap, upMap, -u))
-        let rotation = simd_quatd(mapBasis * cameraBasis.transpose)
-
-        let scale = simd_distance(c, e) / range
-        // Lower G to the footprint's envelope; that point goes on C.
-        let (gCoordinate, _) = Geodesy.geodetic(g)
-        let gUp = Geodesy.enu(latitude: gCoordinate.latitude, longitude: gCoordinate.longitude).up
-        let lowered = g - gUp * max(rayHeight - envelopeHeight, 0)
-        let translation = c - scale * rotation.act(lowered)
-        return Framing(georeference: Georeference(scale: scale, rotation: rotation, translation: translation),
-                       georeferencePoint: g, placementPoint: c, range: range)
-    }
-
-    /// C(θ): the placement point rises from the level one toward the
-    /// looking-down one as the camera pitches down.
-    static func placementPoint(_ room: RoomGeometry, pitch: Double) -> SIMD3<Double> {
-        let levelPitch = room.levelPitch
-        let w = min(max((levelPitch - pitch) / (levelPitch + .pi / 2), 0), 1)
-        return room.placementLevel + (room.placementDown - room.placementLevel) * w
-    }
 
     /// θ_lim: the shallowest pitch a framing allows, keeping the view ray
     /// `margin` radians below the horizon seen from `cameraHeight` over a
@@ -103,67 +39,9 @@ enum AdaptiveModel {
     }
 }
 
-// MARK: Pitch policy, places, LOD and anchored manipulation
+// MARK: LOD and anchored manipulation
 
 extension AdaptiveModel {
-    /// θ_target: the optional pitch-follows-altitude assist. The level map's
-    /// pitch up to 50 km above ground, then straight down by 500 km on a
-    /// smoothstep in log(altitude).
-    static func pitchTarget(altitude: Double, levelPitch: Double) -> Double {
-        let t = min(max(log(max(altitude, 1) / 50_000) / log(10.0), 0), 1)
-        let w = t * t * (3 - 2 * t)
-        return levelPitch + (-.pi / 2 - levelPitch) * w
-    }
-
-    /// The pitch assist's target for `camera`: θ_target for its altitude
-    /// over `cameraGround`, within the horizon limit over `rayHeight`.
-    static func assistedPitch(for camera: CameraPose, room: RoomGeometry, rayHeight: Double,
-                              cameraGround: Double) -> Double {
-        min(pitchTarget(altitude: camera.height - cameraGround, levelPitch: room.levelPitch),
-            pitchLimit(cameraHeight: camera.height, rayHeight: rayHeight, latitude: camera.latitude))
-    }
-
-    /// The pitch assist's step: toward the assisted pitch, swinging the
-    /// camera about the georeference point so what's on the table stays.
-    static func easedPitch(_ camera: CameraPose, room: RoomGeometry, rayHeight: Double, envelopeHeight: Double,
-                           context: NavigationContext, deltaTime: Double) -> CameraPose {
-        let target = assistedPitch(for: camera, room: room, rayHeight: rayHeight, cameraGround: context.cameraGround)
-        guard abs(target - camera.pitch) > 1e-6 else { return camera }
-        let pitch = camera.pitch + (target - camera.pitch) * min(1, deltaTime * 6)
-        guard let current = framing(camera: camera, room: room, rayHeight: rayHeight, envelopeHeight: envelopeHeight)
-        else { return camera }
-        var turned = camera
-        turned.pitch = pitch
-        let forward = turned.basis.forward
-        var swung = CameraPose(position: current.georeferencePoint - forward * current.range,
-                               forward: forward, fallbackHeading: camera.heading)
-        swung.height = context.clampHeight(swung.height)
-        return swung
-    }
-
-    /// A pose framing a place in `room`'s geometry: the centre (at
-    /// `groundHeight`) lands on the level placement point, `radius` metres of
-    /// world span the content half-width, facing `heading`.
-    static func framePlace(centre: GeoCoordinate, radius: Double, heading: Double,
-                           room: RoomGeometry, groundHeight: Double = 0) -> CameraPose {
-        let scale = room.contentHalfWidth / max(radius, 1)
-        let g = Geodesy.ecef(centre, height: groundHeight)
-        // Pitch follows the altitude the framing gives; a few passes settle it.
-        var pitch = room.levelPitch
-        var pose = CameraPose(latitude: centre.latitude, longitude: centre.longitude, height: groundHeight,
-                              heading: heading, pitch: pitch)
-        for _ in 0..<3 {
-            // The view direction as seen from the centre, backed off along.
-            let atCentre = CameraPose(latitude: centre.latitude, longitude: centre.longitude,
-                                      height: groundHeight, heading: heading, pitch: pitch)
-            let forward = atCentre.basis.forward
-            let range = simd_distance(placementPoint(room, pitch: pitch), room.designEye) / scale
-            pose = CameraPose(position: g - forward * range, forward: forward, fallbackHeading: heading)
-            pitch = pitchTarget(altitude: pose.height - groundHeight, levelPitch: room.levelPitch)
-        }
-        return pose
-    }
-
     /// The LOD camera for a viewer at `eye` (map frame) looking at the
     /// framing's placement point, expressed in `anchor`'s frame.
     static func lodCamera(framing: Framing, eye: SIMD3<Double>, anchor: StreamingAnchor,
@@ -182,8 +60,7 @@ extension AdaptiveModel {
 
     /// What an anchored manipulation asks for: keep world point `grab`
     /// under map-frame point `target` at `scale`, with the view heading
-    /// `heading`. `pitch` gives the pitch for a candidate altitude (the
-    /// pitch policy, or the current pitch), before the horizon limit.
+    /// `heading`.
     struct AnchorTarget {
         var grab: SIMD3<Double>
         var target: SIMD3<Double>
@@ -191,46 +68,31 @@ extension AdaptiveModel {
         /// View heading at `headingOrigin`.
         var heading: Double
         var headingOrigin: GeoCoordinate
-        var pitch: (Double) -> Double
 
         func heading(at coordinate: GeoCoordinate) -> Double {
             heading + GeoMath.bearingChange(from: headingOrigin, to: coordinate)
         }
     }
 
-    /// The camera pose whose derived framing puts `anchor.grab` at
+    /// The camera pose whose framing (from `frame`) puts `anchor.grab` at
     /// `anchor.target` with the requested scale and heading, starting from
     /// `guess` (the previous solution). The heading is carried along the
-    /// globe from `anchor.headingOrigin` as the camera moves, as travel does.
-    /// The error counts both the grab point's distance from the target and
-    /// the scale's, as the distance it would move the eye-to-placement span. A bounded iteration corrects scale
-    /// and position together; it returns the best pose found and its
-    /// remaining error in map-frame metres. See docs/camera-core.md §11.1.
-    static func solve(_ anchor: AnchorTarget, from guess: CameraPose, room: RoomGeometry,
-                      rayHeight: Double, envelopeHeight: Double, context: NavigationContext,
-                      iterations: Int = 8, tolerance: Double = 1e-4) -> (pose: CameraPose, error: Double) {
-        solve(anchor, from: guess, room: room, scaleSurface: rayHeight, context: context,
-              iterations: iterations, tolerance: tolerance) { pose in
-            framing(camera: pose, room: room, rayHeight: rayHeight, envelopeHeight: envelopeHeight)
-        }
-    }
-
-    /// The same, for any presentation: `frame` gives a pose's framing, and
-    /// the scale is taken to be inversely proportional to the camera's
-    /// height above `scaleSurface`.
+    /// globe from `anchor.headingOrigin` as the camera moves, as travel does;
+    /// the pitch is left as it is. The scale is taken to be inversely
+    /// proportional to the camera's height above `scaleSurface`. The error
+    /// counts both the grab point's distance from the target and the scale's,
+    /// as the distance it would move the eye-to-placement span. A bounded
+    /// iteration corrects scale and position together; it returns the best
+    /// pose found and its remaining error in map-frame metres.
     static func solve(_ anchor: AnchorTarget, from guess: CameraPose, room: RoomGeometry,
                       scaleSurface: Double, context: NavigationContext,
                       iterations: Int = 8, tolerance: Double = 1e-4,
-                      frame: (CameraPose) -> Framing?) -> (pose: CameraPose, error: Double) {
+                      frame: (CameraPose) -> Framing) -> (pose: CameraPose, error: Double) {
         var pose = guess
         var best = (pose: guess, error: Double.infinity)
         for _ in 0..<iterations {
-            // Orientation for this candidate: heading as asked, pitch from
-            // the policy at its altitude, within the horizon limit.
             pose.heading = anchor.heading(at: pose.coordinate)
-            let limit = pitchLimit(cameraHeight: pose.height, rayHeight: scaleSurface, latitude: pose.latitude)
-            pose.pitch = min(anchor.pitch(pose.height - context.cameraGround), limit)
-            guard let framing = frame(pose) else { break }
+            let framing = frame(pose)
             let error = anchor.target - framing.georeference.map(anchor.grab)
             let scaleRatio = framing.georeference.scale / anchor.scale
             let span = simd_distance(framing.placementPoint, room.designEye)
@@ -238,13 +100,13 @@ extension AdaptiveModel {
             if errorLength < best.error { best = (pose, errorLength) }
             if errorLength < tolerance { break }
 
-            // Scale: range is proportional to height above the ray surface
-            // at fixed pitch, so scale the height above it.
+            // Scale: inversely proportional to the height above the scale
+            // surface, so scale that height.
             let above = max(pose.height - scaleSurface, 0.1)
             pose.height = context.clampHeight(scaleSurface + above * scaleRatio)
 
-            // Position: shifting the camera (and G with it) by Δ moves the
-            // grab point by −s·q·Δ in the map frame.
+            // Position: shifting the camera by Δ moves the grab point by
+            // −s·q·Δ in the map frame.
             let shift = -framing.georeference.rotation.inverse.act(error) / framing.georeference.scale
             let frame = Geodesy.enu(latitude: pose.latitude, longitude: pose.longitude)
             let east = simd_dot(shift, frame.east), north = simd_dot(shift, frame.north)

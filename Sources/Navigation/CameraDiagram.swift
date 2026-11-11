@@ -14,15 +14,14 @@ struct CameraDiagram {
     enum Presentation: Equatable {
         /// A flat screen: the render camera is the camera.
         case window(fieldOfView: Double)
-        /// The volume's adaptive model.
-        case adaptive(RoomGeometry)
-        /// The immersive space's eye-level model, tilting with altitude.
-        case eyeLevel(RoomGeometry)
+        /// A room host (the volume or the immersive space), placed by the
+        /// eye-level model.
+        case room(RoomGeometry)
 
         var room: RoomGeometry? {
             switch self {
             case .window: nil
-            case let .adaptive(room), let .eyeLevel(room): room
+            case let .room(room): room
             }
         }
     }
@@ -31,11 +30,16 @@ struct CameraDiagram {
         var camera: CameraPose
         var presentation: Presentation
         /// Metres above the ellipsoid. The terrain stands in for the
-        /// rendered ground near the camera (the camera ground); the ray and
-        /// envelope heights are the placement estimates a room host frames by.
+        /// rendered ground near the camera (the camera ground); the placement
+        /// ground is the estimate a room host puts on its base plane.
         var terrainHeight: Double
-        var rayHeight: Double
-        var envelopeHeight: Double
+        var groundHeight: Double
+        /// A room host's tilt weight (0...1), or nil for the tilt assist's,
+        /// from the camera's height (MapModel's default).
+        var tiltWeight: Double?
+        /// A room host's fixed scale (1 is human scale), or nil to put the
+        /// placement ground on the base plane.
+        var fixedScale: Double?
         /// The container's size, centred on the reference space's origin
         /// (the volume), if it has one.
         var containerSize: SIMD3<Double>?
@@ -103,7 +107,7 @@ struct CameraDiagram {
 
     struct Surface {
         enum Kind: String, CaseIterable {
-            case ellipsoid, terrain, ray, envelope
+            case ellipsoid, terrain, placementGround
         }
 
         var kind: Kind
@@ -122,11 +126,14 @@ struct CameraDiagram {
         /// C₀ and C₁: where the georeference point goes level and looking down.
         var levelPlacement: SIMD2<Double>
         var downPlacement: SIMD2<Double>
-        /// C: where it goes now.
+        /// C(w): the content centre at the current tilt weight.
+        var contentCentre: SIMD2<Double>
+        /// Where the view centre is placed now.
         var placement: SIMD2<Double>
-        /// Where the camera itself lands. The adaptive model puts it above
-        /// the eye by the lift; the eye-level model, on it.
+        /// Where the camera itself lands: on the eye.
         var camera: SIMD2<Double>
+        /// The tilt: the world turned about the eye, radians.
+        var tilt: Double
         var basePlaneHeight: Double
         var contentHalfWidth: Double
         var container: Bounds?
@@ -146,13 +153,12 @@ struct CameraDiagram {
     /// window's is the camera; a room host's is the design eye point
     /// through the georeference.
     let viewer: Viewpoint
-    /// G: the view ray's hit on the ray surface (a room host's georeference
-    /// point; the window's, on the terrain). Nil if the ray misses.
+    /// G: a room host's view centre, on the placement ground; the window's
+    /// view ray's hit on the terrain. Nil if the ray misses.
     let georeferencePoint: SIMD2<Double>?
-    /// The world point placed on C. The adaptive model lowers G to the
-    /// envelope; the eye-level model places G itself.
+    /// The world point the framing places, back in the world: G itself.
     let placedPoint: SIMD2<Double>?
-    /// ±ρ around G along the plane, on the ray surface, sampled along it.
+    /// ±ρ around G along the plane, on the placement ground, sampled along it.
     let shownRegion: [SIMD2<Double>]
     /// The Earth's centre, for filling the ground's far side.
     let earthCentre: SIMD2<Double>
@@ -168,16 +174,13 @@ struct CameraDiagram {
     let scale: Double?
     /// ρ: half-width of the shown region, world metres.
     let shownRadius: Double?
-    /// The view ray missed, so the adaptive model fell back to looking
-    /// straight down.
-    let usesNadirFallback: Bool
+    /// A room host's tilt weight (0...1); 0 for the window.
+    let tiltWeight: Double
     let worldBounds: Bounds
     /// The camera's and the viewer's heights above the terrain, metres.
     /// A negative viewer altitude is underground.
     let cameraAltitude: Double
     let viewerAltitude: Double
-    /// How far the adaptive model lifts the ground: ray − placed envelope.
-    let lift: Double
     /// From the camera to G, and along the ground from beneath the camera
     /// to G (negative behind), metres. Nil if the view ray misses.
     let rangeToGeoreference: Double?
@@ -192,27 +195,20 @@ struct CameraDiagram {
         let camera = inputs.camera
         let plane = SidePlane(camera: camera)
         self.plane = plane
-        let envelope = min(inputs.envelopeHeight, inputs.rayHeight)
+        let ground = inputs.groundHeight
 
         var framing: AdaptiveModel.Framing?
-        var nadir = false
         var cameraFieldOfView: Double?
+        var weight = 0.0
         switch inputs.presentation {
         case let .window(fieldOfView):
             cameraFieldOfView = fieldOfView
-        case let .adaptive(room):
-            framing = AdaptiveModel.framing(camera: camera, room: room, rayHeight: inputs.rayHeight,
-                                            envelopeHeight: envelope)
-            if framing == nil {
-                nadir = true
-                framing = AdaptiveModel.nadirFraming(camera: camera, room: room, rayHeight: inputs.rayHeight,
-                                                     envelopeHeight: envelope)
-            }
-        case let .eyeLevel(room):
-            framing = EyeLevelModel.framing(camera: camera, room: room, groundHeight: envelope,
-                                            tiltWeight: EyeLevelModel.tiltWeight(altitude: camera.height - envelope))
+        case let .room(room):
+            weight = inputs.tiltWeight ?? EyeLevelModel.tiltWeight(for: camera)
+            framing = EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground,
+                                            tiltWeight: weight, fixedScale: inputs.fixedScale)
         }
-        usesNadirFallback = nadir
+        tiltWeight = weight
         self.camera = Viewpoint(position: plane.point(camera.position),
                                 direction: plane.direction(camera.basis.forward),
                                 fieldOfView: cameraFieldOfView)
@@ -221,9 +217,8 @@ struct CameraDiagram {
         // back in the world.
         let streaming: StreamingInputs
         if let framing, let room = inputs.presentation.room {
-            let eyeLevel = if case .eyeLevel = inputs.presentation { true } else { false }
             streaming = .room(framing: framing, room: room, camera: camera, policy: inputs.areaPolicy,
-                              eyeLevel: eyeLevel, groundHeight: envelope, cameraGround: inputs.terrainHeight)
+                              groundHeight: ground)
         } else {
             streaming = ScreenView.streamingInputs(camera: camera, groundHeight: inputs.terrainHeight,
                                                    fieldOfView: cameraFieldOfView ?? .pi / 4, aspect: 1)
@@ -251,11 +246,6 @@ struct CameraDiagram {
         }
         georeferencePoint = g.map(plane.point)
         placedPoint = framing.map { plane.point($0.georeference.ecef(map: $0.placementPoint)) }
-        if case .adaptive = inputs.presentation {
-            lift = inputs.rayHeight - envelope
-        } else {
-            lift = 0
-        }
 
         // Along-track distance: positive ahead of the camera.
         let nadirCoordinate = camera.coordinate
@@ -289,7 +279,7 @@ struct CameraDiagram {
         shownRadius = rho
         scale = framing?.georeference.scale
         if let rho, g != nil {
-            shownRegion = span(gDistance, rho).map { plane.point(track($0, height: inputs.rayHeight)) }
+            shownRegion = span(gDistance, rho).map { plane.point(track($0, height: ground)) }
         } else {
             shownRegion = []
         }
@@ -312,11 +302,7 @@ struct CameraDiagram {
             (max(min(0, gDistance) - 3 * rho, -halfTurn), min(max(0, gDistance) + 3 * rho, halfTurn))
         }
         var kinds: [(Surface.Kind, Double)] = [(.ellipsoid, 0), (.terrain, inputs.terrainHeight)]
-        switch inputs.presentation {
-        case .window: break
-        case .adaptive: kinds += [(.ray, inputs.rayHeight), (.envelope, envelope)]
-        case .eyeLevel: kinds += [(.envelope, envelope)]
-        }
+        if inputs.presentation.room != nil { kinds.append((.placementGround, ground)) }
         surfaces = kinds.map { kind, height in
             let world = Self.samples(from: worldFrom, to: worldTo, count: 480).map { plane.point(track($0, height: height)) }
             var placed: [SIMD2<Double>] = []
@@ -336,11 +322,13 @@ struct CameraDiagram {
             }
             let level = Self.side(room.placementLevel)
             let roomCamera = Self.side(framing.georeference.map(camera.position))
+            let centre = Self.side(room.contentCentre(tiltWeight: weight))
             var points = [eye, level, Self.side(room.placementDown), placement, roomCamera,
                           level - SIMD2(room.contentHalfWidth, 0), level + SIMD2(room.contentHalfWidth, 0)]
             if let container { points += [container.min, container.max] }
             self.room = Room(eye: eye, levelPlacement: level, downPlacement: Self.side(room.placementDown),
-                             placement: placement, camera: roomCamera, basePlaneHeight: room.placementLevel.y,
+                             contentCentre: centre, placement: placement, camera: roomCamera,
+                             tilt: weight * room.fullTilt, basePlaneHeight: room.placementLevel.y,
                              contentHalfWidth: room.contentHalfWidth, container: container,
                              lod: Viewpoint(position: eye, direction: simd_normalize(placement - eye),
                                             fieldOfView: lod.fieldOfView),
@@ -359,24 +347,5 @@ struct CameraDiagram {
 
     private static func samples(from a: Double, to b: Double, count: Int) -> [Double] {
         (0..<count).map { a + (b - a) * Double($0) / Double(count - 1) }
-    }
-
-    /// Above this half-width the volume's envelope follows the Earth's curve
-    /// rather than the terrain (MapModel.curvatureAnchorRadius).
-    static let curvatureAnchorRadius = 50_000.0
-
-    /// The ground estimates the volume settles on over flat terrain once
-    /// motion stops (MapModel's ground sample and curvature envelope): the
-    /// ray surface at the terrain, and the envelope there too, or far out
-    /// sea level at the shown region's edges.
-    static func settledEstimates(camera: CameraPose, room: RoomGeometry,
-                                 terrainHeight: Double) -> (ray: Double, envelope: Double) {
-        let framing = AdaptiveModel.framing(camera: camera, room: room, rayHeight: terrainHeight,
-                                            envelopeHeight: terrainHeight)
-            ?? AdaptiveModel.nadirFraming(camera: camera, room: room, rayHeight: terrainHeight,
-                                          envelopeHeight: terrainHeight)
-        let shown = framing.shownRadius(room)
-        let envelope = shown >= curvatureAnchorRadius ? terrainHeight - GroundEstimates.curvatureDrop(shown) : terrainHeight
-        return (terrainHeight, envelope)
     }
 }

@@ -12,27 +12,16 @@ struct CameraDiagramPanel: View {
         var id: Self { self }
     }
 
-    /// What the volume's estimates do while the animation moves the camera.
-    enum Estimates: String, CaseIterable, Identifiable {
-        /// Unchanged, as during a gesture.
-        case frozen = "Frozen (gesture)"
-        /// Following the Earth's curve while the shown region is over 50 km
-        /// across, then unchanged until motion settles, as with a controller.
-        case curve = "Curve, then frozen (controller)"
-        var id: Self { self }
-    }
-
     struct Values: Equatable {
         var camera: CameraPose
         var terrain: Double
-        var ray: Double
-        var envelope: Double
+        /// The placement ground a room host puts on its base plane.
+        var ground: Double
     }
 
     @State private var host: Host
     /// Nil follows the map.
     @State private var manual: Values?
-    @State private var estimates: Estimates = .curve
     @State private var animation: Task<Void, Never>?
     @State private var pasteError: String?
 
@@ -91,13 +80,12 @@ struct CameraDiagramPanel: View {
     private func inputs(_ values: Values) -> CameraDiagram.Inputs {
         let presentation: CameraDiagram.Presentation = switch host {
         case .window: .window(fieldOfView: ScreenMap.fieldOfView)
-        case .volume: .adaptive(Self.room(.volume))
-        case .immersive: .eyeLevel(Self.room(.immersive))
+        case .volume: .room(Self.room(.volume))
+        case .immersive: .room(Self.room(.immersive))
         }
         let settings = map.settings
         return CameraDiagram.Inputs(camera: values.camera, presentation: presentation,
-                                    terrainHeight: values.terrain, rayHeight: values.ray,
-                                    envelopeHeight: values.envelope,
+                                    terrainHeight: values.terrain, groundHeight: values.ground,
                                     containerSize: host == .volume ? MapPresentation.volumeSize : nil,
                                     areaPolicy: host == .immersive
                                         ? .horizon(limitPerAltitude: settings.limitsImmersiveReach
@@ -105,18 +93,10 @@ struct CameraDiagramPanel: View {
                                         : .georeference(regionMultiplier: 1))
     }
 
-    /// The map's camera and ground, with the estimates the host would
-    /// settle on over that ground. The volume also eases pitch to its own
-    /// target for the altitude (MapModel's pitch assist), so the window's
-    /// shallow pitch would tilt its map.
+    /// The map's camera, with the placement ground settled on its ground.
     private var live: Values {
-        var camera = map.navigation.camera
         let ground = map.groundHeight
-        guard host == .volume else { return Values(camera: camera, terrain: ground, ray: ground, envelope: ground) }
-        let room = Self.room(.volume)
-        camera.pitch = AdaptiveModel.assistedPitch(for: camera, room: room, rayHeight: ground, cameraGround: ground)
-        let settled = CameraDiagram.settledEstimates(camera: camera, room: room, terrainHeight: ground)
-        return Values(camera: camera, terrain: ground, ray: settled.ray, envelope: settled.envelope)
+        return Values(camera: map.navigation.camera, terrain: ground, ground: ground)
     }
 
     // MARK: Views
@@ -138,12 +118,13 @@ struct CameraDiagramPanel: View {
             row("Height (ellipsoid)", Self.distance(camera.height))
             row("Heading, pitch", String(format: "%.1f°, %.1f°", camera.heading * degrees, camera.pitch * degrees))
             row("Terrain height", Self.distance(d.inputs.terrainHeight))
-            if host == .volume { row("Ray surface height", Self.distance(d.inputs.rayHeight)) }
-            if host != .window { row("Envelope height", Self.distance(d.inputs.envelopeHeight)) }
+            if host != .window { row("Placement ground height", Self.distance(d.inputs.groundHeight)) }
             Divider().gridCellUnsizedAxes(.horizontal)
             row("Camera above terrain", Self.distance(d.cameraAltitude))
             row("Eye above terrain", Self.distance(d.viewerAltitude), color: d.viewerAltitude < 0 ? .red : nil)
-            if host == .volume { row("Lift (ray − envelope)", Self.distance(d.lift)) }
+            if let room = d.room {
+                row("Tilt", String(format: "%.0f%% of full, %.0f°", d.tiltWeight * 100, room.tilt * degrees))
+            }
             if let scale = d.scale { row("Scale", "1 : \((1 / scale).formatted(.number.precision(.significantDigits(3))))") }
             if let rho = d.shownRadius {
                 row(host == .immersive ? "Content square half-width" : "Shown half-width", Self.distance(rho))
@@ -158,7 +139,6 @@ struct CameraDiagramPanel: View {
             if let fieldOfView = d.viewer.fieldOfView {
                 row("LOD field of view", String(format: "%.0f°", fieldOfView * degrees))
             }
-            if d.usesNadirFallback { row("Framing", "looks straight down (the volume's fallback)") }
         }
         .font(.callout)
     }
@@ -188,18 +168,15 @@ struct CameraDiagramPanel: View {
                 LabeledContent("Above terrain") {
                     Slider(value: altitude, in: log10(2)...log10(11_000_000))
                 }
-                LabeledContent("Pitch") {
-                    Slider(value: value(\.camera.pitch, scale: 180 / .pi), in: -90...0)
+                if host == .window {
+                    LabeledContent("Pitch") {
+                        Slider(value: value(\.camera.pitch, scale: 180 / .pi), in: -90...0)
+                    }
                 }
                 TextField("Terrain (m)", value: value(\.terrain), format: .number.precision(.fractionLength(0...1)))
                 if host != .window {
-                    TextField("Ray surface (m)", value: value(\.ray), format: .number.precision(.fractionLength(0...1)))
-                    TextField("Envelope (m)", value: value(\.envelope), format: .number.precision(.fractionLength(0...1)))
-                }
-                if host == .volume {
-                    Picker("While moving", selection: $estimates) {
-                        ForEach(Estimates.allCases) { Text($0.rawValue).tag($0) }
-                    }
+                    TextField("Placement ground (m)", value: value(\.ground),
+                              format: .number.precision(.fractionLength(0...1)))
                 }
             }
             .formStyle(.columns)
@@ -211,7 +188,7 @@ struct CameraDiagramPanel: View {
                 Button("Stop") { animation?.cancel(); animation = nil }
             }
         }
-        Text("Moving here doesn't move the map. Descend and Climb fly the diagram's camera as a held controller would, with the volume's pitch assist and its estimates as chosen above.")
+        Text("Moving here doesn't move the map. Descend and Climb fly the diagram's camera as a held controller would, with the placement ground unchanged, as while moving.")
             .font(.caption)
             .foregroundStyle(.secondary)
     }
@@ -246,19 +223,18 @@ struct CameraDiagramPanel: View {
         }
     }
 
-    /// A view state's camera and estimates, in its own host unless `host`
-    /// is given. A view state doesn't record the terrain; the ray surface
-    /// is the best guess, to edit if you know better.
+    /// A view state's camera and placement ground, in its own host unless
+    /// `host` is given. A view state doesn't record the terrain; the
+    /// placement ground is the best guess, to edit if you know better.
     private static func values(from state: MapViewState, host: Host?) -> (Host, Values?) {
         let own: Host = MapPresentation.withID(state.host)?.host == .immersive ? .immersive : .volume
-        return (host ?? own, Values(camera: state.navigationState.camera, terrain: state.groundEstimate.ray,
-                                    ray: state.groundEstimate.ray, envelope: state.groundEstimate.envelope))
+        let ground = state.groundEstimate.ray
+        return (host ?? own, Values(camera: state.navigationState.camera, terrain: ground, ground: ground))
     }
 
     /// Climbs (+1) or descends (−1) the diagram's camera as a held
-    /// controller would: model flight's climb, then in the volume the pitch
-    /// assist and horizon limit (MapModel's steer). Stops at the host's
-    /// lowest altitude, 1,000 km up, or after 20 seconds.
+    /// controller would: model flight's climb (MapModel's steer). Stops at
+    /// the host's lowest altitude, 1,000 km up, or after 20 seconds.
     private func fly(climb: Double) {
         animation?.cancel()
         if manual == nil { manual = live }
@@ -272,24 +248,10 @@ struct CameraDiagramPanel: View {
                 guard !Task.isCancelled, var values = manual else { return }
                 let context = NavigationContext(cameraGround: values.terrain, minimumAltitude: minimumAltitude,
                                                 maximumAltitude: maximumAltitude)
-                var camera = flight.step(NavigationState(camera: values.camera), input: ControlInput(climb: climb),
+                let camera = flight.step(NavigationState(camera: values.camera), input: ControlInput(climb: climb),
                                          deltaTime: deltaTime, context: context).camera
-                if host == .volume {
-                    let room = Self.room(.volume)
-                    camera = AdaptiveModel.easedPitch(camera, room: room, rayHeight: values.ray,
-                                                      envelopeHeight: min(values.envelope, values.ray),
-                                                      context: context, deltaTime: deltaTime)
-                    camera.pitch = min(camera.pitch, AdaptiveModel.pitchLimit(cameraHeight: camera.height,
-                                                                              rayHeight: values.ray,
-                                                                              latitude: camera.latitude))
-                }
                 let altitude = camera.height - values.terrain
                 values.camera = camera
-                if host == .volume, estimates == .curve,
-                   let shown = CameraDiagram(inputs(values)).shownRadius,
-                   shown >= CameraDiagram.curvatureAnchorRadius {
-                    values.envelope = values.ray - GroundEstimates.curvatureDrop(shown)
-                }
                 manual = values
                 if climb < 0 ? altitude <= minimumAltitude + 0.5 : altitude >= 1_000_000 { break }
             }
