@@ -2,7 +2,7 @@ import Foundation
 
 /// Counts draw submissions, not streaming selection or presented frames.
 /// In stereo a tile/draw/triangle is counted once for each encoded eye.
-struct MetalDrawStatistics {
+struct MetalDrawStatistics: Codable {
     var tiles = 0
     var submittedTiles = 0
     var totalDrawCalls = 0

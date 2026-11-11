@@ -173,7 +173,7 @@ final class MetalTileRenderer: @unchecked Sendable {
         samplersLock.lock()
         defer { samplersLock.unlock() }
         if let sampler = samplers[key] { return sampler }
-        let sampler = device.makeSamplerState(descriptor: TileUploader.samplerDescriptor(for: primitive))
+        let sampler = device.makeSamplerState(descriptor: TileSampler.descriptor(for: primitive))
         samplers[key] = sampler
         return sampler
     }
@@ -252,6 +252,22 @@ final class MetalTileRenderer: @unchecked Sendable {
     func encode(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
                 viewProjection: simd_float4x4, root: simd_float4x4,
                 tiles: [(tile: CNTileMesh, placement: simd_float4x4)]) -> MetalDrawStatistics {
+        encode(encoder, colour: colour, depth: depth, viewProjection: viewProjection, root: root,
+               draws: tiles.lazy.compactMap { tile, placement in
+                   (tile.renderObject as? Tile).map { Draw(tile: $0, placement: placement) }
+               })
+    }
+
+    /// Ready GPU resources and placement, also used by windowless renderers.
+    struct Draw {
+        let tile: Tile
+        let placement: simd_float4x4
+    }
+
+    @discardableResult
+    func encode<Draws: Sequence>(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
+                                viewProjection: simd_float4x4, root: simd_float4x4, draws: Draws,
+                                cullingEnabled: Bool? = nil) -> MetalDrawStatistics where Draws.Element == Draw {
         let signposter = Signposts.frame
         let interval = signposter.beginInterval("MetalEncode", id: signposter.makeSignpostID())
         defer { signposter.endInterval("MetalEncode", interval) }
@@ -260,9 +276,10 @@ final class MetalTileRenderer: @unchecked Sendable {
         encoder.setRenderPipelineState(pipeline)
         encoder.setDepthStencilState(depthState)
         encoder.setCullMode(.none)
+        let cullsOffscreen = cullingEnabled ?? self.cullsOffscreen
         let rootViewProjection = viewProjection * root
-        for (tile, placement) in tiles {
-            guard let gpu = tile.renderObject as? Tile else { continue }
+        for draw in draws {
+            let gpu = draw.tile, placement = draw.placement
             statistics.tiles += 1
             statistics.totalDrawCalls += gpu.parts.count
             statistics.totalTriangles += gpu.triangleCount

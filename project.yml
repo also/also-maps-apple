@@ -177,6 +177,7 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - TileSampler.swift
           - DebugLines.swift
           - Config
           - Credentials
@@ -216,6 +217,48 @@ targets:
           GOOGLE_MAPS_API_KEY: ""
           CESIUM_ION_TOKEN: ""
 
+  # Offscreen Metal capture and culling comparison, without a window or RealityKit.
+  Also Maps Render CLI:
+    type: tool
+    platform: macOS
+    scheme: {}
+    sources:
+      - path: Tools/MetalRender
+        excludes: [Info.plist]
+      - path: Sources/Tracks/CameraTrack.swift
+      - path: Sources/Tracks/TrackPlayback.swift
+      - path: Sources/Metal
+        excludes: [MetalMapView.swift]
+      - path: Sources/TileSampler.swift
+      - path: Sources/Signposts.swift
+      - path: Sources/Navigation
+      - path: Sources/Cesium/CNTileStreamer.h
+      - path: Sources/Cesium/CNTileStreamer.mm
+    dependencies:
+      - package: CesiumNative
+      - sdk: libsqlite3.tbd
+      - sdk: libc++.tbd
+      # Required for MTLCreateSystemDefaultDevice in a windowless macOS tool.
+      - sdk: CoreGraphics.framework
+    info:
+      path: Tools/MetalRender/Info.plist
+      properties:
+        GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
+    settings:
+      groups: [CesiumBridge]
+      base:
+        PRODUCT_NAME: also-maps-render
+        PRODUCT_MODULE_NAME: AlsoMapsRender
+        # Preserve the app's Google key restriction/header and HTTP-cache namespace.
+        PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        ARCHS: arm64
+        SWIFT_VERSION: "5.0"
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
+      configs:
+        Release:
+          GOOGLE_MAPS_API_KEY: ""
+
   # The platform-neutral navigation core (Sources/Navigation), tested on
   # macOS without a scene, cesium-native or the network.
   Also Maps Core Tests:
@@ -230,6 +273,8 @@ targets:
       - path: Sources/Static/StaticView.swift
       - path: Sources/Metal/MetalVisibility.swift
       - path: Tests/Metal
+      - path: Tools/MetalRender/Options.swift
+      - path: Tools/MetalRender/VideoOptions.swift
       - path: Sources/Places/Place.swift
       - path: Sources/Config/AppConfig.swift
       - path: Sources/Config/AppConfigStore.swift
@@ -265,6 +310,7 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - TileSampler.swift
           - DebugLines.swift
           - Config
           - Credentials/CredentialStore.swift
@@ -321,6 +367,7 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - TileSampler.swift
           - DebugLines.swift
           - Config
           - Credentials
