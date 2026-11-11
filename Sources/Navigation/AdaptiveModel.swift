@@ -102,25 +102,30 @@ extension AdaptiveModel {
             let tilt = georeference.rotation * EyeLevelModel.levelRotation(pose).inverse
             let center = georeference.map(.zero)
             let radius = georeference.scale * simd_length(grab.point)
-            let direction = rolled(simd_normalize(grab.start - center), by: grab.translation, radius: radius)
+            let held = simd_normalize(grab.start - center)
+            let roll = roll(held, by: grab.translation, radius: radius)
+            let direction = roll.act(held)
+            // Built as a turn about a fixed axis rather than the shortest
+            // turn from start to finish, which has no fixed axis once the
+            // point has rolled to the far side.
             let rotation = simd_quatd(angle: grab.twist, axis: direction)
-                * simd_quatd(from: startDirection, to: direction)
+                * roll
+                * simd_quatd(from: startDirection, to: held)
                 * grab.startRotation
             pose = Self.camera(level: tilt.inverse * rotation, height: height, pitch: camera.pitch)
         }
         return pose
     }
 
-    /// `direction` (unit, from a globe's center) turned toward `translation`
-    /// by the angle that moves a point on the globe of `radius` as far as
-    /// the translation's part along the surface.
-    static func rolled(_ direction: SIMD3<Double>, by translation: SIMD3<Double>,
-                       radius: Double) -> SIMD3<Double> {
+    /// The turn of a globe of `radius` that rolls the point in `direction`
+    /// (unit, from its center) toward `translation`, as far along the
+    /// surface as the translation's part along it.
+    static func roll(_ direction: SIMD3<Double>, by translation: SIMD3<Double>,
+                     radius: Double) -> simd_quatd {
         let along = translation - direction * simd_dot(translation, direction)
         let distance = simd_length(along)
-        guard distance > 0, radius > 0 else { return direction }
-        let angle = distance / radius
-        return direction * cos(angle) + (along / distance) * sin(angle)
+        guard distance > 0, radius > 0 else { return simd_quatd(ix: 0, iy: 0, iz: 0, r: 1) }
+        return simd_quatd(angle: distance / radius, axis: simd_normalize(simd_cross(direction, along)))
     }
 
     /// The camera at `height` whose level rotation (ECEF → room, before the

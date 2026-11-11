@@ -15,6 +15,12 @@ Working notes for [also/also-maps-apple#61](https://github.com/also/also-maps-ap
 - **Observed (simulation):** `MapModel.drag` projected the hand's movement onto the ground's plane at the grabbed point, using its up as currently shown. On a globe that feeds the drag back into itself: rolled toward the edge, the point's up turns sideways and removes most of the movement, the globe rolls back, and the full movement returns. With a hand held still half a meter to the side, the pose alternated between two positions every frame.
 - **Change:** the drag passes the raw movement; the pose already takes the part along the surface where the drag began. A core test checks that a still hand holds a globe still. Not yet tried on the headset.
 
+### Drag across the globe's far side
+
+- **Observed (owner, headset):** with the flicker fixed, the zoomed-out drag glitched differently once the grabbed point reached the far side of the globe.
+- **Observed (simulation):** rolling steadily, the globe turned 0.059 rad a frame until the point neared 180° from where it started, then 0.48 and 0.96 rad in single frames. The pose composed the shortest turn from the start direction to the rolled one, whose axis is undefined at 180°. The grabbed point's position stayed smooth, which is why the earlier test missed it: the jump was a spin about the point.
+- **Change:** the roll is a turn about a fixed axis (`AdaptiveModel.roll`). The globe now turns 0.059 rad every frame to 270° and beyond, and the drag test checks the turn per frame. DEBUG builds log each pinch begin, restart, step, end and gesture-target rebuild; filter the console for `[AlsoMaps] pinch`. Not yet tried on the headset.
+
 ### Volume grabs off by about half the volume's depth
 
 - **Observed (owner, headset):** in the volume, grabbing the near side of the map put the grab outside the volume, roughly half the volume's depth off around San Francisco. Immersive looked right, apart from hills.

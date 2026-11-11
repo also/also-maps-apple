@@ -134,7 +134,8 @@ struct PinchManipulationTests {
 
     /// Fully zoomed out, dragging rolls the globe: the grabbed point moves
     /// along the surface as far as the hand moves, past the edge and around
-    /// the back, a little each frame, with no jumps.
+    /// the back, and the globe turns a little each frame, with no jumps
+    /// (including the spin about the point as it crosses the far side).
     @Test func dragRollsAGlobe() {
         var pose = CameraPose(latitude: 37.79, longitude: -122.39, height: 10_000_000, heading: 0, pitch: -.pi / 2)
         let before = framing(pose)
@@ -146,6 +147,7 @@ struct PinchManipulationTests {
         let up = simd_normalize(p - center)
         let side = simd_normalize(SIMD3(1, 0, 0) - up * up.x)
         var previous = p
+        var previousRotation = before.georeference.rotation
         for step in 1...300 {
             // Up to three globe diameters of hand movement.
             grabbed.translation = side * (6 * radius * Double(step) / 300)
@@ -156,7 +158,11 @@ struct PinchManipulationTests {
             // Within the Earth's flattening of a sphere's roll.
             #expect(simd_distance(at, expected) < 0.02 * radius)
             #expect(simd_distance(at, previous) < 0.03 * radius)
+            let rotation = framing(pose).georeference.rotation
+            let turn = (rotation * previousRotation.inverse).angle
+            #expect(min(turn, 2 * .pi - turn) < 0.03)
             previous = at
+            previousRotation = rotation
         }
     }
 
