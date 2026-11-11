@@ -4,6 +4,13 @@ Status: **merged** in [also/also-maps-apple#66](https://github.com/also/also-map
 
 ## Log (newest first)
 
+**2026-11-11: zoom holds the view center**
+
+- **Observed (core simulation):** with the immersive view center moved onto the line of sight toward C₀, zooming out to the 49.5 km stop and back drifted 105 m (was 50 m). Zoom flew straight at the view center, and the camera's local level turns with the Earth's curve as it moves, so the view center slid up to 10 km at the top and didn't fully come back.
+- **Owner decision:** zoom holds the view center instead, before changing its definition.
+- **Changed:** zoom changes height above the dolly surface and solves for the standpoint that keeps the view center where it was (`EyeLevelModel.pose(_:at:holdingViewCentre:)`, sharing `framePlace`'s solver), keeping pitch and the heading relative to the view center. The pose is a function of the view center and the height, so a round trip returns to the same view. `NavigationOperations.approach` is gone.
+- **Observed (core tests):** the round trip now returns within 1 cm and the same heading in both hosts. The solver holds the view center to about 1 µm per step. The 50 km zoom limit is unchanged.
+
 **2026-11-09: the immersive space's view center**
 
 - **Observed (git history):** the immersive space's view center (the ground beneath C₀ as placed level) was the tilt's pivot in `2cdf8b1`. When `2fb7061` moved the pivot to the design eye point, the view center stayed and wasn't re-derived. **Inferred:** it no longer means anything; far out it's past the horizon. It still sets the gesture slab, the LOD camera's direction, place framing, the hold-tiles travel limit and the ground sample's center, on `main` too. **Owner decision:** eliminate it rather than move it ([also/also-maps-apple#67](https://github.com/also/also-maps-apple/issues/67)).

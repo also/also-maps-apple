@@ -82,39 +82,6 @@ enum NavigationOperations {
         return place(state, at: moved, forward: state.camera.basis.forward, context: context)
     }
 
-    /// Moves the camera toward `target` (ECEF) by `fraction` of the distance
-    /// (negative backs away), for hosts whose view doesn't follow the
-    /// camera's direction. Both headings are carried along the globe, as
-    /// travel does, and pitch is left alone. At a height limit it stops on
-    /// its line rather than being pushed off it.
-    static func approach(_ state: NavigationState, toward target: SIMD3<Double>, fraction: Double,
-                         context: NavigationContext) -> NavigationState {
-        let start = state.camera.position
-        let offset = target - start
-        func height(_ t: Double) -> Double { Geodesy.geodetic(start + offset * t).height }
-        var t = min(fraction, 0.95)
-        let startHeight = state.camera.height
-        // Only when starting within the limits; otherwise clamp as before.
-        if context.clampHeight(startHeight) == startHeight, context.clampHeight(height(t)) != height(t) {
-            // The furthest step along the line that stays within them.
-            var inside = 0.0, outside = t
-            for _ in 0..<40 {
-                let middle = (inside + outside) / 2
-                if context.clampHeight(height(middle)) == height(middle) { inside = middle } else { outside = middle }
-            }
-            t = inside
-        }
-        let (coordinate, newHeight) = Geodesy.geodetic(start + offset * t)
-        var state = state
-        let change = GeoMath.bearingChange(from: state.camera.coordinate, to: coordinate)
-        state.camera.latitude = coordinate.latitude
-        state.camera.longitude = coordinate.longitude
-        state.camera.height = context.clampHeight(newHeight)
-        state.camera.heading = wrapped(state.camera.heading + change)
-        state.movementHeading = wrapped(state.movementHeading + change)
-        return state
-    }
-
     /// Swings the camera around the vertical through `pivot` (ECEF) by
     /// `delta` radians clockwise seen from above, turning the view with it so
     /// it keeps facing the same way relative to the pivot.

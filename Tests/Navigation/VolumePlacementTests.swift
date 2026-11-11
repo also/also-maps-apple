@@ -33,6 +33,11 @@ private func framing(_ camera: CameraPose, _ room: RoomGeometry, ground: Double 
                           tiltWeight: assist ? EyeLevelModel.tiltWeight(for: camera) : 0)
 }
 
+/// Zoom in `room`: the camera at a height with its view centre held.
+private func holdingViewCentre(_ room: RoomGeometry, ground: Double = 0) -> (CameraPose, Double) -> CameraPose {
+    { camera, height in EyeLevelModel.pose(camera, at: height) { framing($0, room, ground: ground) } }
+}
+
 /// The room's up for the local up beneath `camera`.
 private func shownUp(_ f: AdaptiveModel.Framing, _ camera: CameraPose) -> SIMD3<Double> {
     let up = Geodesy.enu(latitude: camera.latitude, longitude: camera.longitude).up
@@ -177,21 +182,23 @@ struct VolumePlacementTests {
         }
     }
 
-    /// Zoom heads for the view centre, wherever the pitch was left pointing,
-    /// and leaves the pitch alone.
-    @Test func zoomHeadsForTheViewCentre() {
+    /// Zoom changes height and holds the view centre, wherever the pitch
+    /// was left pointing, and leaves the pitch alone.
+    @Test(arguments: [true, false])
+    func zoomHoldsTheViewCentre(inVolume: Bool) {
+        let room = inVolume ? volume : immersive
         var flight = ModelFlightStyle()
+        flight.holdingViewCentre = holdingViewCentre(room)
         let camera = CameraPose(latitude: 37.79, longitude: -122.39, height: 3_000, heading: 0.3, pitch: 20 * degrees)
-        let f = framing(camera, volume)
-        flight.dollyTarget = f.georeferencePoint
         let context = NavigationContext(cameraGround: 0, minimumAltitude: 55, maximumAltitude: 20_000_000)
-        let state = flight.step(NavigationState(camera: camera), input: ControlInput(dolly: 1), deltaTime: 0.1,
-                                context: context)
-        let moved = state.camera.position - camera.position
-        let toCentre = f.georeferencePoint - camera.position
-        #expect(simd_length(simd_cross(simd_normalize(moved), simd_normalize(toCentre))) < 1e-6)
-        #expect(state.camera.height < camera.height)
-        #expect(state.camera.pitch == camera.pitch)
+        for dolly in [1.0, -1.0] {
+            let state = flight.step(NavigationState(camera: camera), input: ControlInput(dolly: dolly), deltaTime: 0.1,
+                                    context: context)
+            #expect(simd_distance(framing(state.camera, room).georeferencePoint,
+                                  framing(camera, room).georeferencePoint) < 1e-4)
+            #expect(dolly > 0 ? state.camera.height < camera.height : state.camera.height > camera.height)
+            #expect(state.camera.pitch == camera.pitch)
+        }
     }
 
     /// Zooming out into the altitude ceiling stops there rather than
@@ -201,12 +208,12 @@ struct VolumePlacementTests {
         let room = inVolume ? volume : immersive
         let context = NavigationContext(cameraGround: 0, minimumAltitude: 55, maximumAltitude: 11_000_000)
         var flight = ModelFlightStyle()
+        flight.holdingViewCentre = holdingViewCentre(room)
         let start = EyeLevelModel.framePlace(centre: places[0], radius: 600, heading: 0, room: room)
         var state = flight.activate(NavigationState(camera: start))
         var highest = 0.0
         var atCeiling: CameraPose?
         for _ in 0..<(90 * 20) {
-            flight.dollyTarget = framing(state.camera, room).georeferencePoint
             state = flight.step(state, input: ControlInput(dolly: -1), deltaTime: 1.0 / 90, context: context)
             highest = max(highest, state.camera.height)
             if atCeiling == nil, state.camera.height > 10_999_000 { atCeiling = state.camera }
@@ -218,22 +225,21 @@ struct VolumePlacementTests {
     }
 
     /// With zoom capped where the tilt starts, zooming out to the cap and
-    /// back down to the starting height comes back close to where it began:
-    /// the view centre within a tenth of the shown half-width (measured:
-    /// 11 m in the volume, 50 m in the immersive space, for 600 m).
+    /// back down to the starting height comes back to where it began: zoom
+    /// holds the view centre.
     @Test(arguments: [true, false])
     func cappedZoomComesBackClose(inVolume: Bool) {
         let room = inVolume ? volume : immersive
         let context = NavigationContext(cameraGround: 0, minimumAltitude: 55, maximumAltitude: 11_000_000)
         var flight = ModelFlightStyle()
         flight.zoomCeiling = EyeLevelModel.tiltStartAltitude
+        flight.holdingViewCentre = holdingViewCentre(room)
         let start = EyeLevelModel.framePlace(centre: places[0], radius: 600, heading: 0, room: room)
         var state = flight.activate(NavigationState(camera: start))
         func centre() -> SIMD3<Double> { framing(state.camera, room).georeferencePoint }
         let startCentre = centre()
         var highest = 0.0
         func step(_ dolly: Double) {
-            flight.dollyTarget = centre()
             state = flight.step(state, input: ControlInput(dolly: dolly), deltaTime: 1.0 / 90, context: context)
             highest = max(highest, state.camera.height)
         }
@@ -247,7 +253,8 @@ struct VolumePlacementTests {
         #expect(state.camera.height < top)
         var frames = 0
         while state.camera.height > start.height, frames < 90 * 30 { step(1); frames += 1 }
-        #expect(simd_distance(centre(), startCentre) < 60)
+        #expect(simd_distance(centre(), startCentre) < 0.01)
+        #expect(abs(NavigationOperations.wrapped(state.camera.heading - start.heading)) < 1e-6)
     }
 
     /// Above the zoom ceiling (climbed to), zoom does nothing either way.
@@ -256,7 +263,7 @@ struct VolumePlacementTests {
         var flight = ModelFlightStyle()
         flight.zoomCeiling = EyeLevelModel.tiltStartAltitude
         let camera = CameraPose(latitude: 37.79, longitude: -122.39, height: 200_000, heading: 0.3, pitch: -0.4)
-        flight.dollyTarget = framing(camera, volume).georeferencePoint
+        flight.holdingViewCentre = holdingViewCentre(volume)
         let state = NavigationState(camera: camera)
         for dolly in [-1.0, 1.0] {
             let zoomed = flight.step(state, input: ControlInput(dolly: dolly), deltaTime: 0.1, context: context)
@@ -273,10 +280,10 @@ struct VolumePlacementTests {
         flight.zoomCeiling = EyeLevelModel.tiltStartAltitude
         var state = flight.activate(NavigationState(
             camera: EyeLevelModel.framePlace(centre: places[0], radius: 600, heading: heading, room: volume)))
+        flight.holdingViewCentre = holdingViewCentre(volume, ground: -32.5)
         var largestTurn = 0.0
         for _ in 0..<(90 * 20) {
             let before = state.camera.heading
-            flight.dollyTarget = framing(state.camera, volume, ground: -32.5).georeferencePoint
             state = flight.step(state, input: ControlInput(dolly: -1), deltaTime: 1.0 / 90, context: context)
             largestTurn = max(largestTurn, abs(NavigationOperations.wrapped(state.camera.heading - before)))
         }
