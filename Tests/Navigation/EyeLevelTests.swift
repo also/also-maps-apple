@@ -137,12 +137,13 @@ struct EyeLevelTests {
         let before = framing(start)
         let p = SIMD3(0.4, 0.02, -3.0)
         let grab = before.georeference.ecef(map: p)
-        let target = AdaptiveModel.AnchorTarget(grab: grab, target: p, scale: before.georeference.scale * 2,
-                                                heading: start.heading + 0.3, headingOrigin: start.coordinate)
-        let solution = AdaptiveModel.solve(target, from: start, room: immersive, scaleSurface: 565,
-                                           context: context) { framing($0) }
-        #expect(solution.error < 1e-3)
-        let after = framing(solution.pose)
+        let height = 565 + EyeLevelModel.altitude(forScale: before.georeference.scale * 2, room: immersive)
+        let pose = AdaptiveModel.pose(for: AdaptiveModel.Grab(point: grab, start: p,
+                                                              startRotation: before.georeference.rotation,
+                                                              twist: 0.3),
+                                      height: height, from: start) { framing($0) }
+        let after = framing(pose)
         #expect(simd_distance(after.georeference.map(grab), p) < 1e-3)
+        #expect(abs(after.georeference.scale / (before.georeference.scale * 2) - 1) < 1e-9)
     }
 }

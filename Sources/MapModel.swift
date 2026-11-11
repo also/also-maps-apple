@@ -163,7 +163,9 @@ final class MapModel {
         var hit: SIMD3<Double>
         var startPose: CameraPose
         var startScale: Double
-        /// The latest solution, the next solve's starting guess.
+        /// The georeference's rotation (ECEF → map frame) at the start.
+        var startRotation: simd_quatd
+        /// The latest solution, the next solve's starting point.
         var pose: CameraPose
         var starts: [GestureKind: SIMD3<Float>] = [:]
         var translation = SIMD3<Double>.zero
@@ -409,6 +411,7 @@ final class MapModel {
                                         hit: hit,
                                         startPose: navigation.camera,
                                         startScale: framing.georeference.scale,
+                                        startRotation: framing.georeference.rotation,
                                         pose: navigation.camera)
         }
         if manipulation?.starts[kind] == nil { manipulation?.starts[kind] = start }
@@ -426,27 +429,30 @@ final class MapModel {
         requestGroundSample()
     }
 
-    /// Solves for the camera that keeps the grabbed point under the hand at
-    /// the pinched scale and twisted heading.
+    /// Moves the camera for the pinch so far: the pinched scale, with the
+    /// world turned so the grabbed point follows the hand (see
+    /// `AdaptiveModel.pose(for:height:from:frame:)`).
     private func solveManipulation() {
         guard let m = manipulation else { return }
-        let target = AdaptiveModel.AnchorTarget(
-            grab: m.grab,
-            target: m.start + m.translation,
-            scale: m.startScale * m.magnification,
-            heading: m.startPose.heading + m.twist,
-            headingOrigin: m.startPose.coordinate)
-        let solution = AdaptiveModel.solve(target, from: m.pose, room: room, scaleSurface: placementGround.value,
-                                           context: context, frame: frame)
-        guard solution.error.isFinite else { return }
+        let ground = placementGround.value
+        // The height that gives the pinched scale. At human scale the scale
+        // is fixed, so a pinch raises or lowers the camera instead.
+        let above = humanScale && isImmersive
+            ? max(m.startPose.height - ground, AdaptiveModel.minimumRange) / m.magnification
+            : EyeLevelModel.altitude(forScale: m.startScale * m.magnification, room: room)
+        let height = context.clampHeight(ground + above)
+        let grab = AdaptiveModel.Grab(point: m.grab, start: m.start, startRotation: m.startRotation,
+                                      translation: m.translation, twist: m.twist)
+        let pose = AdaptiveModel.pose(for: grab, height: height, from: m.pose, frame: frame)
+        guard pose.latitude.isFinite, pose.longitude.isFinite, pose.heading.isFinite else { return }
         var state = navigation
-        let change = GeoMath.bearingChange(from: state.camera.coordinate, to: solution.pose.coordinate)
-        state.camera = solution.pose
+        let change = GeoMath.bearingChange(from: state.camera.coordinate, to: pose.coordinate)
+        state.camera = pose
         state.movementHeading = state.headingLink == .linked
-            ? solution.pose.heading
+            ? pose.heading
             : NavigationOperations.wrapped(state.movementHeading + change)
         guard withinHeldLimits(state) else { return }
-        manipulation?.pose = solution.pose
+        manipulation?.pose = pose
         navigation = state
         applyView()
     }

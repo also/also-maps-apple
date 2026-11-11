@@ -39,7 +39,7 @@ enum AdaptiveModel {
     }
 }
 
-// MARK: LOD and anchored manipulation
+// MARK: LOD and pinch manipulation
 
 extension AdaptiveModel {
     /// The LOD camera for a viewer at `eye` (map frame) looking at the
@@ -58,62 +58,82 @@ extension AdaptiveModel {
                          fieldOfView: fieldOfView)
     }
 
-    /// What an anchored manipulation asks for: keep world point `grab`
-    /// under map-frame point `target` at `scale`, with the view heading
-    /// `heading`.
-    struct AnchorTarget {
-        var grab: SIMD3<Double>
-        var target: SIMD3<Double>
-        var scale: Double
-        /// View heading at `headingOrigin`.
-        var heading: Double
-        var headingOrigin: GeoCoordinate
-
-        func heading(at coordinate: GeoCoordinate) -> Double {
-            heading + GeoMath.bearingChange(from: headingOrigin, to: coordinate)
-        }
+    /// A pinch on the map: the grabbed point and what the hands have done
+    /// since the pinch began.
+    struct Grab {
+        /// The grabbed world point, ECEF.
+        var point: SIMD3<Double>
+        /// Where it was when the pinch began, map frame.
+        var start: SIMD3<Double>
+        /// The georeference's rotation (ECEF → map frame) then.
+        var startRotation: simd_quatd
+        /// The hand's movement since, map frame.
+        var translation = SIMD3<Double>.zero
+        /// Radians about the ground's up at the grabbed point; the world
+        /// turns counterclockwise seen from above.
+        var twist = 0.0
     }
 
-    /// The camera pose whose framing (from `frame`) puts `anchor.grab` at
-    /// `anchor.target` with the requested scale and heading, starting from
-    /// `guess` (the previous solution). The heading is carried along the
-    /// globe from `anchor.headingOrigin` as the camera moves, as travel does;
-    /// the pitch is left as it is. The scale is taken to be inversely
-    /// proportional to the camera's height above `scaleSurface`. The error
-    /// counts both the grab point's distance from the target and the scale's,
-    /// as the distance it would move the eye-to-placement span. A bounded
-    /// iteration corrects scale and position together; it returns the best
-    /// pose found and its remaining error in map-frame meters.
-    static func solve(_ anchor: AnchorTarget, from guess: CameraPose, room: RoomGeometry,
-                      scaleSurface: Double, context: NavigationContext,
-                      iterations: Int = 8, tolerance: Double = 1e-4,
-                      frame: (CameraPose) -> Framing) -> (pose: CameraPose, error: Double) {
-        var pose = guess
-        var best = (pose: guess, error: Double.infinity)
+    /// The camera at `height` that shows `grab` as the hands ask, found
+    /// directly rather than by search.
+    ///
+    /// At a given height the world shown is a globe whose center and size
+    /// are fixed in the room; only its orientation depends on where the
+    /// camera is and which way it faces. So the pinch is a rotation of that
+    /// globe about its center:
+    /// - The grabbed point keeps its direction from the center as seen from
+    ///   where the pinch began, which zooms about it.
+    /// - The hand's movement rolls it along the surface by the same
+    ///   distance: on a nearly flat map that's moving it with the hand; on a
+    ///   globe it keeps turning past the edge as long as the hand moves.
+    /// - The twist turns the globe about the grabbed point's up.
+    /// The camera is then whichever pose gives that orientation, so there's
+    /// always an answer, including where the tilt changes with height.
+    static func pose(for grab: Grab, height: Double, from camera: CameraPose,
+                     iterations: Int = 3, frame: (CameraPose) -> Framing) -> CameraPose {
+        var pose = camera
+        pose.height = height
+        let startDirection = simd_normalize(grab.startRotation.act(grab.point))
         for _ in 0..<iterations {
-            pose.heading = anchor.heading(at: pose.coordinate)
             let framing = frame(pose)
-            let error = anchor.target - framing.georeference.map(anchor.grab)
-            let scaleRatio = framing.georeference.scale / anchor.scale
-            let span = simd_distance(framing.placementPoint, room.designEye)
-            let errorLength = max(simd_length(error), abs(scaleRatio - 1) * span)
-            if errorLength < best.error { best = (pose, errorLength) }
-            if errorLength < tolerance { break }
-
-            // Scale: inversely proportional to the height above the scale
-            // surface, so scale that height.
-            let above = max(pose.height - scaleSurface, 0.1)
-            pose.height = context.clampHeight(scaleSurface + above * scaleRatio)
-
-            // Position: shifting the camera by Δ moves the grab point by
-            // −s·q·Δ in the map frame.
-            let shift = -framing.georeference.rotation.inverse.act(error) / framing.georeference.scale
-            let frame = Geodesy.enu(latitude: pose.latitude, longitude: pose.longitude)
-            let east = simd_dot(shift, frame.east), north = simd_dot(shift, frame.north)
-            let moved = GeoMath.offset(pose.coordinate, east: east, north: north)
-            pose.latitude = moved.latitude
-            pose.longitude = moved.longitude
+            let georeference = framing.georeference
+            // The tilt depends on the height alone: what's left of the
+            // rotation once the camera's level rotation is taken out.
+            let tilt = georeference.rotation * EyeLevelModel.levelRotation(pose).inverse
+            let center = georeference.map(.zero)
+            let radius = georeference.scale * simd_length(grab.point)
+            let direction = rolled(simd_normalize(grab.start - center), by: grab.translation, radius: radius)
+            let rotation = simd_quatd(angle: grab.twist, axis: direction)
+                * simd_quatd(from: startDirection, to: direction)
+                * grab.startRotation
+            pose = Self.camera(level: tilt.inverse * rotation, height: height, pitch: camera.pitch)
         }
-        return best
+        return pose
+    }
+
+    /// `direction` (unit, from a globe's center) turned toward `translation`
+    /// by the angle that moves a point on the globe of `radius` as far as
+    /// the translation's part along the surface.
+    static func rolled(_ direction: SIMD3<Double>, by translation: SIMD3<Double>,
+                       radius: Double) -> SIMD3<Double> {
+        let along = translation - direction * simd_dot(translation, direction)
+        let distance = simd_length(along)
+        guard distance > 0, radius > 0 else { return direction }
+        let angle = distance / radius
+        return direction * cos(angle) + (along / distance) * sin(angle)
+    }
+
+    /// The camera at `height` whose level rotation (ECEF → room, before the
+    /// tilt) is `level`: its up gives the place, its forward the heading.
+    private static func camera(level: simd_quatd, height: Double, pitch: Double) -> CameraPose {
+        let toWorld = level.inverse
+        let up = toWorld.act(SIMD3(0, 1, 0))
+        let forward = toWorld.act(SIMD3(0, 0, -1))
+        let latitude = atan2(up.z, (up.x * up.x + up.y * up.y).squareRoot()) * 180 / .pi
+        let longitude = atan2(up.y, up.x) * 180 / .pi
+        let frame = Geodesy.enu(latitude: latitude, longitude: longitude)
+        let heading = atan2(simd_dot(forward, frame.east), simd_dot(forward, frame.north))
+        return CameraPose(latitude: latitude, longitude: longitude, height: height,
+                          heading: NavigationOperations.wrapped(heading), pitch: pitch)
     }
 }

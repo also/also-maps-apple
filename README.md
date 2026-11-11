@@ -65,7 +65,7 @@ Immersive doesn't clip the map's edges the way the volume does, so whole tiles s
 
 ## Controls
 
-- **Pan:** look at the map, pinch and drag. Gestures are indirect only (look and pinch), so open hands over the map do nothing.
+- **Pan:** look at the map, pinch and drag. The point you looked at moves as far as your hand does. Zoomed out to a globe, dragging rolls it: keep moving and it keeps turning, past the edge and around the back. Gestures are indirect only (look and pinch), so open hands over the map do nothing.
 - **Zoom:** pinch with both hands and move them apart or together. The view's half-width ranges from 50 m to 10,000 km, about a hemisphere. Below 50 km the ground is placed by sampling terrain. Above 50 km it's placed by the Earth's curve, so sea level at the view's edges meets the base plane, with no sampling. At hemisphere scale, tiles on the far side of the Earth are skipped.
 - **Turn:** pinch with both hands and twist about the ground's up where you pinched: the vertical while the map is level, toward you when it tilts to face you. The map turns around that point and can turn while zooming.
 - **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F descend and climb (which is zoom), `=` and `-` zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.

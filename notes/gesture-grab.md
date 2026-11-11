@@ -4,6 +4,15 @@ Working notes for [also/also-maps-apple#61](https://github.com/also/also-maps-ap
 
 ## 2026-11-11
 
+### Pinches as a rotation of the globe (replaces the iterative solve)
+
+- **Observed (owner, headset):** zoom jumped in large steps around where the map starts to tilt. Fully zoomed out, dragging stopped following the hand, then flickered between two positions every frame once the hand had moved about a globe's diameter.
+- **Observed (simulation, volume geometry):** zooming out at 3.5% a frame, `AdaptiveModel.solve` stepped the scale by up to 41% a frame between about 60 and 500 km, and the grabbed point moved up to 25 cm. Dragging at 10,000 km, the globe followed the hand to about a third of its radius, then stalled and jumped 4–20° at a time.
+- **Cause:** the solve held the grabbed point at the hand's position offset (start + translation, 1:1 in room meters) as well as the scale. In the tilt range no camera does both, because the tilt turns the ground about the eye as the height changes. Zoomed out, a target on a flat plane leaves the globe. Its position step also assumed the map slides sideways when the camera moves, which only holds near the camera's nadir. With no exact answer, it kept whichever of 8 tries scored best, and that changed from frame to frame.
+- **Change:** `AdaptiveModel.pose(for:height:from:frame:)`. The height comes straight from the pinched scale. At a given height the world shown is a globe with a fixed center and size in the room, so the pinch is a rotation of it: the grabbed point keeps its direction from the center as seen at the start (zoom about it), the hand's movement rolls it along the surface by the same distance (drag), and the twist turns about its up. The camera is whichever pose gives that orientation. There's always an answer, found directly.
+- **Observed (core tests):** the scale is exact every frame. Zooming from 20 km past 1,000 km the grabbed point moves at most 1.5 cm a frame. It moves up to about 38 cm in all, toward the shrinking globe's center and with the tilt, which is as close as a point on that globe can be. Dragging three globe diameters at 10,000 km moves the point the same 7 mm every frame, around the back and over again, within 1.3% of a perfect sphere's roll (the Earth's flattening).
+- **Not yet tried on the headset.**
+
 ### Volume grabs off by about half the volume's depth
 
 - **Observed (owner, headset):** in the volume, grabbing the near side of the map put the grab outside the volume, roughly half the volume's depth off around San Francisco. Immersive looked right, apart from hills.

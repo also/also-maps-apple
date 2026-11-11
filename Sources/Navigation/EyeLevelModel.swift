@@ -38,6 +38,13 @@ enum EyeLevelModel {
         tiltWeight(altitude: camera.height)
     }
 
+    /// How high above the ground the camera is for the framing to have
+    /// `scale` (unless a fixed scale is given): the inverse of `framing`'s.
+    static func altitude(forScale scale: Double, room: RoomGeometry) -> Double {
+        let eyeHeight = max(room.designEye.y - room.placementLevel.y, 0.01)
+        return max(eyeHeight / scale, AdaptiveModel.minimumRange)
+    }
+
     /// The framing for `camera` over ground at `groundHeight` (meters above
     /// the ellipsoid), tilted by `tiltWeight` (0...1) of the host's full
     /// tilt. With `fixedScale` (1 is human scale) the scale stays put and the
@@ -78,7 +85,7 @@ enum EyeLevelModel {
     }
 
     /// Level: the camera's local up is the room's up, its heading faces −z.
-    private static func levelRotation(_ camera: CameraPose) -> simd_quatd {
+    static func levelRotation(_ camera: CameraPose) -> simd_quatd {
         let frame = Geodesy.enu(latitude: camera.latitude, longitude: camera.longitude)
         let forward = frame.north * cos(camera.heading) + frame.east * sin(camera.heading)
         let right = frame.east * cos(camera.heading) - frame.north * sin(camera.heading)
