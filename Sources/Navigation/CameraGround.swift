@@ -1,14 +1,14 @@
 import Foundation
 
 /// The ground under the camera, every frame, from loaded tiles detailed
-/// enough to trust: coarse tiles' lowest vertices can be kilometres below
+/// enough to trust: coarse tiles' lowest vertices can be kilometers below
 /// the real ground. It sets speed and limits only; it never moves the view.
 struct CameraGround: Equatable {
     private var height: EasedHeight
 
     init(_ value: Double = 0) { height = EasedHeight(value) }
 
-    /// Metres above the ellipsoid.
+    /// Meters above the ellipsoid.
     var value: Double { height.value }
 
     mutating func reset(to value: Double) { height.reset(to: value) }

@@ -12,7 +12,7 @@ import UIKit
 @MainActor
 @Observable
 final class MapModel {
-    /// Volume extents in metres (width, height, depth).
+    /// Volume extents in meters (width, height, depth).
     nonisolated static let volumeSize = MapPresentation.volumeSize
 
     /// Where the app starts: the Ferry Building, 600 m across the volume.
@@ -88,7 +88,7 @@ final class MapModel {
     var tiltFollowsAltitude = true
     /// Lowest camera height above the estimated ground in room hosts.
     private static let minimumAltitude = 55.0
-    /// Highest camera height above the estimated ground, metres: a view
+    /// Highest camera height above the estimated ground, meters: a view
     /// 10,000 km in half-width, roughly a hemisphere.
     private static let maximumAltitude = 11_000_000.0
 
@@ -288,8 +288,8 @@ final class MapModel {
     /// square. Gaze passes through terrain and buildings (they have no
     /// collision) to the slab, while looking past the map's edges or over it
     /// no longer hits an invisible box.
-    /// How far the immersive gesture slab reaches from the map's centre
-    /// point, metres in the room.
+    /// How far the immersive gesture slab reaches from the map's center
+    /// point, meters in the room.
     private static let immersiveGestureHalfWidth = 50.0
 
     private func layOutGestureTarget() {
@@ -322,15 +322,15 @@ final class MapModel {
 
     // MARK: Places
 
-    /// The camera that frames `place` in a host: its centre the view centre,
-    /// `radius` metres of world across the host's half-width (half the
+    /// The camera that frames `place` in a host: its center the view center,
+    /// `radius` meters of world across the host's half-width (half the
     /// volume, or the immersive space's magnified equivalent).
     private static func framing(_ place: Place, in presentation: MapPresentation,
                                 groundHeight: Double, tiltFollowsAltitude: Bool) -> CameraPose {
         guard case let .room(room) = presentation.geometry else {
             preconditionFailure("visionOS hosts are rooms")
         }
-        return EyeLevelModel.framePlace(centre: place.coordinate, radius: place.radius,
+        return EyeLevelModel.framePlace(center: place.coordinate, radius: place.radius,
                                         heading: place.heading * .pi / 180,
                                         room: room, groundHeight: groundHeight,
                                         tiltFollowsAltitude: tiltFollowsAltitude)
@@ -358,7 +358,7 @@ final class MapModel {
 
     // MARK: Gestures
 
-    /// `start` and `current` are the drag's scene positions, in metres.
+    /// `start` and `current` are the drag's scene positions, in meters.
     func drag(from start: SIMD3<Float>, to current: SIMD3<Float>) {
         guard beginOrContinue(.drag, at: start) else { return }
         // Content follows the hand, along the map's surface.
@@ -372,9 +372,9 @@ final class MapModel {
     func endDrag() { end(.drag) }
 
     /// `magnification` is relative to the pinch's start, which was at
-    /// `start` (scene metres).
+    /// `start` (scene meters).
     func magnify(by magnification: Double, startedAt start: SIMD3<Float>) {
-        // A cancelled pinch never reaches endMagnify; a pause in updates
+        // A canceled pinch never reaches endMagnify; a pause in updates
         // means this is a new pinch.
         if Date().timeIntervalSince(lastMagnifyUpdate) > 0.3 { manipulation?.starts[.magnify] = nil }
         lastMagnifyUpdate = Date()
@@ -524,15 +524,15 @@ final class MapModel {
               deltaTime: deltaTime)
     }
 
-    /// Model flight. Zooming changes height with the view centre held in
+    /// Model flight. Zooming changes height with the view center held in
     /// place, not along the camera's pitch, which room hosts don't show.
     private func steer(with input: ControlInput, deltaTime: Double) {
         flight.dollySurfaceHeight = placementGround.value
         let framer = framer
-        flight.holdingViewCentre = { EyeLevelModel.pose($0, at: $1, holdingViewCentre: framer) }
+        flight.holdingViewCenter = { EyeLevelModel.pose($0, at: $1, holdingViewCenter: framer) }
         // Zoom works only below where the tilt starts. Not a property of the
         // world: it keeps zoom out of the tilt range, where the immersive
-        // space's view centre isn't settled yet (#67).
+        // space's view center isn't settled yet (#67).
         flight.zoomCeiling = EyeLevelModel.tiltStartAltitude
         // Turning, climbing and zooming first, limited (while held) by how
         // much of the held region they'd show; then travel, limited by how
@@ -577,7 +577,7 @@ final class MapModel {
     private enum HeldLimit { case travel, size }
 
     /// While tiles are held: travel keeps the georeference point within
-    /// 1.5 × the held region of its centre, and climbing or zooming keeps the
+    /// 1.5 × the held region of its center, and climbing or zooming keeps the
     /// shown region within 3 × its size. A step that would break a checked
     /// limit, and make it worse, is refused, so you slide to a stop.
     private func withinHeldLimits(_ state: NavigationState,
@@ -633,8 +633,8 @@ final class MapModel {
         guard shown < Self.groundSampleRadius else { return }
         groundSampleGeneration += 1
         let generation = groundSampleGeneration
-        let centre = Geodesy.geodetic(framing.georeferencePoint).coordinate
-        streaming.sampleGroundHeight(around: centre, radius: shown) { [weak self] height in
+        let center = Geodesy.geodetic(framing.georeferencePoint).coordinate
+        streaming.sampleGroundHeight(around: center, radius: shown) { [weak self] height in
             MainActor.assumeIsolated {
                 guard let self, generation == self.groundSampleGeneration, !self.tilesHeld else { return }
                 guard height.isFinite else { return }
@@ -712,7 +712,7 @@ final class MapModel {
         let georeference = framing.georeference
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
 
-        // The slab lies on the ground at the view centre, level with the
+        // The slab lies on the ground at the view center, level with the
         // ground there as shown.
         let g = Geodesy.geodetic(framing.georeferencePoint).coordinate
         let level = simd_quatd(Geodesy.anchorFrameRotation(latitude: g.latitude, longitude: g.longitude))
@@ -816,7 +816,7 @@ final class MapModel {
         placeAwaitsGround = false
         // The ray estimate was always a sample; states saved before the
         // volume moved to eye-level placement can have a curvature envelope
-        // tens of kilometres below the ground in `envelope`.
+        // tens of kilometers below the ground in `envelope`.
         placementGround.reset(to: state.groundEstimate.ray)
         roomPlacement = state.roomPlacement.placement
         navigation = state.navigationState
@@ -837,7 +837,7 @@ final class MapModel {
 
     /// Posts at the ground beneath the camera (red: where you are), the
     /// georeference point (blue: what's on the placement point) and the
-    /// area of interest's centre (green), in the map frame.
+    /// area of interest's center (green), in the map frame.
     var showsDebugMarkers = false {
         didSet { updateDebugMarkers() }
     }

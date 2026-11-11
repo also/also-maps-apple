@@ -17,12 +17,12 @@ import simd
 ///   height above the ellipsoid (`tiltWeight`). Each host says how far full
 ///   weight tilts (`RoomGeometry.fullTilt`).
 ///
-/// The returned framing's georeference point is the view centre: what
-/// gestures grab and what the area of interest and ground sample centre on.
+/// The returned framing's georeference point is the view center: what
+/// gestures grab and what the area of interest and ground sample center on.
 /// It's the ground along the line of sight `RoomGeometry.sightLine`: C₀
 /// while level, the ground below the navigation position at full tilt.
 enum EyeLevelModel {
-    /// Where the tilt assist starts, metres above the ellipsoid.
+    /// Where the tilt assist starts, meters above the ellipsoid.
     static let tiltStartAltitude = 50_000.0
 
     /// 0 up to 50 km, 1 from 500 km, on a smoothstep in log(altitude).
@@ -38,7 +38,7 @@ enum EyeLevelModel {
         tiltWeight(altitude: camera.height)
     }
 
-    /// The framing for `camera` over ground at `groundHeight` (metres above
+    /// The framing for `camera` over ground at `groundHeight` (meters above
     /// the ellipsoid), tilted by `tiltWeight` (0...1) of the host's full
     /// tilt. With `fixedScale` (1 is human scale) the scale stays put and the
     /// ground is wherever the camera's height puts it; otherwise the ground
@@ -85,12 +85,12 @@ enum EyeLevelModel {
         return simd_quatd(simd_double3x3(rows: [right, frame.up, -forward]))
     }
 
-    /// A pose framing a place: `radius` metres of world across the content
-    /// half-width, facing `heading`, with the centre (at `groundHeight`) as
-    /// the view centre. Tilted as the assist would at that height when
-    /// `tiltFollowsAltitude`. Its pitch looks at the centre; placement
+    /// A pose framing a place: `radius` meters of world across the content
+    /// half-width, facing `heading`, with the center (at `groundHeight`) as
+    /// the view center. Tilted as the assist would at that height when
+    /// `tiltFollowsAltitude`. Its pitch looks at the center; placement
     /// ignores it.
-    static func framePlace(centre: GeoCoordinate, radius: Double, heading: Double,
+    static func framePlace(center: GeoCoordinate, radius: Double, heading: Double,
                            room: RoomGeometry, groundHeight: Double = 0,
                            tiltFollowsAltitude: Bool = true) -> CameraPose {
         let scale = room.contentHalfWidth / max(radius, 1)
@@ -98,46 +98,46 @@ enum EyeLevelModel {
         let base = room.placementLevel
         let height = groundHeight + max(eye.y - base.y, 0.01) / scale
         let weight = tiltFollowsAltitude ? tiltWeight(altitude: height) : 0
-        let target = Geodesy.ecef(centre, height: groundHeight)
+        let target = Geodesy.ecef(center, height: groundHeight)
         // Start with C₀ this far ahead of the eye on the base plane, in world
-        // metres.
+        // meters.
         let ahead = simd_length(SIMD2(base.x - eye.x, base.z - eye.z)) / scale
-        let start = GeoMath.destination(from: centre, bearing: heading + .pi, distance: ahead)
+        let start = GeoMath.destination(from: center, bearing: heading + .pi, distance: ahead)
         return standpoint(viewing: target, from: start, iterations: 6, frame: {
             framing(camera: $0, room: room, groundHeight: groundHeight, tiltWeight: weight)
         }) { point in
-            let distance = GeoMath.distance(from: point, to: centre)
+            let distance = GeoMath.distance(from: point, to: center)
             return CameraPose(latitude: point.latitude, longitude: point.longitude, height: height,
-                              heading: NavigationOperations.wrapped(heading + GeoMath.bearingChange(from: centre, to: point)),
+                              heading: NavigationOperations.wrapped(heading + GeoMath.bearingChange(from: center, to: point)),
                               pitch: -atan2(height - groundHeight, max(distance, 1e-6)))
         }
     }
 
-    /// `camera` moved to `height` (metres above the ellipsoid) with its view
-    /// centre where it was: zoom in a room host. The heading relative to the
-    /// view centre and the pitch are kept. The pose is a function of the view
-    /// centre and the height alone, so zooming out and back in to the same
+    /// `camera` moved to `height` (meters above the ellipsoid) with its view
+    /// center where it was: zoom in a room host. The heading relative to the
+    /// view center and the pitch are kept. The pose is a function of the view
+    /// center and the height alone, so zooming out and back in to the same
     /// height returns to the same view.
     static func pose(_ camera: CameraPose, at height: Double,
-                     holdingViewCentre frame: (CameraPose) -> AdaptiveModel.Framing) -> CameraPose {
+                     holdingViewCenter frame: (CameraPose) -> AdaptiveModel.Framing) -> CameraPose {
         let target = frame(camera).georeferencePoint
-        let centre = Geodesy.geodetic(target).coordinate
-        let heading = camera.heading - GeoMath.bearingChange(from: centre, to: camera.coordinate)
-        // Start where the camera would be if the view centre's distance
+        let center = Geodesy.geodetic(target).coordinate
+        let heading = camera.heading - GeoMath.bearingChange(from: center, to: camera.coordinate)
+        // Start where the camera would be if the view center's distance
         // scaled with the height above it.
-        let centreHeight = Geodesy.geodetic(target).height
-        let ratio = max(height - centreHeight, 1e-6) / max(camera.height - centreHeight, 1e-6)
-        let start = GeoMath.destination(from: centre, bearing: GeoMath.bearing(from: centre, to: camera.coordinate),
-                                        distance: GeoMath.distance(from: centre, to: camera.coordinate) * ratio)
+        let centerHeight = Geodesy.geodetic(target).height
+        let ratio = max(height - centerHeight, 1e-6) / max(camera.height - centerHeight, 1e-6)
+        let start = GeoMath.destination(from: center, bearing: GeoMath.bearing(from: center, to: camera.coordinate),
+                                        distance: GeoMath.distance(from: center, to: camera.coordinate) * ratio)
         return standpoint(viewing: target, from: start, iterations: 20, frame: frame) { point in
             CameraPose(latitude: point.latitude, longitude: point.longitude, height: height,
-                       heading: NavigationOperations.wrapped(heading + GeoMath.bearingChange(from: centre, to: point)),
+                       heading: NavigationOperations.wrapped(heading + GeoMath.bearingChange(from: center, to: point)),
                        pitch: camera.pitch)
         }
     }
 
     /// Nudges the standpoint, starting at `start`, until `target` (ECEF) is
-    /// the view centre of `pose(standpoint)`.
+    /// the view center of `pose(standpoint)`.
     private static func standpoint(viewing target: SIMD3<Double>, from start: GeoCoordinate, iterations: Int,
                                    frame: (CameraPose) -> AdaptiveModel.Framing,
                                    pose: (GeoCoordinate) -> CameraPose) -> CameraPose {

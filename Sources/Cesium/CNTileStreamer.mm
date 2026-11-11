@@ -197,7 +197,7 @@ using CesiumGeospatial::Ellipsoid;
 @end
 
 /// Height of an ECEF point above the WGS84 ellipsoid, measured along its
-/// radius: cheap enough per vertex, and within metres of geodetic height.
+/// radius: cheap enough per vertex, and within meters of geodetic height.
 static double radialHeight(const glm::dvec3& p) {
   const double length = glm::length(p);
   if (!(length > 0.0)) {
@@ -311,7 +311,7 @@ struct FetchCounters {
 /// Google sends `Cache-Control: private, max-age=14400, must-revalidate`.
 /// By the HTTP spec must-revalidate only applies once a response is stale, but
 /// CFNetwork revalidates on every request (a 304 round trip per tile). Drop
-/// the directive as the response is stored, so max-age is honoured as sent:
+/// the directive as the response is stored, so max-age is honored as sent:
 /// tiles are served from disk for four hours, then revalidated by ETag.
 @interface CNTileCache : NSURLCache
 @end
@@ -598,8 +598,8 @@ bool appendIndices(
 
 /// Flattens a tile's glTF into CNPrimitives in the local RealityKit frame.
 /// Flattens a tile's glTF into CNPrimitives whose positions are ECEF offsets
-/// (metres, ECEF axes) from a centre point on the tile. Offsets stay small,
-/// so 32-bit floats keep them precise anywhere on Earth; the centre itself is
+/// (meters, ECEF axes) from a center point on the tile. Offsets stay small,
+/// so 32-bit floats keep them precise anywhere on Earth; the center itself is
 /// kept in double and placed relative to the anchor every frame.
 CNTileMesh* _Nullable buildTileMesh(
     const CesiumGltf::Model& model,
@@ -662,7 +662,7 @@ CNTileMesh* _Nullable buildTileMesh(
           p[i * 4 + 3] = 0.0f;
         }
 
-        // Base colour texture (photogrammetry is unlit; that's all there is).
+        // Base color texture (photogrammetry is unlit; that's all there is).
         int64_t texCoordSet = 0;
         const CesiumImage::ImageAsset* pImage = nullptr;
         Sampler sampler;
@@ -1155,7 +1155,7 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
   std::shared_ptr<CesiumUtility::CreditSystem> _creditSystem;
   std::shared_ptr<RealityKitPrepareRendererResources> _resources;
   std::shared_ptr<AreaOfInterestExcluder> _excluder;
-  /// Never empty once initialised. The first is the ground, for height
+  /// Never empty once initialized. The first is the ground, for height
   /// samples; options are set on all of them alike.
   std::vector<std::unique_ptr<Tileset>> _tilesets;
   std::shared_ptr<FetchCounters> _fetchCounters;
@@ -1251,7 +1251,7 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
 
 - (instancetype)initWithTilesetsMaker:(TilesetsMaker)makeTilesets {
   if ((self = [super init])) {
-    // Without this, b3dm/glb/i3dm/pnts content is not recognised and the
+    // Without this, b3dm/glb/i3dm/pnts content is not recognized and the
     // loader falls back to parsing it as an external tileset.json.
     static dispatch_once_t registerOnce;
     dispatch_once(&registerOnce, ^{
@@ -1447,7 +1447,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
   glm::dvec3 direction = enuToEcefRotation * enuFromAnchorAxes(_viewDirection);
   glm::dvec3 up = enuToEcefRotation * enuFromAnchorAxes(_viewUp);
   // cesium-native throws unless direction and up are perpendicular unit
-  // vectors ("normal must be normalized"): normalise, and remove any part of
+  // vectors ("normal must be normalized"): normalize, and remove any part of
   // up along direction. A degenerate camera skips the view update.
   const double directionLength = glm::length(direction);
   if (!(directionLength > 1e-9) || !std::isfinite(directionLength) ||
@@ -1495,7 +1495,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
 
   // Each drawn tile's placement in the anchor's level frame (RealityKit axes,
   // the anchor at the origin): computed in double from the tile's
-  // full-precision centre, so only small, nearby numbers reach Float.
+  // full-precision center, so only small, nearby numbers reach Float.
   const glm::dmat4 ecefToAnchorRealityKit =
       kEnuToRealityKit * glm::inverse(anchorFrame);
   size_t tileCount = 0;
@@ -1536,7 +1536,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
       const glm::dmat3& halfAxes = box.getHalfAxes();
       // In the tile's own frame, like its vertices.
       CNTileBounds entry;
-      entry.centre = toFloat(box.getCenter() - mesh.center);
+      entry.center = toFloat(box.getCenter() - mesh.center);
       entry.halfAxisA = toFloat(halfAxes[0]);
       entry.halfAxisB = toFloat(halfAxes[1]);
       entry.halfAxisC = toFloat(halfAxes[2]);
@@ -1581,10 +1581,10 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
                                   radius:(double)radius
                               completion:(void (^)(double height))completion {
   // A 3×3 grid spanning most of the visible square. A single sample at the
-  // centre lands on whatever is there (a hilltop, a roof) and sinks the rest
+  // center lands on whatever is there (a hilltop, a roof) and sinks the rest
   // of the region below the base plane; the lowest hit keeps it all above.
   const double reach = 0.8 * radius;
-  const glm::dmat4 centreFrame =
+  const glm::dmat4 centerFrame =
       CesiumGeospatial::GlobeTransforms::eastNorthUpToFixedFrame(
           Ellipsoid::WGS84.cartographicToCartesian(
               Cartographic::fromDegrees(longitude, latitude, 0.0)));
@@ -1592,7 +1592,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
   for (int row = -1; row <= 1; ++row) {
     for (int column = -1; column <= 1; ++column) {
       const glm::dvec3 ecef = glm::dvec3(
-          centreFrame * glm::dvec4(column * reach, row * reach, 0.0, 1.0));
+          centerFrame * glm::dvec4(column * reach, row * reach, 0.0, 1.0));
       if (std::optional<Cartographic> cartographic =
               Ellipsoid::WGS84.cartesianToCartographic(ecef)) {
         positions.push_back(*cartographic);

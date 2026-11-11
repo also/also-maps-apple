@@ -100,16 +100,16 @@ struct TouchSurface: UIViewRepresentable {
             switch recognizer.state {
             case .began, .changed:
                 guard recognizer.numberOfTouches >= 2 else { return }
-                let centre = point(recognizer.location(in: view))
+                let center = point(recognizer.location(in: view))
                 if !twoFingersActive {
                     twoFingersActive = true
                     // Cancels a one-finger drag that became two.
                     dragging = false
                     resetTwoFingers(in: view)
-                    map.beginTwoFingers(at: centre)
+                    map.beginTwoFingers(at: center)
                 }
                 let translation = twoFingerPan.translation(in: view)
-                map.twoFingers(at: centre, translation: point(translation),
+                map.twoFingers(at: center, translation: point(translation),
                                scale: Double(pinch.scale), rotation: Double(twist.rotation))
             default:
                 // Done when the last of the three has ended.

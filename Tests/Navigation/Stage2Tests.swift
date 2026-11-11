@@ -23,19 +23,19 @@ private func framing(_ camera: CameraPose, _ room: RoomGeometry = volume) -> Ada
 
 struct PlaceFramingTests {
     @Test(arguments: [600.0, 8_000, 200_000])
-    func placeCentreIsTheViewCentreAtTheRequestedScale(radius: Double) {
-        let camera = EyeLevelModel.framePlace(centre: sanFrancisco, radius: radius, heading: 0.3, room: volume)
+    func placeCenterIsTheViewCenterAtTheRequestedScale(radius: Double) {
+        let camera = EyeLevelModel.framePlace(center: sanFrancisco, radius: radius, heading: 0.3, room: volume)
         let f = framing(camera)
-        let centre = Geodesy.ecef(sanFrancisco, height: 0)
-        #expect(simd_distance(f.georeference.map(centre), f.placementPoint) < 1e-3)
+        let center = Geodesy.ecef(sanFrancisco, height: 0)
+        #expect(simd_distance(f.georeference.map(center), f.placementPoint) < 1e-3)
         #expect(abs(f.shownRadius(volume) / radius - 1) < 0.01)
     }
 
     @Test(arguments: [600.0, 8_000])
-    func placesBelowFiftyKilometresLandOnTheContentCentre(radius: Double) {
-        let camera = EyeLevelModel.framePlace(centre: sanFrancisco, radius: radius, heading: 0.3, room: volume)
+    func placesBelowFiftyKilometersLandOnTheContentCenter(radius: Double) {
+        let camera = EyeLevelModel.framePlace(center: sanFrancisco, radius: radius, heading: 0.3, room: volume)
         let landed = framing(camera).georeference.map(Geodesy.ecef(sanFrancisco, height: 0))
-        // The view centre is where the line of sight to C₀ meets the
+        // The view center is where the line of sight to C₀ meets the
         // ground, a little past C₀ for the Earth's curve.
         #expect(simd_distance(SIMD2(landed.x, landed.z), SIMD2(0, 0)) < 0.01)
         #expect(abs(landed.y + 0.25) < 0.01)
@@ -46,7 +46,7 @@ struct AnchoredManipulationTests {
     private func solve(grabAt p: SIMD3<Double>, to target: SIMD3<Double>, magnification: Double,
                        twist: Double, radius: Double = 600,
                        room: RoomGeometry = volume) -> (AdaptiveModel.Framing, SIMD3<Double>, Double, Double) {
-        let start = EyeLevelModel.framePlace(centre: sanFrancisco, radius: radius, heading: 0.2, room: room)
+        let start = EyeLevelModel.framePlace(center: sanFrancisco, radius: radius, heading: 0.2, room: room)
         let before = framing(start, room)
         let grab = before.georeference.ecef(map: p)
         let anchor = AdaptiveModel.AnchorTarget(
@@ -82,7 +82,7 @@ struct AnchoredManipulationTests {
     /// notes/volume-placement.md.
     @Test(arguments: [0.6, 1.6])
     func pinchWhileTheTiltChangesReachesTheScale(magnification: Double) {
-        let start = EyeLevelModel.framePlace(centre: sanFrancisco, radius: 120_000, heading: 0.2, room: volume)
+        let start = EyeLevelModel.framePlace(center: sanFrancisco, radius: 120_000, heading: 0.2, room: volume)
         let weight = EyeLevelModel.tiltWeight(for: start)
         #expect(weight > 0.1 && weight < 0.9)
         let p = framing(start).placementPoint + SIMD3(0.1, 0, 0.05)
@@ -112,7 +112,7 @@ struct ContinuityTests {
     @Test func ascentIsContinuous() {
         let flight = ModelFlightStyle()
         var state = flight.activate(NavigationState(
-            camera: EyeLevelModel.framePlace(centre: sanFrancisco, radius: 600, heading: 0, room: volume)))
+            camera: EyeLevelModel.framePlace(center: sanFrancisco, radius: 600, heading: 0, room: volume)))
         let dt = 1.0 / 90
         var previous = framing(state.camera)
         var largestScaleStep = 0.0, largestMove = 0.0
@@ -120,7 +120,7 @@ struct ContinuityTests {
             state = flight.step(state, input: ControlInput(climb: 1), deltaTime: dt, context: context)
             let current = framing(state.camera)
             largestScaleStep = max(largestScaleStep, abs(log(current.georeference.scale / previous.georeference.scale)))
-            // How far a point at the view centre moves in the room.
+            // How far a point at the view center moves in the room.
             let probe = previous.georeferencePoint
             largestMove = max(largestMove, simd_distance(current.georeference.map(probe),
                                                          previous.georeference.map(probe)))
@@ -140,7 +140,7 @@ struct AreaOfInterestTests {
     @Test func georeferencePolicyIsTodays() {
         let area = AOIPolicy.georeference(regionMultiplier: 2)
             .area(viewerNadir: viewer, altitude: 600, heading: 0.4, georeferencePoint: ahead, shownRadius: 500)
-        #expect(area.centre == ahead)
+        #expect(area.center == ahead)
         #expect(area.radius == 1_000)
         #expect(area.heading == 0.4)
     }
@@ -148,14 +148,14 @@ struct AreaOfInterestTests {
     @Test func viewerPolicyReachesAroundTheViewer() {
         let area = AOIPolicy.viewer(reachPerAltitude: 3)
             .area(viewerNadir: viewer, altitude: 600, heading: 0, georeferencePoint: ahead, shownRadius: 500)
-        #expect(area.centre == viewer)
+        #expect(area.center == viewer)
         #expect(area.radius == 1_800)
     }
 
     @Test func horizonPolicyReachesEverythingVisible() {
         let area = AOIPolicy.horizon(limitPerAltitude: nil)
             .area(viewerNadir: viewer, altitude: 16_834, heading: 0, georeferencePoint: ahead, shownRadius: 500)
-        #expect(area.centre == viewer)
+        #expect(area.center == viewer)
         // The horizon from 16.8 km is ~463 km; mountains 3 km high show ~196 km past it.
         #expect(abs(area.radius - 659_000) < 2_000)
         let limited = AOIPolicy.horizon(limitPerAltitude: 10)
@@ -166,18 +166,18 @@ struct AreaOfInterestTests {
     @Test func blendedPolicyCoversViewerAndShownRegion() {
         let near = AOIPolicy.blended(reachPerAltitude: 3, regionMultiplier: 1)
             .area(viewerNadir: viewer, altitude: 600, heading: 0, georeferencePoint: ahead, shownRadius: 500)
-        #expect(GeoMath.distance(from: near.centre, to: viewer) < 1)
+        #expect(GeoMath.distance(from: near.center, to: viewer) < 1)
         #expect(near.radius >= 1_000 + 500 - 1)
         let far = AOIPolicy.blended(reachPerAltitude: 3, regionMultiplier: 1)
             .area(viewerNadir: viewer, altitude: 80_000, heading: 0, georeferencePoint: ahead, shownRadius: 60_000)
-        #expect(GeoMath.distance(from: far.centre, to: ahead) < 1)
+        #expect(GeoMath.distance(from: far.center, to: ahead) < 1)
         #expect(abs(far.radius - 60_000) < 1)
     }
 }
 
 struct GroundEstimateTests {
     private func tile(at coordinate: GeoCoordinate, radius: Double, minimum: Double) -> TileHeightRange {
-        TileHeightRange(centre: Geodesy.ecef(coordinate, height: minimum), radius: radius,
+        TileHeightRange(center: Geodesy.ecef(coordinate, height: minimum), radius: radius,
                         minimumHeight: minimum, maximumHeight: minimum + 50)
     }
 
@@ -192,8 +192,8 @@ struct GroundEstimateTests {
 
     @Test func envelopeIsTheLowestInTheFootprintIncludingCurvature() {
         let near = tile(at: sanFrancisco, radius: 100, minimum: 30)
-        let farCentre = GeoMath.destination(from: sanFrancisco, bearing: 2, distance: 50_000)
-        let far = tile(at: farCentre, radius: 100, minimum: 30)
+        let farCenter = GeoMath.destination(from: sanFrancisco, bearing: 2, distance: 50_000)
+        let far = tile(at: farCenter, radius: 100, minimum: 30)
         let envelope = GroundEstimates.envelope([near, far], around: sanFrancisco, radius: 60_000, statistic: .minimum)
         #expect(abs(envelope! - (30 - GroundEstimates.curvatureDrop(49_900))) < 1)
         #expect(GroundEstimates.envelope([far], around: sanFrancisco, radius: 1_000, statistic: .minimum) == nil)
@@ -213,7 +213,7 @@ struct GroundEstimateTests {
 
 struct ViewStateTests {
     private func sample(held: Bool) -> MapViewState {
-        let camera = EyeLevelModel.framePlace(centre: sanFrancisco, radius: 600, heading: 0.5, room: volume)
+        let camera = EyeLevelModel.framePlace(center: sanFrancisco, radius: 600, heading: 0.5, room: volume)
         let inputs = StreamingInputs(anchor: StreamingAnchor(coordinate: sanFrancisco, height: -30),
                                      lod: .orbit(heading: 0.5, elevation: 0.6, distance: 1_000),
                                      regionHeading: 0.5, streamingRadius: 700)

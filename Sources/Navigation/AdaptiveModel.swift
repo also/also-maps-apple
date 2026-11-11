@@ -8,14 +8,14 @@ import simd
 enum AdaptiveModel {
     struct Framing: Equatable {
         var georeference: Georeference
-        /// G, the view centre, ECEF.
+        /// G, the view center, ECEF.
         var georeferencePoint: SIMD3<Double>
         /// Where G is placed, map frame.
         var placementPoint: SIMD3<Double>
-        /// |G − X|, metres.
+        /// |G − X|, meters.
         var range: Double
 
-        /// Half-width of the shown region, world metres.
+        /// Half-width of the shown region, world meters.
         func shownRadius(_ room: RoomGeometry) -> Double {
             room.contentHalfWidth / georeference.scale
         }
@@ -83,7 +83,7 @@ extension AdaptiveModel {
     /// counts both the grab point's distance from the target and the scale's,
     /// as the distance it would move the eye-to-placement span. A bounded
     /// iteration corrects scale and position together; it returns the best
-    /// pose found and its remaining error in map-frame metres.
+    /// pose found and its remaining error in map-frame meters.
     static func solve(_ anchor: AnchorTarget, from guess: CameraPose, room: RoomGeometry,
                       scaleSurface: Double, context: NavigationContext,
                       iterations: Int = 8, tolerance: Double = 1e-4,

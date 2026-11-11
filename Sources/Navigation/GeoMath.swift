@@ -12,7 +12,7 @@ struct GeoCoordinate: Codable, Equatable {
 enum GeoMath {
     static let earthRadius = 6_371_000.0
 
-    /// The point `distance` metres from `start` along a great circle leaving
+    /// The point `distance` meters from `start` along a great circle leaving
     /// at `bearing` radians clockwise from north.
     static func destination(from start: GeoCoordinate, bearing: Double, distance: Double) -> GeoCoordinate {
         guard distance != 0 else { return start }
@@ -26,13 +26,13 @@ enum GeoMath {
                              longitude: normalizedLongitude(lon2 * 180 / .pi))
     }
 
-    /// The point offset from `start` by local east/north metres, i.e. leaving
+    /// The point offset from `start` by local east/north meters, i.e. leaving
     /// in that direction for that distance.
     static func offset(_ start: GeoCoordinate, east: Double, north: Double) -> GeoCoordinate {
         destination(from: start, bearing: atan2(east, north), distance: (east * east + north * north).squareRoot())
     }
 
-    /// Great-circle distance from `a` to `b`, metres.
+    /// Great-circle distance from `a` to `b`, meters.
     static func distance(from a: GeoCoordinate, to b: GeoCoordinate) -> Double {
         let lat1 = a.latitude * .pi / 180, lat2 = b.latitude * .pi / 180
         let dLat = lat2 - lat1, dLon = (b.longitude - a.longitude) * .pi / 180
@@ -52,7 +52,7 @@ enum GeoMath {
     /// circle from `a` to `b`, radians: the final bearing on arrival minus the
     /// initial bearing. Zero along a meridian; π when the path crosses a pole,
     /// where north reverses; small but real on long east–west legs. Zero
-    /// for points under a millimetre apart, where the bearings between them
+    /// for points under a millimeter apart, where the bearings between them
     /// are rounding noise (a move of a rounding error once reversed the
     /// heading).
     static func bearingChange(from a: GeoCoordinate, to b: GeoCoordinate) -> Double {

@@ -94,7 +94,7 @@ struct TrackSimplificationTests {
 }
 
 struct TrackLocalCoordinateTests {
-    @Test func floatPointsKeepACentimetreHundredsOfKilometresOut() throws {
+    @Test func floatPointsKeepACentimeterHundredsOfKilometersOut() throws {
         // San Francisco to about 300 km away, high and low.
         let samples = [sample(0, latitude: 37.7955, longitude: -122.3937, height: 1500),
                        sample(1, latitude: 37.80, longitude: -122.39, height: 20),

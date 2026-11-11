@@ -3,7 +3,7 @@ import simd
 
 /// What navigation operations need to know beyond the state itself.
 struct NavigationContext: Equatable {
-    /// Estimated ground under the camera, metres above the ellipsoid.
+    /// Estimated ground under the camera, meters above the ellipsoid.
     var cameraGround = 0.0
     /// Lowest height above that ground the camera may go.
     var minimumAltitude = 1.5
@@ -14,7 +14,7 @@ struct NavigationContext: Equatable {
         min(max(height, cameraGround + minimumAltitude), cameraGround + maximumAltitude)
     }
 
-    /// Height above the estimated ground, at least `floor` metres, for speeds.
+    /// Height above the estimated ground, at least `floor` meters, for speeds.
     func altitude(of camera: CameraPose, floor: Double = 10) -> Double {
         max(camera.height - cameraGround, floor)
     }
@@ -54,8 +54,8 @@ enum NavigationOperations {
         return state
     }
 
-    /// Travels along the globe, `forward` metres along the movement heading
-    /// and `right` metres across it, at constant height. Both headings are
+    /// Travels along the globe, `forward` meters along the movement heading
+    /// and `right` meters across it, at constant height. Both headings are
     /// carried along the great circle, so flying over a pole continues.
     static func move(_ state: NavigationState, forward: Double, right: Double) -> NavigationState {
         let distance = (forward * forward + right * right).squareRoot()

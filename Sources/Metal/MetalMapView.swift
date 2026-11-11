@@ -44,7 +44,7 @@ struct MetalMapView {
         view.colorPixelFormat = .bgra8Unorm_srgb
         view.depthStencilPixelFormat = .depth32Float
         view.clearDepth = 0
-        view.clearColor = MetalTileRenderer.skyColour
+        view.clearColor = MetalTileRenderer.skyColor
         view.preferredFramesPerSecond = 60
         view.delegate = coordinator
         return view
@@ -77,7 +77,7 @@ struct MetalMapView {
                 let projection = MetalProjection.perspective(
                     tangents: [halfHeight * aspect, halfHeight * aspect, halfHeight, halfHeight],
                     near: Float(near), far: Float(far))
-                let statistics = renderer.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
+                let statistics = renderer.encode(encoder, color: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
                                 viewProjection: projection * map.cameraMatrix.inverse,
                                 root: map.streaming.tilesRoot.transform.matrix,
                                 tiles: map.streaming.drawnTiles)

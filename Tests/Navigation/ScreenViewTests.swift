@@ -40,16 +40,16 @@ struct ScreenViewTests {
     }
 
     @Test(arguments: [200.0, 3_000, 40_000])
-    func aPlaceIsCentredInView(radius: Double) {
-        let pose = ScreenView.framePlace(centre: ronda, radius: radius, heading: 0.3, groundHeight: 565)
-        let centre = Geodesy.ecef(ronda, height: 565)
-        let toCentre = simd_normalize(centre - pose.position)
-        #expect(simd_distance(toCentre, pose.basis.forward) < 1e-6)
-        #expect(abs(simd_distance(centre, pose.position) - radius / tan(Double.pi / 8)) < 1e-3 * radius)
-        // Looking down at the centre by the place elevation; at the camera,
+    func aPlaceIsCenteredInView(radius: Double) {
+        let pose = ScreenView.framePlace(center: ronda, radius: radius, heading: 0.3, groundHeight: 565)
+        let center = Geodesy.ecef(ronda, height: 565)
+        let toCenter = simd_normalize(center - pose.position)
+        #expect(simd_distance(toCenter, pose.basis.forward) < 1e-6)
+        #expect(abs(simd_distance(center, pose.position) - radius / tan(Double.pi / 8)) < 1e-3 * radius)
+        // Looking down at the center by the place elevation; at the camera,
         // less by the Earth's curve between them.
         let elevation = ScreenView.placeElevation
-        let curve = simd_distance(centre, pose.position) * cos(elevation) / GeoMath.earthRadius
+        let curve = simd_distance(center, pose.position) * cos(elevation) / GeoMath.earthRadius
         #expect(abs(pose.pitch + elevation) < curve + 1e-3)
     }
 

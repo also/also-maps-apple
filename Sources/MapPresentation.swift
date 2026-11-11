@@ -1,7 +1,7 @@
 import RealityKit
 
 /// Where the map is shown: the volume, or the immersive space. Each host
-/// gives the placement its fixed geometry: the assumed eye, the map's centre
+/// gives the placement its fixed geometry: the assumed eye, the map's center
 /// point and the shown square.
 struct MapPresentation: Identifiable, Hashable {
     enum Host { case volume, immersive }
@@ -13,7 +13,7 @@ struct MapPresentation: Identifiable, Hashable {
     /// The shown square's size relative to the volume's.
     let magnification: Double
     /// Scene position of the focus point's ground, on the base plane. In the
-    /// volume the origin is the volume's centre; in the immersive space it's
+    /// volume the origin is the volume's center; in the immersive space it's
     /// the origin: the floor at the user's feet when the space opened, so the
     /// base plane is the origin plane (y = 0).
     let groundPosition: SIMD3<Float>
@@ -34,7 +34,7 @@ struct MapPresentation: Identifiable, Hashable {
         // In front of the volume, where the LOD camera assumes a viewer.
         viewerPosition: [0, 0.3, 0.85])
 
-    /// The map on the origin plane around you. Its centre point is 5.6 m
+    /// The map on the origin plane around you. Its center point is 5.6 m
     /// ahead, in a shown square 10 times the volume's, whose near edge is
     /// 0.6 m ahead, raised slightly so it doesn't fight the real floor.
     static let immersive = MapPresentation(
@@ -66,19 +66,19 @@ struct MapPresentation: Identifiable, Hashable {
     }
 
     /// The same placement as host geometry for the camera core: the viewer
-    /// position is the design eye point, and the view centre is on the
+    /// position is the design eye point, and the view center is on the
     /// ground position while the map is level.
     var geometry: HostGeometry {
         let level = SIMD3<Double>(groundPosition)
         let eye = SIMD3<Double>(viewerPosition)
         // The volume tilts until the ground below faces you at the box's
-        // centre, so the view centre, which follows it, stays in the box.
+        // center, so the view center, which follows it, stays in the box.
         // The immersive space tilts a quarter turn, until the ground below is
         // straight ahead.
-        let boxCentre = SIMD3(level.x, 0, level.z)
+        let boxCenter = SIMD3(level.x, 0, level.z)
         return .room(RoomGeometry(designEye: eye,
                                   placementLevel: level,
                                   contentHalfWidth: Self.volumeSize.x / 2 * magnification,
-                                  fullTilt: host == .volume ? RoomGeometry.tiltFacing(boxCentre, from: eye) : .pi / 2))
+                                  fullTilt: host == .volume ? RoomGeometry.tiltFacing(boxCenter, from: eye) : .pi / 2))
     }
 }

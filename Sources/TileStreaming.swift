@@ -39,7 +39,7 @@ final class TileStreaming {
     }
 
     /// Holds every tile entity, each placed in the anchor's level frame
-    /// (x east, y up, z south, metres, the anchor at 0). The owner places
+    /// (x east, y up, z south, meters, the anchor at 0). The owner places
     /// this in its scene.
     let tilesRoot = Entity()
 
@@ -304,12 +304,12 @@ final class TileStreaming {
         #endif
     }
 
-    /// Samples the most detailed surface across 0.8 × `radius` metres around
-    /// `centre` and reports the lowest hit, metres above the ellipsoid (NaN
+    /// Samples the most detailed surface across 0.8 × `radius` meters around
+    /// `center` and reports the lowest hit, meters above the ellipsoid (NaN
     /// if none), on the main thread during a later update. May load tiles.
-    func sampleGroundHeight(around centre: GeoCoordinate, radius: Double,
+    func sampleGroundHeight(around center: GeoCoordinate, radius: Double,
                             _ completion: @escaping @Sendable (Double) -> Void) {
-        streamer?.sampleGroundHeight(latitude: centre.latitude, longitude: centre.longitude,
+        streamer?.sampleGroundHeight(latitude: center.latitude, longitude: center.longitude,
                                      radius: radius, completion: completion)
     }
 
@@ -317,7 +317,7 @@ final class TileStreaming {
     /// estimates from what's loaded, with no network.
     func renderedHeightRanges() -> [TileHeightRange] {
         renderedTiles.map {
-            TileHeightRange(centre: $0.centerECEF, radius: $0.radius,
+            TileHeightRange(center: $0.centerECEF, radius: $0.radius,
                             minimumHeight: $0.minimumHeight, maximumHeight: $0.maximumHeight)
         }
     }
@@ -325,7 +325,7 @@ final class TileStreaming {
     // MARK: Tile bounds
 
     /// Each box is built once, in its tile's own frame, so it moves with the
-    /// tile; only its colour changes as the tile enters or leaves the view.
+    /// tile; only its color changes as the tile enters or leaves the view.
     private func updateTileBoxes(_ frame: CNFrame) {
         guard let data = frame.tileBounds else { return }
         data.withUnsafeBytes { buffer in
