@@ -123,9 +123,26 @@ final class MapModel {
     /// The framing for `camera` in the current host: level unless the tilt
     /// assist tips it, by an amount that depends only on where the camera is.
     private func frame(_ camera: CameraPose) -> AdaptiveModel.Framing {
-        let weight = tiltFollowsAltitude ? EyeLevelModel.tiltWeight(for: camera) : 0
-        return EyeLevelModel.framing(camera: camera, room: room, groundHeight: placementGround.value,
-                                     tiltWeight: weight, fixedScale: humanScale && isImmersive ? 1 : nil)
+        EyeLevelModel.framing(camera: camera, room: room, groundHeight: placementGround.value,
+                              tiltWeight: tiltWeight(for: camera), fixedScale: fixedScale)
+    }
+
+    private func tiltWeight(for camera: CameraPose) -> Double {
+        tiltFollowsAltitude ? EyeLevelModel.tiltWeight(for: camera) : 0
+    }
+
+    private var fixedScale: Double? { humanScale && isImmersive ? 1 : nil }
+
+    /// What the camera diagram draws for the current view: the host
+    /// geometry, ground estimates, tilt, scale and streaming the app uses.
+    var diagramInputs: CameraDiagram.Inputs {
+        let camera = navigation.camera
+        return CameraDiagram.Inputs(camera: camera, presentation: .room(room),
+                                    terrainHeight: cameraGround.value, groundHeight: placementGround.value,
+                                    tiltWeight: tiltWeight(for: camera), fixedScale: fixedScale,
+                                    containerSize: isImmersive ? nil : MapModel.volumeSize,
+                                    areaPolicy: presentation.areaPolicy(settings),
+                                    heldStreaming: tilesHeld ? heldInputs : nil)
     }
 
     // MARK: Tiles held

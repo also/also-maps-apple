@@ -52,6 +52,24 @@ struct AlsoMapsApp: App {
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
 
+        Window("Camera Diagram", id: CameraDiagramWindow.windowID) {
+            CameraDiagramWindow()
+                .environment(model)
+                .appGate(presentsNotices: false)
+        }
+        .defaultSize(width: 560, height: 900)
+        // Beside the map, not in front of it.
+        .defaultWindowPlacement { _, context in
+            if let volume = context.windows.first(where: { $0.id == VolumeView.windowID }) {
+                WindowPlacement(.trailing(volume))
+            } else {
+                WindowPlacement(.utilityPanel)
+            }
+        }
+        // A debug window: only opened on request, never restored at launch.
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
+
         ImmersiveSpace(id: ImmersiveMapView.realityKitSpaceID) {
             ImmersiveMapView()
                 .environment(model)

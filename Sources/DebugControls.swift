@@ -10,6 +10,7 @@ struct DebugControls: View {
     @Environment(MapModel.self) private var model
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
+    @Environment(\.openWindow) private var openWindow
     @State private var stateNote: String?
 
     var body: some View {
@@ -21,6 +22,8 @@ struct DebugControls: View {
         note("Red: the point turns and zooms rotate around. Blue: the map's centre.")
         Toggle("Tile bounds", isOn: $model.showsTileBounds)
         note("Each drawn tile's box: cyan inside the LOD camera's view, orange outside. Yellow: the area of interest. Pink: the LOD camera's view; white: its view direction.")
+        Button("Camera Diagram") { openWindow(id: CameraDiagramWindow.windowID) }
+        note("Opens a window of live side views: where the world is placed, the reference head, the ground estimates, the tilt, the LOD camera and what's streamed.")
         Button("Copy View State") {
             let json = model.captureState().json()
             UIPasteboard.general.string = json

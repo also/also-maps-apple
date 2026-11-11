@@ -46,6 +46,9 @@ struct CameraDiagram {
         /// A room host's area of interest policy (MapModel's per host). The
         /// window always streams to the horizon.
         var areaPolicy: AOIPolicy = .georeference(regionMultiplier: 1)
+        /// What streaming was given when tiles were held, if they are: drawn
+        /// instead of what the policy would give now.
+        var heldStreaming: StreamingInputs?
     }
 
     /// The camera's vertical plane: x along its heading, y up, from the
@@ -216,7 +219,9 @@ struct CameraDiagram {
         // What streaming is given: the area of interest and the LOD camera,
         // back in the world.
         let streaming: StreamingInputs
-        if let framing, let room = inputs.presentation.room {
+        if let held = inputs.heldStreaming {
+            streaming = held
+        } else if let framing, let room = inputs.presentation.room {
             streaming = .room(framing: framing, room: room, camera: camera, policy: inputs.areaPolicy,
                               groundHeight: ground)
         } else {
