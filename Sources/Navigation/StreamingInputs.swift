@@ -57,3 +57,23 @@ struct StreamingInputs: Codable, Equatable {
     /// Half-width of the area of interest, metres.
     var streamingRadius = 500.0
 }
+
+extension StreamingInputs {
+    /// A room host's streaming inputs for `framing`: the area of interest
+    /// from `policy`, anchored at `groundHeight`, and the LOD camera at the
+    /// design eye point. The viewer is the eye, which the placement puts on
+    /// the camera, so its altitude is the camera's over `groundHeight`.
+    static func room(framing: AdaptiveModel.Framing, room: RoomGeometry, camera: CameraPose, policy: AOIPolicy,
+                     groundHeight: Double) -> StreamingInputs {
+        let area = policy.area(viewerNadir: camera.coordinate,
+                               altitude: max(camera.height - groundHeight, 0),
+                               heading: camera.heading,
+                               georeferencePoint: Geodesy.geodetic(framing.georeferencePoint).coordinate,
+                               shownRadius: framing.shownRadius(room))
+        let anchor = StreamingAnchor(coordinate: area.centre, height: groundHeight)
+        return StreamingInputs(anchor: anchor,
+                               lod: AdaptiveModel.lodCamera(framing: framing, eye: room.designEye, anchor: anchor),
+                               regionHeading: area.heading,
+                               streamingRadius: area.radius)
+    }
+}

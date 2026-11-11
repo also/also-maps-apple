@@ -4,36 +4,6 @@ import Testing
 
 private let degrees = Double.pi / 180
 
-/// The volume and Immersive 5×, as MapPresentation defines them.
-private let volume = LegacyMapping.Presentation(isVolume: true, magnification: 1,
-                                                groundPosition: SIMD3(0, -0.25, 0),
-                                                viewerPosition: SIMD3(0, 0.3, 0.85))
-private let immersive5 = LegacyMapping.Presentation(isVolume: false, magnification: 5,
-                                                groundPosition: SIMD3(0, 0.02, -3.1),
-                                                viewerPosition: SIMD3(0, 1.6, 0))
-
-private func roomGeometry(_ presentation: LegacyMapping.Presentation) -> RoomGeometry {
-    let level = presentation.groundPosition
-    return RoomGeometry(designEye: presentation.viewerPosition,
-                        placementLevel: level,
-                        placementDown: SIMD3(level.x, presentation.isVolume ? 0 : presentation.viewerPosition.y - 0.3, level.z),
-                        contentHalfWidth: 0.5 * presentation.magnification)
-}
-
-private func state(radius: Double, heading: Double = 25 * degrees) -> LegacyMapping.State {
-    LegacyMapping.State(focus: GeoCoordinate(latitude: 37.7955, longitude: -122.3937),
-                        focusHeight: -32, radius: radius, heading: heading)
-}
-
-private func maximumDifference(_ a: Similarity, _ b: Similarity, over points: [SIMD3<Double>]) -> Double {
-    points.map { simd_distance(a.apply($0), b.apply($0)) }.max() ?? 0
-}
-
-/// Points spread over a few hundred metres of the anchor frame.
-private let samplePoints: [SIMD3<Double>] = [
-    SIMD3(0, 0, 0), SIMD3(300, 0, 0), SIMD3(0, 0, -300), SIMD3(-200, 120, 250), SIMD3(50, -40, 10),
-]
-
 struct StreamingInputsTests {
     @Test func orbitCameraMatchesTheBridgeFormula() {
         let lod = LODCamera.orbit(heading: 0, elevation: .pi / 4, distance: 1200)
@@ -55,35 +25,18 @@ struct StreamingInputsTests {
     }
 }
 
-struct LegacySeamTests {
-    /// With the streamer anchored at the focus, the tiles root placed through
-    /// the georeference is exactly today's placement.
-    @Test(arguments: [600.0, 30_000, 200_000, 2_000_000])
-    func georeferenceReproducesTodaysPlacement(radius: Double) {
-        for presentation in [volume, immersive5] {
-            let legacy = state(radius: radius)
-            let expected = LegacyMapping.placement(legacy, presentation)
-            let placed = LegacyMapping.georeference(legacy, presentation).placement(of: LegacyMapping.anchor(legacy))
-            let tolerance = 1e-9 * expected.scale * 1_000
-            #expect(maximumDifference(placed, expected, over: samplePoints) < tolerance)
-            #expect(abs(placed.scale / expected.scale - 1) < 1e-12)
-        }
-    }
-
-    @Test func heldPoseComposesAfterThePlacement() {
-        let legacy = state(radius: 600)
-        let heldPose = Similarity(scale: 1.5, rotation: simd_quatd(angle: 30 * degrees, axis: SIMD3(0, 1, 0)),
-                             translation: SIMD3(0.4, 0, -0.3))
-        let expected = heldPose.after(LegacyMapping.placement(legacy, immersive5))
-        let placed = LegacyMapping.georeference(legacy, immersive5, heldPose: heldPose).placement(of: LegacyMapping.anchor(legacy))
-        #expect(maximumDifference(placed, expected, over: samplePoints) < 1e-9)
-    }
-
+struct GeoreferenceTests {
     /// Tiles placed relative to a different (held) anchor land in the same
     /// place: the root follows whatever anchor the streamer is on.
     @Test func placementFollowsWhicheverAnchorTheStreamerUses() {
-        let legacy = state(radius: 600)
-        let georeference = LegacyMapping.georeference(legacy, volume)
+        let room = RoomGeometry(designEye: SIMD3(0, 0.3, 0.85),
+                                placementLevel: SIMD3(0, -0.25, 0),
+                                placementDown: SIMD3(0, 0, 0),
+                                contentHalfWidth: 0.5)
+        let camera = CameraPose(latitude: 37.7955, longitude: -122.3937, height: 600,
+                                heading: 25 * degrees, pitch: 0)
+        let georeference = EyeLevelModel.framing(camera: camera, room: room,
+                                                 groundHeight: -32, tiltWeight: 0).georeference
         let held = StreamingAnchor(coordinate: GeoCoordinate(latitude: 37.80, longitude: -122.40), height: 10)
         let world = Geodesy.ecef(latitude: 37.7962, longitude: -122.3951, height: 25)
         let local = held.ecefFromAnchor.inverse.apply(world)
@@ -92,66 +45,6 @@ struct LegacySeamTests {
 }
 
 struct AdaptiveModelTests {
-    private let room = roomGeometry(volume)
-
-    @Test func cameraLandsOnTheEyeAndGeoreferencePointOnThePlacementPoint() throws {
-        let camera = CameraPose(latitude: 37.79, longitude: -122.40, height: 900, heading: 0.4,
-                                pitch: room.levelPitch)
-        let framing = try #require(AdaptiveModel.framing(camera: camera, room: room, rayHeight: 5, envelopeHeight: 5))
-        let georeference = framing.georeference
-        #expect(simd_distance(georeference.map(camera.position), room.designEye) < 1e-6)
-        #expect(simd_distance(georeference.map(framing.georeferencePoint), framing.placementPoint) < 1e-6)
-        // Looking along the level pitch, the map lies level: C is C₀.
-        #expect(simd_distance(framing.placementPoint, room.placementLevel) < 1e-9)
-        let forward = georeference.rotation.act(camera.basis.forward)
-        #expect(simd_distance(forward, simd_normalize(room.placementLevel - room.designEye)) < 1e-9)
-    }
-
-    @Test func groundLiftPutsTheEnvelopeOnThePlacementPoint() throws {
-        let camera = CameraPose(latitude: 37.79, longitude: -122.40, height: 900, heading: 0, pitch: room.levelPitch)
-        let framing = try #require(AdaptiveModel.framing(camera: camera, room: room, rayHeight: 40, envelopeHeight: 10))
-        let (coordinate, _) = Geodesy.geodetic(framing.georeferencePoint)
-        let lowered = Geodesy.ecef(coordinate, height: 10)
-        #expect(simd_distance(framing.georeference.map(lowered), framing.placementPoint) < 1e-4)
-    }
-
-    /// Up to regional scale the adaptive model reproduces today's untilted
-    /// placement for the camera at today's viewer, to within the small
-    /// difference between the focus's and the camera's local up.
-    @Test(arguments: [(600.0, 1e-4), (20_000.0, 5e-3)])
-    func matchesTodaysPlacementUpClose(radius: Double, tolerance: Double) throws {
-        for presentation in [volume, immersive5] {
-            let legacy = state(radius: radius)
-            let georeference = LegacyMapping.georeference(legacy, presentation)
-            let eye = presentation.viewerPosition
-            let centre = LegacyMapping.tiltedGroundPosition(legacy, presentation)
-            let camera = CameraPose(position: georeference.ecef(map: eye),
-                                    forward: georeference.rotation.inverse.act(simd_normalize(centre - eye)))
-            let framing = try #require(AdaptiveModel.framing(camera: camera, room: roomGeometry(presentation),
-                                                             rayHeight: legacy.focusHeight,
-                                                             envelopeHeight: legacy.focusHeight))
-            let anchor = LegacyMapping.anchor(legacy)
-            let difference = maximumDifference(framing.georeference.placement(of: anchor),
-                                               georeference.placement(of: anchor),
-                                               over: samplePoints.map { $0 * radius / 600 })
-            #expect(difference < tolerance * presentation.magnification)
-        }
-    }
-
-    @Test func missReturnsNilAndNadirFallbackIsFinite() {
-        let camera = CameraPose(latitude: 0, longitude: 0, height: 400_000, heading: 0, pitch: -10 * degrees)
-        #expect(AdaptiveModel.framing(camera: camera, room: room, rayHeight: 0, envelopeHeight: 0) == nil)
-        for height in [400_000.0, 0.5, -20] {
-            var below = camera
-            below.height = height
-            let fallback = AdaptiveModel.nadirFraming(camera: below, room: room, rayHeight: 0, envelopeHeight: 0)
-            let g = fallback.georeference
-            #expect(g.scale.isFinite && g.scale > 0)
-            #expect(g.translation.x.isFinite && g.translation.y.isFinite && g.translation.z.isFinite)
-            #expect(fallback.range >= AdaptiveModel.minimumRange)
-        }
-    }
-
     @Test(arguments: [(24_000.0, -13.0), (98_000.0, -18.0), (410_000.0, -28.0), (2_600_000.0, -53.0)])
     func pitchLimitKeepsTheMarginBelowTheHorizon(height: Double, limitDegrees: Double) {
         let limit = AdaptiveModel.pitchLimit(cameraHeight: height, rayHeight: 0, latitude: 0)

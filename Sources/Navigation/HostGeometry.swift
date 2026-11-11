@@ -10,18 +10,34 @@ struct RoomGeometry: Equatable {
     /// E: the viewer's eye. Assumed, or in the immersive space measured once
     /// when it opens; never the continuously tracked head.
     var designEye: SIMD3<Double>
-    /// C₀: where the georeference point goes when the map is level, on the
-    /// base plane.
+    /// C₀: the content centre on the base plane, where the view centre sits
+    /// while the map is level.
     var placementLevel: SIMD3<Double>
-    /// C₁: where it goes looking straight down.
+    /// C₁: the raised content centre at full tilt. In a host whose view
+    /// centre follows the tilt, the view centre rises from C₀ to C₁.
     var placementDown: SIMD3<Double>
     /// Half-width of the shown region and the gesture slab.
     var contentHalfWidth: Double
+    /// The tilt at full weight, radians about the room's right axis through
+    /// E: 0 level, π/2 the ground below straight ahead.
+    var fullTilt = Double.pi / 2
+    /// Whether the view centre (gesture slab, area of interest, ground
+    /// sample) rises with the tilt from C₀ toward C₁, as the volume needs to
+    /// keep it in the box. Otherwise it's the ground beneath C₀ while level,
+    /// carried by the tilt.
+    var viewCentreFollowsTilt = false
 
-    /// θ₀: the pitch from E to C₀, radians (negative: looking down).
-    var levelPitch: Double {
-        let toLevel = simd_normalize(placementLevel - designEye)
-        return asin(min(max(toLevel.y, -1), 1))
+    /// C(w): the content centre at tilt weight `w`.
+    func contentCentre(tiltWeight w: Double) -> SIMD3<Double> {
+        placementLevel + (placementDown - placementLevel) * w
+    }
+
+    /// The tilt that points the ground below the eye at C₁: 90° less the
+    /// angle E→C₁ dips below the horizontal.
+    static func tiltFacing(_ point: SIMD3<Double>, from eye: SIMD3<Double>) -> Double {
+        let toPoint = point - eye
+        let dip = atan2(-toPoint.y, simd_length(SIMD2(toPoint.x, toPoint.z)))
+        return .pi / 2 - dip
     }
 }
 

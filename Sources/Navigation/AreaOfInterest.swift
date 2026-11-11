@@ -2,7 +2,7 @@ import Foundation
 import simd
 
 /// What streams: a square around a centre, turned to a heading. The centre
-/// is also the streaming anchor. See docs/camera-core.md §7.
+/// is also the streaming anchor.
 enum AOIPolicy: Codable, Equatable {
     /// Around the georeference point, `regionMultiplier` × the shown region.
     case georeference(regionMultiplier: Double)
@@ -85,7 +85,7 @@ extension AOIPolicy {
 }
 
 /// A loaded tile's extent and height range, for ground estimates without
-/// the network. See docs/camera-core.md §8.
+/// the network.
 struct TileHeightRange: Equatable {
     /// Centre of the tile's geometry, ECEF.
     var centre: SIMD3<Double>
