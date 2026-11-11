@@ -33,6 +33,12 @@ You need Xcode 26 or later with the platform SDKs you want to build for, and [Xc
 
 **Optional soundtrack:** put an MP3 at `Local/soundtrack.mp3`. `Local/` is gitignored, for assets that can't be published. If the file is there, the build bundles it and the app loops it quietly while active, with a mute button in the ornament. Without it, the app simply has no soundtrack.
 
+## Xcode Cloud
+
+Successful archives from `main` create `build/<number>` Git tags for commit/build
+lookup. See [build tags and workflow authentication](docs/xcode-cloud.md) for the
+required GitHub token, setup and lookup commands.
+
 ## How it fits together
 
 cesium-native decides which tiles to load and fetches them; a thin bridge hands them to RealityKit; a platform-neutral navigation core owns the camera, and each platform presents that camera its own way.
