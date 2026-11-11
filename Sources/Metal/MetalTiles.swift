@@ -75,10 +75,16 @@ final class MetalTileRenderer: @unchecked Sendable {
             let texture: MTLTexture?
             let sampler: MTLSamplerState?
             let baseColor: SIMD4<Float>
+            /// For untextured content in a tileset with imagery: where each
+            /// vertex falls in the tile's overlay (CNPrimitive.overlayTexcoords).
+            let overlayTexcoords: MTLBuffer?
         }
         let parts: [Part]
         let bounds: MetalBounds?
         let triangleCount: Int
+        /// The imagery last drawn on this tile, kept until a newer
+        /// attachment's texture is ready. Only `encode` touches it.
+        var shownOverlay: CNOverlay?
         init(parts: [Part]) {
             self.parts = parts
             // An unknown part must not be hidden by a known part's bounds.
@@ -123,10 +129,36 @@ final class MetalTileRenderer: @unchecked Sendable {
                                    indexCount: primitive.indices.count / MemoryLayout<UInt32>.size,
                                    texture: texture(for: primitive),
                                    sampler: sampler(for: primitive),
-                                   baseColor: primitive.baseColor))
+                                   baseColor: primitive.baseColor,
+                                   overlayTexcoords: primitive.texcoords == nil
+                                       ? primitive.overlayTexcoords.flatMap(buffer) : nil))
         }
         return Tile(parts: parts)
     }
+
+    /// Builds each overlay image's texture (CNTileStreamer.rasterLoadHandler),
+    /// on the calling load thread: nothing waits for it.
+    var rasterHandler: CNRasterLoadHandler {
+        { [self] raster in
+            raster.renderObject = texture(rgba: raster.rgba, width: raster.width, height: raster.height)
+            raster.discardCPUData()
+        }
+    }
+
+    /// Terrain waiting for its imagery, briefly (as TileUploader).
+    private static let overlayPlaceholderColor = SIMD4<Float>(0.30, 0.33, 0.24, 1)
+
+    /// Clamped, so an overlay image's edge doesn't bleed in from the
+    /// opposite side; trilinear.
+    private lazy var overlaySampler: MTLSamplerState? = {
+        let descriptor = MTLSamplerDescriptor()
+        descriptor.sAddressMode = .clampToEdge
+        descriptor.tAddressMode = .clampToEdge
+        descriptor.minFilter = .linear
+        descriptor.magFilter = .linear
+        descriptor.mipFilter = .linear
+        return device.makeSamplerState(descriptor: descriptor)
+    }()
 
     private func buffer(_ data: Data) -> MTLBuffer? {
         data.withUnsafeBytes { bytes in
@@ -151,8 +183,12 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// sRGB, mipmapped. The bridge's RGBA rows start at the image's top, as
     /// Metal's texture origin does.
     private func texture(for primitive: CNPrimitive) -> MTLTexture? {
-        guard let rgba = primitive.rgba, primitive.textureWidth > 0, primitive.textureHeight > 0 else { return nil }
-        let width = primitive.textureWidth, height = primitive.textureHeight
+        guard let rgba = primitive.rgba else { return nil }
+        return texture(rgba: rgba, width: primitive.textureWidth, height: primitive.textureHeight)
+    }
+
+    private func texture(rgba: Data, width: Int, height: Int) -> MTLTexture? {
+        guard width > 0, height > 0, rgba.count >= width * height * 4 else { return nil }
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm_srgb, width: width,
                                                                   height: height, mipmapped: true)
         descriptor.usage = .shaderRead
@@ -182,6 +218,8 @@ final class MetalTileRenderer: @unchecked Sendable {
         /// Tile → anchor frame, for fog.
         var placement: simd_float4x4
         var baseColor: SIMD4<Float>
+        /// Overlay texture coordinates → image: xy translation, zw scale.
+        var overlayTransform: SIMD4<Float>
         var flags: UInt32
         /// How far the tile has faded in (MetalTileFades), 0–1.
         var visibility: Float
@@ -192,7 +230,7 @@ final class MetalTileRenderer: @unchecked Sendable {
     private struct Atmosphere {
         /// xyz: the camera in the anchor frame; w: 1 if fog is on.
         var camera: SIMD4<Float>
-        /// The sky, linear.
+        /// The sky, linear and premultiplied.
         var colour: SIMD4<Float>
         /// The area of interest's right and forward axes (xz), and its
         /// half-width, metres.
@@ -210,10 +248,14 @@ final class MetalTileRenderer: @unchecked Sendable {
         var radius: Double
         /// Radians clockwise from north.
         var heading: Double
+        /// What fog fades to: the pass's clear colour. Transparent black over
+        /// passthrough (premultiplied), so the map fades into the room.
+        var sky: MTLClearColor
 
-        init(_ inputs: StreamingInputs) {
+        init(_ inputs: StreamingInputs, sky: MTLClearColor = MetalTileRenderer.skyColour) {
             radius = inputs.streamingRadius
             heading = inputs.regionHeading
+            self.sky = sky
         }
     }
 
@@ -292,6 +334,8 @@ final class MetalTileRenderer: @unchecked Sendable {
                 atmosphere.forward = SIMD2(s, -c)
                 atmosphere.right = SIMD2(c, s)
                 atmosphere.radius = Float(region.radius)
+                atmosphere.colour = SIMD4(Float(region.sky.red), Float(region.sky.green),
+                                          Float(region.sky.blue), Float(region.sky.alpha))
                 // Haze scales with how far the camera can see: the horizon
                 // from its height above the anchor, at least 20 km so street
                 // level isn't murky, and at most the area, so a small
@@ -303,7 +347,7 @@ final class MetalTileRenderer: @unchecked Sendable {
         }
         encoder.setFragmentBytes(&atmosphere, length: MemoryLayout<Atmosphere>.stride, index: 1)
 
-        func draw(_ gpu: Tile, placement: simd_float4x4, visibility: Float, fadingOut: Bool) {
+        func draw(_ tile: CNTileMesh, _ gpu: Tile, placement: simd_float4x4, visibility: Float, fadingOut: Bool) {
             statistics.tiles += 1
             statistics.totalDrawCalls += gpu.parts.count
             statistics.totalTriangles += gpu.triangleCount
@@ -311,6 +355,13 @@ final class MetalTileRenderer: @unchecked Sendable {
             let frustum = cullsOffscreen ? MetalFrustum(clipFromLocal: modelViewProjection) : nil
             if frustum?.intersects(gpu.bounds) == false { return }
             let model = root * placement
+            // Newly attached imagery replaces the old once its texture is
+            // ready; until then the old stays.
+            if let overlay = tile.overlay, overlay !== gpu.shownOverlay, overlay.raster.renderObject is MTLTexture {
+                gpu.shownOverlay = overlay
+            }
+            let overlay = gpu.shownOverlay
+            let overlayTexture = overlay?.raster.renderObject as? MTLTexture
             var drewTile = false
             for part in gpu.parts {
                 // A tile may straddle the frustum while some of its parts
@@ -323,18 +374,36 @@ final class MetalTileRenderer: @unchecked Sendable {
                 statistics.drawCalls += 1
                 statistics.triangles += part.indexCount / 3
                 var flags: UInt32 = 0
-                if part.texcoords != nil, part.texture != nil { flags |= 1 }
-                if part.normals != nil { flags |= 2 }
-                if fadingOut { flags |= 4 }
+                var texcoords = part.texcoords
+                var texture = part.texture
+                var sampler = part.sampler
+                var baseColor = part.baseColor
+                var overlayTransform = SIMD4<Float>(0, 0, 1, 1)
+                if let overlay, let overlayTexture, let overlayTexcoords = part.overlayTexcoords {
+                    // Imagery on terrain: unlit, like photogrammetry, since
+                    // aerial imagery has its lighting baked in.
+                    texcoords = overlayTexcoords
+                    texture = overlayTexture
+                    sampler = overlaySampler
+                    baseColor = SIMD4(1, 1, 1, 1)
+                    overlayTransform = SIMD4(lowHalf: SIMD2(overlay.translation), highHalf: SIMD2(overlay.scale))
+                    flags |= 1 | 4
+                } else {
+                    if part.texcoords != nil, part.texture != nil { flags |= 1 }
+                    if part.normals != nil { flags |= 2 }
+                    if part.overlayTexcoords != nil { baseColor = Self.overlayPlaceholderColor }
+                }
+                if fadingOut { flags |= 8 }
                 var uniforms = Uniforms(modelViewProjection: modelViewProjection, model: model, placement: placement,
-                                        baseColor: part.baseColor, flags: flags, visibility: visibility)
+                                        baseColor: baseColor, overlayTransform: overlayTransform, flags: flags,
+                                        visibility: visibility)
                 encoder.setVertexBuffer(part.positions, offset: 0, index: 0)
-                encoder.setVertexBuffer(part.texcoords ?? part.positions, offset: 0, index: 1)
+                encoder.setVertexBuffer(texcoords ?? part.positions, offset: 0, index: 1)
                 encoder.setVertexBuffer(part.normals ?? part.positions, offset: 0, index: 2)
                 encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 3)
                 encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
-                encoder.setFragmentTexture(part.texture, index: 0)
-                encoder.setFragmentSamplerState(part.sampler, index: 0)
+                encoder.setFragmentTexture(texture, index: 0)
+                encoder.setFragmentSamplerState(sampler, index: 0)
                 encoder.drawIndexedPrimitives(type: .triangle, indexCount: part.indexCount, indexType: .uint32,
                                               indexBuffer: part.indices, indexBufferOffset: 0)
             }
@@ -343,25 +412,25 @@ final class MetalTileRenderer: @unchecked Sendable {
         // Settled tiles first, then the dissolving ones with the discarding
         // pipeline. A tile fading out draws the complement of the pattern,
         // so it and what replaced it share no pixel.
-        var dissolving: [(gpu: Tile, placement: simd_float4x4, visibility: Float, out: Bool)] = []
+        var dissolving: [(tile: CNTileMesh, gpu: Tile, placement: simd_float4x4, visibility: Float, out: Bool)] = []
         encoder.setRenderPipelineState(settled)
         for (tile, placement) in tiles {
             guard let gpu = tile.renderObject as? Tile else { continue }
             let visibility = fades?.visibility(of: tile) ?? 1
             if visibility < 1 {
-                dissolving.append((gpu, placement, visibility, false))
+                dissolving.append((tile, gpu, placement, visibility, false))
             } else {
-                draw(gpu, placement: placement, visibility: 1, fadingOut: false)
+                draw(tile, gpu, placement: placement, visibility: 1, fadingOut: false)
             }
         }
         for leaving in fades.map({ Array($0.leaving.values) }) ?? [] {
             guard let gpu = leaving.tile.renderObject as? Tile else { continue }
-            dissolving.append((gpu, leaving.placement, leaving.visibility, true))
+            dissolving.append((leaving.tile, gpu, leaving.placement, leaving.visibility, true))
         }
         if !dissolving.isEmpty {
             encoder.setRenderPipelineState(fading)
             for item in dissolving {
-                draw(item.gpu, placement: item.placement, visibility: item.visibility, fadingOut: item.out)
+                draw(item.tile, item.gpu, placement: item.placement, visibility: item.visibility, fadingOut: item.out)
             }
         }
         return statistics
@@ -396,6 +465,7 @@ struct TileUniforms {
     float4x4 model;
     float4x4 placement;
     float4 baseColor;
+    float4 overlayTransform;
     uint flags;
     float visibility;
 };
@@ -412,7 +482,8 @@ struct Atmosphere {
 
 constant uint kTextured = 1;
 constant uint kLit = 2;
-constant uint kFadingOut = 4;
+constant uint kOverlay = 4;
+constant uint kFadingOut = 8;
 
 /// The fading pipeline: discards a screen-space pattern (MetalTileFades).
 constant bool kDithered [[function_constant(0)]];
@@ -434,7 +505,12 @@ vertex TileVertexOut tileVertex(uint vid [[vertex_id]],
                                 constant TileUniforms &uniforms [[buffer(3)]]) {
     TileVertexOut out;
     out.position = uniforms.modelViewProjection * float4(positions[vid].xyz, 1);
-    out.uv = (uniforms.flags & kTextured) ? float2(texcoords[vid].x, 1 - texcoords[vid].y) : float2(0);
+    float2 uv = texcoords[vid];
+    if (uniforms.flags & kOverlay) {
+        // Overlay coordinates have v up, like the bridge's flipped ones.
+        uv = uv * uniforms.overlayTransform.zw + uniforms.overlayTransform.xy;
+    }
+    out.uv = (uniforms.flags & kTextured) ? float2(uv.x, 1 - uv.y) : float2(0);
     out.normal = (uniforms.flags & kLit) ? (uniforms.model * float4(normals[vid].xyz, 0)).xyz : float3(0, 1, 0);
     out.anchorPosition = (uniforms.placement * float4(positions[vid].xyz, 1)).xyz;
     return out;
@@ -479,7 +555,9 @@ fragment float4 tileFragment(TileVertexOut in [[stage_in]],
         float haze = 0.9 * (1 - exp(-1.5 * distance));
         float edge = max(abs(dot(p.xz, atmosphere.right)), abs(dot(p.xz, atmosphere.forward))) / atmosphere.radius;
         float fog = max(haze, smoothstep(0.75, 1.0, edge));
-        colour.rgb = mix(colour.rgb, atmosphere.colour.rgb, fog);
+        // All four channels: over passthrough the sky is transparent, and
+        // colour is premultiplied.
+        colour = mix(colour, atmosphere.colour, fog);
     }
     return colour;
 }

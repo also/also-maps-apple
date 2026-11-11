@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/also/cesium-native-xcframework",
       "state" : {
-        "revision" : "8c33f3908f6d0be8cedabd87ad0147eb8c8b6bd8",
-        "version" : "0.64.0-2"
+        "revision" : "b6faf37239d2bd52b5e7db364ac293e0c822f3a4",
+        "version" : "0.66.0-1"
       }
     }
   ],
