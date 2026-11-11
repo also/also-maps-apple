@@ -48,6 +48,9 @@ Environment variables:
 - `ALSOMAPS_METAL_CULLING=0`: turn culling off, for a baseline. On by default.
 - `ALSOMAPS_METAL_FOVEATION=0`: turn visionOS foveation off, for a baseline.
   On by default where the dedicated layout supports it.
+- `ALSOMAPS_METAL_DEBUG_DRAW=empty`, `tint` or `magenta`: immersive
+  visionOS draws a test pattern instead of the map, for checking how the
+  compositor treats the layer (`MetalImmersiveDebug`).
 
 The log reports submitted out of considered tiles, draws and triangles,
 summed over the interval. "Considered" is what would be submitted with
@@ -74,11 +77,45 @@ quality.
 
 ## Log
 
+### 2026-11-08: system environments don't show behind the Metal layer
+
+- **Decided:** the Metal space no longer asks to coexist with the system
+  environment, so the system puts the environment away when it opens, as
+  it did before. Not yet checked on a device that the Crown can't bring the
+  black sky back.
+
+With the Metal space in mixed immersion and `.immersiveEnvironmentBehavior(.coexist)`,
+turning the Digital Crown to bring in a system environment:
+
+- **Observed (Vision Pro):** the SwiftUI controls take on the environment's
+  lighting, but where the map is transparent you keep seeing the room
+  partway up, and once the environment is all the way on the sky turns
+  black. Without Metal (RealityKit), the environment shows behind the map.
+- **Observed (Vision Pro):** the same with the layer drawing nothing, only
+  a transparent clear (`ALSOMAPS_METAL_DEBUG_DRAW=empty`): room, then black.
+  So it isn't the tiles, the sky's depth, or the far-plane rule. Lifting
+  the transparent sky off the far plane (running the sky depth pass in
+  mixed too) didn't change it either.
+- **Observed (Vision Pro):** opaque magenta 1 m away (`magenta`) stays
+  magenta at every Crown position; the environment never draws in front
+  of it.
+- **Inferred:** the system doesn't composite its environment behind a
+  CompositorLayer. What's behind the layer is passthrough, or nothing once
+  the environment replaces passthrough. CompositorServices has no API
+  touching system environments (none in the visionOS 27.2 SDK headers or
+  Swift interface), and Apple documents `.coexist` only as a preference.
+- **Observed (simulator):** opaque colour at the far plane (depth 0) was
+  shown, not dropped, unlike the device in full immersion (the 2026-11-04
+  entry below). The simulator's compositor may differ here.
+- Never submitting a drawable isn't a usable test: the app was shut down
+  within seconds in the simulator.
+
 ### 2026-11-04: immersion styles (mixed works, progressive needs layered)
 
 - **Observed (simulator):** the Metal space now opens mixed or full,
   following Settings › Immersion › Full immersion (`model.fullImmersion`),
-  as the RealityKit space does, and coexists with the system environment.
+  as the RealityKit space does. It first also asked to coexist with the
+  system environment; that didn't work and was dropped (2026-11-08).
   In mixed, the simulator's room shows wherever there's no map; in full,
   the sky as before. Both on the visionOS 27 Vision Pro simulator with
   `ALSOMAPS_METAL=1 ALSOMAPS_PRESENTATION=immersive` (plus
