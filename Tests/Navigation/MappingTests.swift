@@ -31,7 +31,6 @@ struct GeoreferenceTests {
     @Test func placementFollowsWhicheverAnchorTheStreamerUses() {
         let room = RoomGeometry(designEye: SIMD3(0, 0.3, 0.85),
                                 placementLevel: SIMD3(0, -0.25, 0),
-                                placementDown: SIMD3(0, 0, 0),
                                 contentHalfWidth: 0.5)
         let camera = CameraPose(latitude: 37.7955, longitude: -122.3937, height: 600,
                                 heading: 25 * degrees, pitch: 0)

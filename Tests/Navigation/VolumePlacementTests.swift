@@ -10,13 +10,10 @@ private let degrees = Double.pi / 180
 /// As MapPresentation defines them.
 private let volume = RoomGeometry(designEye: SIMD3(0, 0.3, 0.85),
                                   placementLevel: SIMD3(0, -0.25, 0),
-                                  placementDown: SIMD3(0, 0, 0),
                                   contentHalfWidth: 0.5,
-                                  fullTilt: RoomGeometry.tiltFacing(SIMD3(0, 0, 0), from: SIMD3(0, 0.3, 0.85)),
-                                  viewCentreFollowsTilt: true)
+                                  fullTilt: RoomGeometry.tiltFacing(SIMD3(0, 0, 0), from: SIMD3(0, 0.3, 0.85)))
 private let immersive = RoomGeometry(designEye: SIMD3(0, 1.6, 0),
                                      placementLevel: SIMD3(0, 0.02, -5.6),
-                                     placementDown: SIMD3(0, 1.3, -5.6),
                                      contentHalfWidth: 5)
 /// The volume's box: 1 × 0.6 × 1 m about its centre.
 private let boxHalfSize = SIMD3(0.5, 0.3, 0.5)
@@ -117,7 +114,7 @@ struct VolumePlacementTests {
         #expect(EyeLevelModel.tiltWeight(for: camera) == 1)
         let f = framing(camera, volume, ground: 10)
         let nadir = Geodesy.ecef(camera.coordinate, height: 10)
-        let towardCentre = simd_normalize(volume.placementDown - volume.designEye)
+        let towardCentre = simd_normalize(SIMD3(0, 0, 0) - volume.designEye)
         #expect(simd_distance(f.georeference.map(nadir), volume.designEye + 0.55 * towardCentre) < 1e-6)
         #expect(simd_distance(shownUp(f, camera), -towardCentre) < 1e-9)
         // The view centre is the ground below.

@@ -19,7 +19,8 @@ import simd
 ///
 /// The returned framing's georeference point is the view centre: what
 /// gestures grab and what the area of interest and ground sample centre on.
-/// See `RoomGeometry.viewCentreFollowsTilt`.
+/// It's the ground along the line of sight `RoomGeometry.sightLine`: C₀
+/// while level, the ground below the camera at full tilt.
 enum EyeLevelModel {
     /// Where the tilt assist starts, metres above the ellipsoid.
     static let tiltStartAltitude = 50_000.0
@@ -58,16 +59,9 @@ enum EyeLevelModel {
                               translation: .zero)
         let tilted = Similarity(translation: eye).after(tilt).after(Similarity(translation: -eye)).after(level)
 
-        let georeferencePoint: SIMD3<Double>
-        if room.viewCentreFollowsTilt {
-            // The ground along the line of sight to C(w).
-            let through = tilted.inverse.apply(room.contentCentre(tiltWeight: w))
-            georeferencePoint = ground(from: camera, toward: through, groundHeight: groundHeight)
-        } else {
-            // The ground beneath where C₀ is while level.
-            let ahead = Geodesy.geodetic(level.inverse.apply(base)).coordinate
-            georeferencePoint = Geodesy.ecef(ahead, height: groundHeight)
-        }
+        // The ground along the line of sight.
+        let through = tilted.inverse.apply(eye + room.sightLine(tiltWeight: w))
+        let georeferencePoint = ground(from: camera, toward: through, groundHeight: groundHeight)
         return AdaptiveModel.Framing(georeference: Georeference(tilted),
                                      georeferencePoint: georeferencePoint,
                                      placementPoint: tilted.apply(georeferencePoint),

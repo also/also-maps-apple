@@ -13,27 +13,26 @@ struct RoomGeometry: Equatable {
     /// C₀: the content centre on the base plane, where the view centre sits
     /// while the map is level.
     var placementLevel: SIMD3<Double>
-    /// C₁: the raised content centre at full tilt. In a host whose view
-    /// centre follows the tilt, the view centre rises from C₀ to C₁.
-    var placementDown: SIMD3<Double>
     /// Half-width of the shown region and the gesture slab.
     var contentHalfWidth: Double
     /// The tilt at full weight, radians about the room's right axis through
     /// E: 0 level, π/2 the ground below straight ahead.
     var fullTilt = Double.pi / 2
-    /// Whether the view centre (gesture slab, area of interest, ground
-    /// sample) rises with the tilt from C₀ toward C₁, as the volume needs to
-    /// keep it in the box. Otherwise it's the ground beneath C₀ while level,
-    /// carried by the tilt.
-    var viewCentreFollowsTilt = false
 
-    /// C(w): the content centre at tilt weight `w`.
-    func contentCentre(tiltWeight w: Double) -> SIMD3<Double> {
-        placementLevel + (placementDown - placementLevel) * w
+    /// The direction (unit) from E of the line of sight the view centre is
+    /// on at tilt weight `w`. It faces straight ahead (−z) and dips as E→C₀
+    /// does seen from the side while level, turning evenly with the tilt to
+    /// where full tilt puts the ground below the camera (90° less
+    /// `fullTilt`). So the view centre is C₀ while level and the ground
+    /// below the camera at full tilt.
+    func sightLine(tiltWeight w: Double) -> SIMD3<Double> {
+        let level = atan2(designEye.y - placementLevel.y, max(designEye.z - placementLevel.z, 1e-9))
+        let dip = level + (.pi / 2 - fullTilt - level) * w
+        return SIMD3(0, -sin(dip), -cos(dip))
     }
 
-    /// The tilt that points the ground below the eye at C₁: 90° less the
-    /// angle E→C₁ dips below the horizontal.
+    /// The tilt that points the ground below the eye at `point`: 90° less
+    /// the angle E→point dips below the horizontal.
     static func tiltFacing(_ point: SIMD3<Double>, from eye: SIMD3<Double>) -> Double {
         let toPoint = point - eye
         let dip = atan2(-toPoint.y, simd_length(SIMD2(toPoint.x, toPoint.z)))
