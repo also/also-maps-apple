@@ -7,13 +7,10 @@ private let degrees = Double.pi / 180
 /// The volume's geometry, as MapPresentation.volume defines it.
 private let volume = RoomGeometry(designEye: SIMD3(0, 0.3, 0.85),
                                   placementLevel: SIMD3(0, -0.25, 0),
-                                  placementDown: SIMD3(0, 0, 0),
                                   contentHalfWidth: 0.5,
-                                  fullTilt: RoomGeometry.tiltFacing(SIMD3(0, 0, 0), from: SIMD3(0, 0.3, 0.85)),
-                                  viewCentreFollowsTilt: true)
+                                  fullTilt: RoomGeometry.tiltFacing(SIMD3(0, 0, 0), from: SIMD3(0, 0.3, 0.85)))
 private let immersive5 = RoomGeometry(designEye: SIMD3(0, 1.6, 0),
                                   placementLevel: SIMD3(0, 0.02, -3.1),
-                                  placementDown: SIMD3(0, 1.3, -3.1),
                                   contentHalfWidth: 2.5)
 private let sanFrancisco = GeoCoordinate(latitude: 37.7955, longitude: -122.3937)
 private let context = NavigationContext(cameraGround: 0, minimumAltitude: 55, maximumAltitude: 20_000_000)

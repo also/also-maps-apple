@@ -34,17 +34,18 @@ struct ModelFlightStyle {
     /// Surface the dolly target is found on along the view, metres above
     /// the ellipsoid.
     var dollySurfaceHeight = 0.0
-    /// A point (ECEF) to dolly toward instead of along the view, leaving
-    /// pitch alone: the view centre in a room host, where pitch doesn't show.
-    var dollyTarget: SIMD3<Double>?
+    /// In a room host, where pitch doesn't show: the navigation position
+    /// moved to a height with its view centre held in place. Zoom then changes the
+    /// height above the dolly surface, and the view centre stays put.
+    /// Without it, zoom dollies along the view.
+    var holdingViewCentre: ((CameraPose, _ height: Double) -> CameraPose)?
     /// A height above the ellipsoid zoom works below, if any: zooming out
     /// stops 1% short of it, so there's room to zoom back in, and above it
     /// (climbed to) zoom does nothing either way. Climbing isn't limited.
     ///
-    /// Nothing about the world needs this limit. It's there because we
-    /// haven't found a model of zooming that works with the room hosts' tilt
-    /// assist (the point zoom heads for moves as the map tilts), and it keeps
-    /// zooming out and back in from drifting confusingly.
+    /// Nothing about the world needs this limit. It keeps zoom out of the
+    /// room hosts' tilt range, where the immersive space's view centre isn't
+    /// settled yet (#67).
     var zoomCeiling: Double?
     /// How far short of `zoomCeiling` zooming out stops, as a fraction.
     static let zoomCeilingMargin = 0.01
@@ -84,8 +85,16 @@ struct ModelFlightStyle {
             let camera = state.camera
             let ray = Ray(origin: camera.position, direction: camera.basis.forward)
             let fraction = 1 - exp(-input.dolly * dollyRate * boost * deltaTime)
-            if let dollyTarget {
-                state = NavigationOperations.approach(state, toward: dollyTarget, fraction: fraction, context: context)
+            if let holdingViewCentre {
+                let above = camera.height - dollySurfaceHeight
+                let height = context.clampHeight(dollySurfaceHeight + above * (1 - min(fraction, 0.95)))
+                // At a height limit, stay put rather than nudge the view.
+                if height != camera.height {
+                    let moved = holdingViewCentre(camera, height)
+                    let turn = NavigationOperations.wrapped(moved.heading - camera.heading)
+                    state.camera = moved
+                    state.movementHeading = NavigationOperations.wrapped(state.movementHeading + turn)
+                }
             } else if case let .hit(point, _) = Geodesy.intersect(ray: ray, surfaceHeight: dollySurfaceHeight) {
                 // Declines on a miss: there's nothing to approach.
                 state = NavigationOperations.dolly(state, toward: point, fraction: fraction, context: context)

@@ -4,6 +4,22 @@ Status: **merged** in [also/also-maps-apple#66](https://github.com/also/also-map
 
 ## Log (newest first)
 
+**2026-11-11: one line of sight for the view center** ([also/also-maps-apple#67](https://github.com/also/also-maps-apple/issues/67))
+
+- **Owner decision:** keep the view center, defined by what's in front of the reference head pose: C₀ with no tilt, the ground below the navigation position at full tilt. Supersedes the 2026-11-09 "eliminate it".
+- **Inferred:** with the line-of-sight rule only C₁'s direction from E mattered, and that direction is the one `fullTilt` already points the nadir along, so C₁ duplicated `fullTilt` (the immersive space's sat 3° off it).
+- **Changed:** `RoomGeometry` drops C₁ (`placementDown`) and `viewCentreFollowsTilt`. Both hosts' view center is the ground along `sightLine(tiltWeight:)`: straight ahead, dipping as E→C₀ does while level, turning evenly with the tilt to 90° less `fullTilt`. The volume computes `fullTilt` from the box's center as before. Volume behavior is unchanged at the ends and within 0.4° in between.
+- **Inferred (flat-ground estimate, h = the navigation position's height):** the immersive view center sits 3.5h ahead level, 1.5h at weight 0.25, 0.75h at 0.5, 0.33h at 0.75, and on the navigation position at full tilt. The line meets the globe inside the horizon at every altitude.
+- **Observed (probe):** untilted, the immersive view center moves out along the line past the old point (ground beneath C₀) by the Earth's curve: 1.3 m at 600 m up, 88 m at 5 km, 1.5 km at 20 km, 9.6 km at the 49.5 km zoom stop. Zoom holds the view center, so this no longer shows as drift.
+- **Not decided:** which of the issue's uses should keep following it. The gesture slab moves with it until [also/also-maps-apple#61](https://github.com/also/also-maps-apple/issues/61).
+
+**2026-11-11: zoom holds the view center**
+
+- **Observed (core simulation):** with the immersive view center moved onto the line of sight toward C₀, zooming out to the 49.5 km stop and back drifted 105 m (was 50 m). Zoom moved the navigation position straight at the view center, and its local level turns with the Earth's curve as it moves, so the view center slid up to 10 km at the top and didn't fully come back.
+- **Owner decision:** zoom holds the view center instead, before changing its definition.
+- **Changed:** zoom changes height above the dolly surface and solves for the standpoint that keeps the view center where it was (`EyeLevelModel.pose(_:at:holdingViewCentre:)`, sharing `framePlace`'s solver), keeping pitch and the heading relative to the view center. The pose is a function of the view center and the height, so a round trip returns to the same view. `NavigationOperations.approach` is gone.
+- **Observed (core tests):** the round trip now returns within 1 cm and the same heading in both hosts. The solver holds the view center to about 1 µm per step. The 50 km zoom limit is unchanged.
+
 **2026-11-09: the immersive space's view center**
 
 - **Observed (git history):** the immersive space's view center (the ground beneath C₀ as placed level) was the tilt's pivot in `2cdf8b1`. When `2fb7061` moved the pivot to the design eye point, the view center stayed and wasn't re-derived. **Inferred:** it no longer means anything; far out it's past the horizon. It still sets the gesture slab, the LOD camera's direction, place framing, the hold-tiles travel limit and the ground sample's center, on `main` too. **Owner decision:** eliminate it rather than move it ([also/also-maps-apple#67](https://github.com/also/also-maps-apple/issues/67)).
@@ -140,7 +156,7 @@ The owner asked to try it before deciding. What was built, with the open questio
 - **Scale:** §5's fixed eye height / agl (question 3).
 - **Zoom:** in `9dcad75`, the volume's zoom headed for the view center and Immersive's still went along the stored pitch. I narrowed that myself, without asking, and it left pitch in use in Immersive. Superseded by `c63a61e` (see the log).
 - **Names:** no renames (question 5). `AdaptiveModel` keeps `Framing`, `minimumRange`, `pitchLimit`, `lodCamera`, `AnchorTarget` and the generic `solve`. The view-ray framing, the nadir fallback, `placementPoint`, `pitchTarget`, `framePlace` and the ray/envelope `solve` overload are gone. So are `RoomGeometry.levelPitch` and, in `MapModel`, the pitch easing, `settlesPitch`, the steering pitch clamp and the horizon clamp on restore.
-- **Immersive's C₀ uses are unchanged** (agreed in discussion). The shared placement needs only the design eye point. The view center that rises from C₀ to C₁ is the volume's alone (`RoomGeometry.viewCentreFollowsTilt`). Immersive keeps the ground beneath level C₀ for its slab, ground sample and place framing. Replacing those is a follow-up ([also/also-maps-apple#67](https://github.com/also/also-maps-apple/issues/67)), and the gesture slab is [also/also-maps-apple#61](https://github.com/also/also-maps-apple/issues/61).
+- **Immersive's C₀ uses are unchanged** (agreed in discussion). The shared placement needs only the design eye point. The view center that rises from C₀ to C₁ is the volume's alone (`RoomGeometry.viewCentreFollowsTilt`; superseded 2026-11-11, see the log). Immersive keeps the ground beneath level C₀ for its slab, ground sample and place framing. Replacing those is a follow-up ([also/also-maps-apple#67](https://github.com/also/also-maps-apple/issues/67)), and the gesture slab is [also/also-maps-apple#61](https://github.com/also/also-maps-apple/issues/61).
 - **Ground:** one placement ground (`MapModel.placementGround`), the 3×3 sample, no curvature envelope. Saved states write it to both `ray` and `envelope`; restoring reads `ray`. `pitchFollowsAltitude` is now `tiltFollowsAltitude`.
 - **Places** frame with the tilt their height gives, with the center as the view center. Every place in the library is below 50 km, so they all frame level.
 

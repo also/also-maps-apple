@@ -123,9 +123,18 @@ final class MapModel {
     /// The framing for `camera` in the current host: level unless the tilt
     /// assist tips it, by an amount that depends only on where the camera is.
     private func frame(_ camera: CameraPose) -> AdaptiveModel.Framing {
-        let weight = tiltFollowsAltitude ? EyeLevelModel.tiltWeight(for: camera) : 0
-        return EyeLevelModel.framing(camera: camera, room: room, groundHeight: placementGround.value,
-                                     tiltWeight: weight, fixedScale: humanScale && isImmersive ? 1 : nil)
+        framer(camera)
+    }
+
+    /// `frame`, with the current host, ground and settings captured.
+    private var framer: (CameraPose) -> AdaptiveModel.Framing {
+        let room = room, ground = placementGround.value, tiltFollowsAltitude = tiltFollowsAltitude
+        let fixedScale: Double? = humanScale && isImmersive ? 1 : nil
+        return { camera in
+            let weight = tiltFollowsAltitude ? EyeLevelModel.tiltWeight(for: camera) : 0
+            return EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground,
+                                         tiltWeight: weight, fixedScale: fixedScale)
+        }
     }
 
     // MARK: Tiles held
@@ -515,15 +524,15 @@ final class MapModel {
               deltaTime: deltaTime)
     }
 
-    /// Model flight. Zooming heads for the view centre, not along the
-    /// camera's pitch, which room hosts don't show.
+    /// Model flight. Zooming changes height with the view centre held in
+    /// place, not along the camera's pitch, which room hosts don't show.
     private func steer(with input: ControlInput, deltaTime: Double) {
         flight.dollySurfaceHeight = placementGround.value
-        flight.dollyTarget = framing?.georeferencePoint
+        let framer = framer
+        flight.holdingViewCentre = { EyeLevelModel.pose($0, at: $1, holdingViewCentre: framer) }
         // Zoom works only below where the tilt starts. Not a property of the
-        // world: we haven't found a model of zooming that works with the tilt
-        // assist (the view centre zoom heads for moves as the map tilts), and
-        // the limit keeps zooming out and back in from drifting confusingly.
+        // world: it keeps zoom out of the tilt range, where the immersive
+        // space's view centre isn't settled yet (#67).
         flight.zoomCeiling = EyeLevelModel.tiltStartAltitude
         // Turning, climbing and zooming first, limited (while held) by how
         // much of the held region they'd show; then travel, limited by how

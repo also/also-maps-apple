@@ -71,16 +71,14 @@ struct MapPresentation: Identifiable, Hashable {
     var geometry: HostGeometry {
         let level = SIMD3<Double>(groundPosition)
         let eye = SIMD3<Double>(viewerPosition)
-        let downHeight = host == .volume ? 0 : eye.y - 0.3
-        let down = SIMD3(level.x, downHeight, level.z)
         // The volume tilts until the ground below faces you at the box's
-        // centre, and its view centre rises with it, to stay in the box.
-        // The immersive space tilts a quarter turn.
+        // centre, so the view centre, which follows it, stays in the box.
+        // The immersive space tilts a quarter turn, until the ground below is
+        // straight ahead.
+        let boxCentre = SIMD3(level.x, 0, level.z)
         return .room(RoomGeometry(designEye: eye,
                                   placementLevel: level,
-                                  placementDown: down,
                                   contentHalfWidth: Self.volumeSize.x / 2 * magnification,
-                                  fullTilt: host == .volume ? RoomGeometry.tiltFacing(down, from: eye) : .pi / 2,
-                                  viewCentreFollowsTilt: host == .volume))
+                                  fullTilt: host == .volume ? RoomGeometry.tiltFacing(boxCentre, from: eye) : .pi / 2))
     }
 }
