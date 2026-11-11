@@ -126,11 +126,11 @@ struct CameraDiagram {
     struct Room {
         /// E, the design eye point.
         var eye: SIMD2<Double>
-        /// C₀ and C₁: where the georeference point goes level and looking down.
+        /// C₀: where the view center goes while level.
         var levelPlacement: SIMD2<Double>
-        var downPlacement: SIMD2<Double>
-        /// C(w): the content center at the current tilt weight.
-        var contentCenter: SIMD2<Double>
+        /// The line of sight the view center is on (unit, from E, the design
+        /// eye point).
+        var sightLine: SIMD2<Double>
         /// Where the view center is placed now.
         var placement: SIMD2<Double>
         /// Where the camera itself lands: on the eye.
@@ -327,12 +327,11 @@ struct CameraDiagram {
             }
             let level = Self.side(room.placementLevel)
             let roomCamera = Self.side(framing.georeference.map(camera.position))
-            let center = Self.side(room.contentCentre(tiltWeight: weight))
-            var points = [eye, level, Self.side(room.placementDown), placement, roomCamera,
+            var points = [eye, level, placement, roomCamera,
                           level - SIMD2(room.contentHalfWidth, 0), level + SIMD2(room.contentHalfWidth, 0)]
             if let container { points += [container.min, container.max] }
-            self.room = Room(eye: eye, levelPlacement: level, downPlacement: Self.side(room.placementDown),
-                             contentCenter: center, placement: placement, camera: roomCamera,
+            self.room = Room(eye: eye, levelPlacement: level,
+                             sightLine: Self.side(room.sightLine(tiltWeight: weight)), placement: placement, camera: roomCamera,
                              tilt: weight * room.fullTilt, basePlaneHeight: room.placementLevel.y,
                              contentHalfWidth: room.contentHalfWidth, container: container,
                              lod: Viewpoint(position: eye, direction: simd_normalize(placement - eye),

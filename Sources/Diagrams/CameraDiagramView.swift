@@ -78,10 +78,8 @@ struct CameraDiagramRoomView: View {
                 DiagramStyle.stroke(surface.kind, fit.line(surface.room), in: &context)
             }
 
-            for (point, name) in [(room.levelPlacement, "C₀"), (room.downPlacement, "C₁")] {
-                DiagramStyle.tick(at: fit.point(point), in: &context)
-                DiagramStyle.label(name, at: fit.point(point), in: &context)
-            }
+            DiagramStyle.tick(at: fit.point(room.levelPlacement), in: &context)
+            DiagramStyle.label("C₀", at: fit.point(room.levelPlacement), in: &context)
             DiagramStyle.cross(at: fit.point(room.placement), in: &context)
             DiagramStyle.label("view center", at: fit.point(room.placement), in: &context, below: true, left: true)
 

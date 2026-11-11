@@ -19,7 +19,8 @@ import simd
 ///
 /// The returned framing's georeference point is the view centre: what
 /// gestures grab and what the area of interest and ground sample centre on.
-/// See `RoomGeometry.viewCentreFollowsTilt`.
+/// It's the ground along the line of sight `RoomGeometry.sightLine`: C₀
+/// while level, the ground below the navigation position at full tilt.
 enum EyeLevelModel {
     /// Where the tilt assist starts, metres above the ellipsoid.
     static let tiltStartAltitude = 50_000.0
@@ -58,16 +59,9 @@ enum EyeLevelModel {
                               translation: .zero)
         let tilted = Similarity(translation: eye).after(tilt).after(Similarity(translation: -eye)).after(level)
 
-        let georeferencePoint: SIMD3<Double>
-        if room.viewCentreFollowsTilt {
-            // The ground along the line of sight to C(w).
-            let through = tilted.inverse.apply(room.contentCentre(tiltWeight: w))
-            georeferencePoint = ground(from: camera, toward: through, groundHeight: groundHeight)
-        } else {
-            // The ground beneath where C₀ is while level.
-            let ahead = Geodesy.geodetic(level.inverse.apply(base)).coordinate
-            georeferencePoint = Geodesy.ecef(ahead, height: groundHeight)
-        }
+        // The ground along the line of sight.
+        let through = tilted.inverse.apply(eye + room.sightLine(tiltWeight: w))
+        let georeferencePoint = ground(from: camera, toward: through, groundHeight: groundHeight)
         return AdaptiveModel.Framing(georeference: Georeference(tilted),
                                      georeferencePoint: georeferencePoint,
                                      placementPoint: tilted.apply(georeferencePoint),
@@ -105,26 +99,59 @@ enum EyeLevelModel {
         let height = groundHeight + max(eye.y - base.y, 0.01) / scale
         let weight = tiltFollowsAltitude ? tiltWeight(altitude: height) : 0
         let target = Geodesy.ecef(centre, height: groundHeight)
-        func pose(at point: GeoCoordinate) -> CameraPose {
+        // Start with C₀ this far ahead of the eye on the base plane, in world
+        // metres.
+        let ahead = simd_length(SIMD2(base.x - eye.x, base.z - eye.z)) / scale
+        let start = GeoMath.destination(from: centre, bearing: heading + .pi, distance: ahead)
+        return standpoint(viewing: target, from: start, iterations: 6, frame: {
+            framing(camera: $0, room: room, groundHeight: groundHeight, tiltWeight: weight)
+        }) { point in
             let distance = GeoMath.distance(from: point, to: centre)
             return CameraPose(latitude: point.latitude, longitude: point.longitude, height: height,
                               heading: NavigationOperations.wrapped(heading + GeoMath.bearingChange(from: centre, to: point)),
                               pitch: -atan2(height - groundHeight, max(distance, 1e-6)))
         }
-        // Start with C₀ this far ahead of the eye on the base plane, in world
-        // metres, then nudge the standpoint until the centre is the view
-        // centre.
-        let ahead = simd_length(SIMD2(base.x - eye.x, base.z - eye.z)) / scale
-        var standpoint = GeoMath.destination(from: centre, bearing: heading + .pi, distance: ahead)
-        for _ in 0..<6 {
-            let f = framing(camera: pose(at: standpoint), room: room, groundHeight: groundHeight, tiltWeight: weight)
+    }
+
+    /// `camera` moved to `height` (metres above the ellipsoid) with its view
+    /// centre where it was: zoom in a room host. The heading relative to the
+    /// view centre and the pitch are kept. The pose is a function of the view
+    /// centre and the height alone, so zooming out and back in to the same
+    /// height returns to the same view.
+    static func pose(_ camera: CameraPose, at height: Double,
+                     holdingViewCentre frame: (CameraPose) -> AdaptiveModel.Framing) -> CameraPose {
+        let target = frame(camera).georeferencePoint
+        let centre = Geodesy.geodetic(target).coordinate
+        let heading = camera.heading - GeoMath.bearingChange(from: centre, to: camera.coordinate)
+        // Start where the camera would be if the view centre's distance
+        // scaled with the height above it.
+        let centreHeight = Geodesy.geodetic(target).height
+        let ratio = max(height - centreHeight, 1e-6) / max(camera.height - centreHeight, 1e-6)
+        let start = GeoMath.destination(from: centre, bearing: GeoMath.bearing(from: centre, to: camera.coordinate),
+                                        distance: GeoMath.distance(from: centre, to: camera.coordinate) * ratio)
+        return standpoint(viewing: target, from: start, iterations: 20, frame: frame) { point in
+            CameraPose(latitude: point.latitude, longitude: point.longitude, height: height,
+                       heading: NavigationOperations.wrapped(heading + GeoMath.bearingChange(from: centre, to: point)),
+                       pitch: camera.pitch)
+        }
+    }
+
+    /// Nudges the standpoint, starting at `start`, until `target` (ECEF) is
+    /// the view centre of `pose(standpoint)`.
+    private static func standpoint(viewing target: SIMD3<Double>, from start: GeoCoordinate, iterations: Int,
+                                   frame: (CameraPose) -> AdaptiveModel.Framing,
+                                   pose: (GeoCoordinate) -> CameraPose) -> CameraPose {
+        var standpoint = start
+        for _ in 0..<iterations {
+            let f = frame(pose(standpoint))
             // Moving the camera by Δ moves the map by −s·R·Δ.
             let miss = f.placementPoint - f.georeference.map(target)
             let shift = -f.georeference.rotation.inverse.act(miss) / f.georeference.scale
+            if simd_length(shift) < 1e-9 * max(pose(standpoint).height, 1) { break }
             let frame = Geodesy.enu(latitude: standpoint.latitude, longitude: standpoint.longitude)
             standpoint = GeoMath.offset(standpoint, east: simd_dot(shift, frame.east),
                                         north: simd_dot(shift, frame.north))
         }
-        return pose(at: standpoint)
+        return pose(standpoint)
     }
 }

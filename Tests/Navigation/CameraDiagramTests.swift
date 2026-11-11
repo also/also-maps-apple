@@ -7,12 +7,11 @@ private let degrees = Double.pi / 180
 /// The hosts' geometry, as MapPresentation defines it.
 private let volume: RoomGeometry = {
     let eye = SIMD3<Double>(0, 0.3, 0.85), level = SIMD3<Double>(0, -0.25, 0), down = SIMD3<Double>(0, 0, 0)
-    return RoomGeometry(designEye: eye, placementLevel: level, placementDown: down, contentHalfWidth: 0.5,
-                        fullTilt: RoomGeometry.tiltFacing(down, from: eye), viewCentreFollowsTilt: true)
+    return RoomGeometry(designEye: eye, placementLevel: level, contentHalfWidth: 0.5,
+                        fullTilt: RoomGeometry.tiltFacing(down, from: eye))
 }()
 private let immersive = RoomGeometry(designEye: SIMD3(0, 1.6, 0),
                                      placementLevel: SIMD3(0, 0.02, -5.6),
-                                     placementDown: SIMD3(0, 1.3, -5.6),
                                      contentHalfWidth: 5)
 
 private func diagram(_ camera: CameraPose, _ presentation: CameraDiagram.Presentation,
@@ -57,7 +56,7 @@ struct CameraDiagramTests {
         }
         let (low, lowRoom) = try at(20_000)
         #expect(low.tiltWeight == 0)
-        #expect(simd_distance(lowRoom.contentCenter, lowRoom.levelPlacement) < 1e-9)
+        #expect(simd_distance(lowRoom.sightLine, simd_normalize(lowRoom.levelPlacement - lowRoom.eye)) < 1e-9)
 
         let (mid, midRoom) = try at(150_000)
         #expect(mid.tiltWeight > 0 && mid.tiltWeight < 1)
@@ -66,11 +65,12 @@ struct CameraDiagramTests {
         let (high, highRoom) = try at(1_000_000)
         #expect(high.tiltWeight == 1)
         #expect(abs(highRoom.tilt - volume.fullTilt) < 1e-9)
-        #expect(simd_distance(highRoom.contentCenter, highRoom.downPlacement) < 1e-9)
-        // The volume's view center is on the line of sight through C(w).
-        let toCenter = simd_normalize(highRoom.contentCenter - highRoom.eye)
+        // The volume's view center is on the line of sight, toward the box's
+        // centre at full tilt.
+        let toBoxCentre = simd_normalize(CameraDiagram.side(SIMD3(0, 0, 0) - volume.designEye))
+        #expect(simd_distance(highRoom.sightLine, toBoxCentre) < 1e-9)
         let toPlacement = simd_normalize(highRoom.placement - highRoom.eye)
-        #expect(simd_distance(toCenter, toPlacement) < 1e-3)
+        #expect(simd_distance(highRoom.sightLine, toPlacement) < 1e-3)
     }
 
     @Test func aGivenTiltWeightOverridesTheAssist() throws {

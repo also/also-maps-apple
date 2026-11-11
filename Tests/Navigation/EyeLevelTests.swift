@@ -7,7 +7,6 @@ private let degrees = Double.pi / 180
 /// Immersive 10×, as MapPresentation defines it.
 private let immersive = RoomGeometry(designEye: SIMD3(0, 1.6, 0),
                                      placementLevel: SIMD3(0, 0.02, -5.6),
-                                     placementDown: SIMD3(0, 1.3, -5.6),
                                      contentHalfWidth: 5)
 private let ronda = GeoCoordinate(latitude: 36.7377, longitude: -5.1728)
 private let context = NavigationContext(cameraGround: 565, minimumAltitude: 55, maximumAltitude: 20_000_000)
@@ -70,16 +69,48 @@ struct EyeLevelTests {
         #expect(simd_distance(simd_normalize(f.georeference.rotation.act(up)), SIMD3(0, 0, 1)) < 1e-9)
     }
 
+    @Test(arguments: [1_510.0, 100_000, 158_000, 300_000, 600_000, 5_000_000])
+    func theViewCentreIsOnTheLineOfSight(altitude: Double) {
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: altitude,
+                                heading: 0.5, pitch: -0.3)
+        let w = EyeLevelModel.tiltWeight(for: camera)
+        let f = framing(camera, weight: w)
+        // On the ground, in front of the viewer: the line of sight meets the
+        // globe rather than falling back to the ground below.
+        let sight = immersive.sightLine(tiltWeight: w)
+        let toPlaced = f.placementPoint - immersive.designEye
+        #expect(simd_length(simd_cross(sight, simd_normalize(toPlaced))) < 1e-6)
+        #expect(simd_dot(sight, toPlaced) > 0)
+        #expect(abs(Geodesy.geodetic(f.georeferencePoint).height - 565) < 1e-3)
+    }
+
+    @Test(arguments: [0.0, 0.25, 0.5, 0.75, 1])
+    func theLineOfSightTurnsFromC0ToStraightAhead(weight: Double) {
+        let sight = immersive.sightLine(tiltWeight: weight)
+        let level = atan2(1.58, 5.6)
+        #expect(abs(asin(-sight.y) - level * (1 - weight)) < 1e-12)
+        #expect(abs(sight.x) < 1e-12 && sight.z < 0)
+    }
+
+    @Test
+    func theViewCentreIsTheGroundBelowAtFullTilt() {
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 600_000,
+                                heading: 0.5, pitch: -0.3)
+        let f = framing(camera, weight: 1)
+        #expect(simd_distance(f.georeferencePoint, Geodesy.ecef(ronda, height: 565)) < 1e-3)
+    }
+
     @Test(arguments: [600.0, 8_000, 30_000])
     func placeCentreLandsOnTheMapCentreAtTheRequestedScale(radius: Double) {
         let camera = EyeLevelModel.framePlace(centre: ronda, radius: radius, heading: 0.3,
                                               room: immersive, groundHeight: 565)
         let f = framing(camera)
         let centre = Geodesy.ecef(ronda, height: 565)
-        // On C₀ horizontally; below it only by the Earth's curve.
+        // On the view centre: where the line of sight to C₀ meets the
+        // ground, a little past C₀ for the Earth's curve.
         let landed = f.georeference.map(centre)
-        #expect(simd_distance(SIMD2(landed.x, landed.z), SIMD2(0, -5.6)) < 1e-3)
-        #expect(abs(landed.y - 0.02) < 0.02)
+        #expect(simd_distance(landed, f.placementPoint) < 1e-3)
+        #expect(simd_distance(landed, immersive.placementLevel) < 0.1)
         #expect(abs(f.shownRadius(immersive) / radius - 1) < 0.01)
     }
 
