@@ -6,12 +6,12 @@ options:
     macOS: "26.0"
     tvOS: "26.0"
     iOS: "26.0"
-# Optimised: Debug (keys from Config/Secrets.xcconfig, DEBUG code) compiled
-# as fast as Release, for running on a device. The unoptimised Debug build
+# Optimized: Debug (keys from Config/Secrets.xcconfig, DEBUG code) compiled
+# as fast as Release, for running on a device. The unoptimized Debug build
 # misses frame deadlines on Vision Pro (notes/metal-renderer.md).
 configs:
   Debug: debug
-  Optimised: debug
+  Optimized: debug
   Release: release
 settings:
   base:
@@ -23,7 +23,7 @@ settings:
     # destination builds and then fails to link.
     ARCHS: arm64
   configs:
-    Optimised:
+    Optimized:
       GCC_OPTIMIZATION_LEVEL: s
       SWIFT_OPTIMIZATION_LEVEL: -O
       SWIFT_COMPILATION_MODE: wholemodule
@@ -63,7 +63,7 @@ settingGroups:
     PRODUCT_MODULE_NAME: AlsoMaps
 configFiles:
   Debug: Config/App.xcconfig
-  Optimised: Config/App.xcconfig
+  Optimized: Config/App.xcconfig
   Release: Config/App.xcconfig
 targets:
   Also Maps visionOS:
@@ -139,7 +139,7 @@ targets:
         # team can sign them with its wildcard profile.
         Debug: &debugEntitlements
           CODE_SIGN_ENTITLEMENTS: $(DEBUG_CODE_SIGN_ENTITLEMENTS)
-        Optimised: *debugEntitlements
+        Optimized: *debugEntitlements
         # Release builds get keys at run time (CredentialStore), so none ship.
         # App Attest uses Apple's production service in every build, so local
         # and distributed builds work against the same credentials API.
@@ -363,7 +363,7 @@ targets:
       configs:
         # Entitlements as for the visionOS app.
         Debug: *debugEntitlements
-        Optimised: *debugEntitlements
+        Optimized: *debugEntitlements
         # Release builds get keys at run time (CredentialStore), so none ship.
         Release:
           CODE_SIGN_ENTITLEMENTS: Config/AppAttest.entitlements
@@ -371,20 +371,20 @@ targets:
           CESIUM_ION_TOKEN: ""
 
 schemes:
-  # The visionOS app built Optimised, without Metal API validation or GPU
+  # The visionOS app built Optimized, without Metal API validation or GPU
   # frame capture: for using it on a Vision Pro rather than debugging it.
-  Also Maps visionOS (Optimised):
+  Also Maps visionOS (Optimized):
     build:
       targets:
         Also Maps visionOS: all
     run:
-      config: Optimised
+      config: Optimized
       enableGPUValidationMode: disabled
       enableGPUFrameCaptureMode: disabled
       environmentVariables: *visionOSEnvironment
     profile:
-      config: Optimised
+      config: Optimized
     analyze:
-      config: Optimised
+      config: Optimized
     archive:
       config: Release
