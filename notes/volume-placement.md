@@ -119,6 +119,8 @@ Tests: `MappingTests`' framing/nadir tests and `Stage2Tests`' assist and pitch t
 
 [also/also-maps-apple#59](https://github.com/also/also-maps-apple/pull/59) (`camera-diagrams`, unmerged) moves the pitch assist into `AdaptiveModel.assistedPitch`/`easedPitch` and the room streaming inputs into `StreamingInputs.room(...)`. This work deletes the assist and simplifies the streaming inputs, so the two conflict in `MapModel.swift` and `AdaptiveModel.swift`. Whichever lands second resolves it: if #59 lands first, its `assistedPitch`/`easedPitch` are deleted and `StreamingInputs.room` loses its `eyeLevel`/`cameraGround` parameters. Its camera diagram may also draw the view ray as what places the volume, which would then be out of date.
 
+**Observed** (resolved on `camera-diagrams`, merging main in): `assistedPitch`/`easedPitch` are gone, `StreamingInputs.room` takes only the placement ground, and the camera diagram draws both room hosts with `EyeLevelModel.framing`.
+
 ## Questions for the owner
 
 1. **Tilt pivot:** about E in both hosts (camera always on E, per-host τ_max), or §5's pivot about a raised C (one τ for all hosts, camera leaves E in the volume)? I recommend E.

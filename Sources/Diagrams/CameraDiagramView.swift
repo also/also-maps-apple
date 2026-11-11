@@ -37,11 +37,11 @@ struct CameraDiagramWorldView: View {
                     DiagramStyle.label("placed", at: fit.point(placed), in: &context)
                 }
                 DiagramStyle.cross(at: fit.point(g), in: &context)
-                DiagramStyle.label("G", at: fit.point(g), in: &context)
+                DiagramStyle.label("view centre", at: fit.point(g), in: &context)
             }
 
-            DiagramStyle.marker(camera: d.camera, viewer: d.viewer, underground: d.viewerAltitude < 0,
-                                fit: fit, in: &context)
+            DiagramStyle.marker(camera: d.camera, viewer: d.viewer, viewerName: DiagramStyle.viewerName(d),
+                                underground: d.viewerAltitude < 0, fit: fit, in: &context)
         }
         .clipped()
     }
@@ -83,12 +83,12 @@ struct CameraDiagramRoomView: View {
                 DiagramStyle.label(name, at: fit.point(point), in: &context)
             }
             DiagramStyle.cross(at: fit.point(room.placement), in: &context)
-            DiagramStyle.label("C", at: fit.point(room.placement), in: &context, below: true)
+            DiagramStyle.label("view centre", at: fit.point(room.placement), in: &context, below: true, left: true)
 
             let camera = CameraDiagram.Viewpoint(position: room.camera, direction: room.lod.direction)
             let eye = CameraDiagram.Viewpoint(position: room.eye, direction: room.lod.direction)
-            DiagramStyle.marker(camera: camera, viewer: eye, underground: diagram.viewerAltitude < 0,
-                                fit: fit, in: &context)
+            DiagramStyle.marker(camera: camera, viewer: eye, viewerName: DiagramStyle.viewerName(diagram),
+                                underground: diagram.viewerAltitude < 0, fit: fit, in: &context)
         }
         .clipped()
     }
@@ -226,10 +226,17 @@ enum DiagramStyle {
         context.stroke(path, with: .color(color(kind)), style: style)
     }
 
-    /// The camera (a dot with its view direction) and the eye (a ring),
-    /// joined if the placement separates them. The eye is red underground.
-    static func marker(camera: CameraDiagram.Viewpoint, viewer: CameraDiagram.Viewpoint, underground: Bool,
-                       fit: DiagramFit, in context: inout GraphicsContext) {
+    /// What the picture is drawn from: the window's render camera, or a room
+    /// host's reference head pose (the code's design eye).
+    static func viewerName(_ diagram: CameraDiagram) -> String {
+        diagram.room == nil ? "render camera" : "reference head"
+    }
+
+    /// The navigation position (a dot with the camera pose's direction) and
+    /// the viewer (a ring), joined if the placement separates them. The
+    /// viewer is red underground.
+    static func marker(camera: CameraDiagram.Viewpoint, viewer: CameraDiagram.Viewpoint, viewerName: String,
+                       underground: Bool, fit: DiagramFit, in context: inout GraphicsContext) {
         let c = fit.point(camera.position), v = fit.point(viewer.position)
         let apart = hypot(c.x - v.x, c.y - v.y) > 4
         if apart {
@@ -242,11 +249,12 @@ enum DiagramStyle {
         let eyeColor: Color = underground ? .red : .green
         context.stroke(Path(ellipseIn: CGRect(x: v.x - 6, y: v.y - 6, width: 12, height: 12)),
                        with: .color(eyeColor), lineWidth: 2)
+        let viewer = underground ? "\(viewerName) (underground)" : viewerName
         if apart {
-            label("camera", at: c, in: &context)
-            label(underground ? "eye (underground)" : "eye", at: v, in: &context, below: true, color: eyeColor)
+            label("navigation position", at: c, in: &context)
+            label(viewer, at: v, in: &context, below: true, color: eyeColor)
         } else {
-            label(underground ? "camera = eye (underground)" : "camera = eye", at: c, in: &context, color: eyeColor)
+            label("navigation position = \(viewer)", at: c, in: &context, color: eyeColor)
         }
     }
 
@@ -271,8 +279,9 @@ enum DiagramStyle {
     }
 
     static func label(_ text: String, at p: CGPoint, in context: inout GraphicsContext,
-                      below: Bool = false, color: Color = .secondary) {
+                      below: Bool = false, left: Bool = false, color: Color = .secondary) {
         context.draw(Text(text).font(.caption2).foregroundStyle(color),
-                     at: CGPoint(x: p.x + 7, y: p.y + (below ? 9 : -9)), anchor: .leading)
+                     at: CGPoint(x: p.x + (left ? -7 : 7), y: p.y + (below ? 9 : -9)),
+                     anchor: left ? .trailing : .leading)
     }
 }
