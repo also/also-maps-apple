@@ -48,6 +48,9 @@ Environment variables:
 - `ALSOMAPS_METAL_CULLING=0`: turn culling off, for a baseline. On by default.
 - `ALSOMAPS_METAL_FOVEATION=0`: turn visionOS foveation off, for a baseline.
   On by default where the dedicated layout supports it.
+- `ALSOMAPS_METAL_LOOK=<name>`: draw in one of Settings › General › Look's
+  looks for this run (`contours`, `thermal`, `blueprint`, `tinyPlanet`,
+  `insideOut`, `sonar`, `halftone`; `normal` is the default).
 
 The log reports submitted out of considered tiles, draws and triangles,
 summed over the interval. "Considered" is what would be submitted with
@@ -71,6 +74,37 @@ eyes and near-plane crossings for missing geometry. On Vision Pro, compare
 foveation separately with culling held fixed, and check peripheral image
 quality, both eyes and compositor depth. The simulator can't show foveation
 quality.
+
+### Looks
+
+Settings › General › Look swaps in other shaders (`MetalLooks.swift`), for
+fun. Normal draws exactly as before: other looks have their own library,
+pipelines and draw loop, compiled on first use, so the default path gains
+only a settings read per view. A look that can't be built on this GPU falls
+back to Normal.
+
+- Uniforms come from what `encode` already gets: the eye is recovered from
+  the view-projection (the point it sends to x = y = w = 0), and positions
+  are in the anchor's level frame, so height above the ellipsoid is the
+  anchor's height plus y plus the earth's curvature. Hosts pass the anchor
+  height; time is the renderer's own.
+- Sky: a full-screen triangle at depth 1e-30 with a `greater` test and no
+  depth write paints only pixels still at the cleared far plane, before the
+  immersive sky-depth pass.
+- Post-process (Halftone): a full-screen triangle that reads its own pixel
+  with framebuffer fetch, in the host's pass. Nothing is resampled, so
+  dedicated eye textures and rate maps need nothing special. The dot screen
+  is printed on a world-fixed cube of directions (equal-angle faces, a whole
+  number of cells per face so dots meet across edges), not on pixels or the
+  view's axes: it stays put as the head turns, is the same size foveated or
+  not, and lines up between the eyes. An earlier version used a plane facing
+  the view, which on visionOS looked like a screen door fixed to the head.
+- Tiny planet and Inside out bend vertices onto a sphere and turn culling
+  off, since the bounds are unbent.
+- Mixed immersion: the immersive host passes `opaqueSky: false`, so looks
+  skip their sky and Halftone writes premultiplied colour with the finished
+  pixel's alpha, leaving passthrough wherever there's no map. Not yet run in
+  mixed immersion.
 
 ## Log
 
@@ -109,6 +143,34 @@ since removed (commit f832a68 in PR #38, if it's needed again):
   entry below). The simulator's compositor may differ here.
 - Never submitting a drawable isn't a usable test: the app was shut down
   within seconds in the simulator.
+
+### 2026-11-04: halftone fixed to the world, blueprint grid removed
+
+- **Observed (owner, visionOS):** Halftone's dots moved with the headset,
+  like a screen door fixed to the head, because they were laid out on the
+  view's own axes. They're now on a world-fixed cube of directions.
+- **Observed (owner):** Blueprint was noisy; its 100/500 m ground grid is
+  gone, leaving the triangle wireframe. The faint sky graph paper stays.
+- **Observed (owner, visionOS):** with the world-fixed screen the dots no
+  longer turn with the head, but they still slide and shimmer and don't
+  feel fixed. **Inferred:** a screen at infinity can't stay on near
+  surfaces as the head moves, stereo puts the dots behind the scene, and
+  each dot's size follows whatever pixel is under it. Making the dots feel
+  fixed means printing them on surfaces, sized by distance in steps. Halftone
+  is kept as it is, to demo the post-process path and this limit.
+
+### 2026-11-04: looks on macOS
+
+- **Observed:** all seven looks drew in the Mac window (San Francisco,
+  800 m), with no pipeline errors; Normal unchanged.
+- **Observed:** Inside out shows thin dark cracks where long triangles span
+  a big change in bend angle: each edge stays straight while the surface
+  curves. Tessellating would fix it; not done.
+- **Inferred:** Tiny planet needs looking well down to see the planet (it
+  only covers about 50° around straight down); from the default pitch it's
+  mostly sky.
+- Not run on visionOS: it builds, but the shaders compile at run time and
+  weren't exercised in the simulator or on a device.
 
 ### 2026-11-04: immersion styles (mixed works, progressive needs layered)
 

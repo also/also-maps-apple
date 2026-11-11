@@ -13,6 +13,7 @@ struct SettingsView: View {
 
     @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
     @AppStorage(ViewPreferences.drawsWithMetalKey) private var drawsWithMetal = false
+    @AppStorage(MetalLook.key) private var metalLook = MetalLook.normal
     #if os(iOS)
     /// On iPhone the list comes first; nothing picked shows General on iPad.
     @State private var category: Category?
@@ -134,6 +135,15 @@ struct SettingsView: View {
                 #else
                 Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
                 #endif
+            }
+            if drawsWithMetal {
+                Section {
+                    Picker("Look", selection: $metalLook) {
+                        ForEach(MetalLook.allCases) { Text($0.title).tag($0) }
+                    }
+                } footer: {
+                    Text("Shader experiments for the Metal renderer: contour lines by height, a thermal camera, a blueprint wireframe, a tiny planet, the ground curling up overhead, a sonar pulse and a newspaper halftone.")
+                }
             }
             #endif
 
