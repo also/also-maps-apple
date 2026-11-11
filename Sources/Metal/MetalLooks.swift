@@ -172,13 +172,15 @@ final class MetalLooks: @unchecked Sendable {
     }
 
     /// As MetalTileRenderer.encode, in `look`; nil if the look can't be
-    /// drawn here, for the caller to draw normally instead.
+    /// drawn here, for the caller to draw normally instead. Without
+    /// `opaqueSky` the look's sky isn't drawn, and the post pass keeps the
+    /// finished pixel's alpha, so passthrough shows where there's no map.
     func encode(_ look: MetalLook, _ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
                 viewProjection: simd_float4x4, root: simd_float4x4, anchorHeight: Double,
-                tiles: [(tile: CNTileMesh, placement: simd_float4x4)]) -> MetalDrawStatistics? {
+                opaqueSky: Bool, tiles: [(tile: CNTileMesh, placement: simd_float4x4)]) -> MetalDrawStatistics? {
         let functions = look.functions
         guard let tilePipeline = pipeline(Key(look: look, colour: colour, depth: depth, stage: .tiles)) else { return nil }
-        let skyPipeline = functions.sky == nil ? nil : pipeline(Key(look: look, colour: colour, depth: depth, stage: .sky))
+        let skyPipeline = functions.sky == nil || !opaqueSky ? nil : pipeline(Key(look: look, colour: colour, depth: depth, stage: .sky))
         let postPipeline = functions.post == nil ? nil : pipeline(Key(look: look, colour: colour, depth: depth, stage: .post))
         if functions.post != nil, postPipeline == nil { return nil }
 
@@ -608,7 +610,8 @@ fragment float4 halftonePost(ScreenOut in [[stage_in]], float4 finished [[color(
     float red = dots(uv, warmth * 0.7, 0.0104, false);
     float3 paper = float3(0.95, 0.92, 0.84);
     float3 printed = paper * (1 - red * float3(0.05, 0.75, 0.7)) * (1 - black * 0.9);
-    return float4(srgbToLinear(printed), 1);
+    // Premultiplied, so a transparent sky (mixed immersion) stays clear.
+    return float4(srgbToLinear(printed) * finished.a, finished.a);
 }
 """
 }

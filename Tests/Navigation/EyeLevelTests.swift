@@ -107,8 +107,7 @@ struct EyeLevelTests {
         let p = SIMD3(0.4, 0.02, -3.0)
         let grab = before.georeference.ecef(map: p)
         let target = AdaptiveModel.AnchorTarget(grab: grab, target: p, scale: before.georeference.scale * 2,
-                                                heading: start.heading + 0.3, headingOrigin: start.coordinate,
-                                                pitch: { _ in start.pitch })
+                                                heading: start.heading + 0.3, headingOrigin: start.coordinate)
         let solution = AdaptiveModel.solve(target, from: start, room: immersive, scaleSurface: 565,
                                            context: context) { framing($0) }
         #expect(solution.error < 1e-3)

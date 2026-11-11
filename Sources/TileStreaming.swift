@@ -77,10 +77,16 @@ final class TileStreaming {
             if (customTileHandler == nil) != (oldValue == nil) { restart() }
         }
     }
+    /// Builds overlay images' textures alongside `customTileHandler`. Set it
+    /// first: only setting that one restarts streaming.
+    var customRasterHandler: CNRasterLoadHandler?
     /// With a custom handler: last frame's tiles, each with its placement in
     /// the anchor's level frame (the same as an entity's under `tilesRoot`).
     private(set) var drawnTiles: [(tile: CNTileMesh, placement: simd_float4x4)] = []
     private var tileEntities: [UInt64: Entity] = [:]
+    /// The imagery each tile entity shows, to spot when cesium-native
+    /// attaches better imagery.
+    private var appliedOverlays: [UInt64: CNOverlay] = [:]
     private var renderedTiles: [CNTileMesh] = []
     /// Draw each drawn tile's bounding box as a wireframe child of the tile:
     /// cyan inside the LOD camera's view, orange outside it.
@@ -121,10 +127,12 @@ final class TileStreaming {
         // Debug: ALSOMAPS_TILESET_URL streams any 3D Tiles tileset, no key.
         if let override = env["ALSOMAPS_TILESET_URL"], !override.isEmpty {
             streamer = CNTileStreamer(tilesetURL: override)
-        } else if let assetID = settings.tileSource.ionAssetID {
+        } else if let layers = settings.tileSource.ionLayers {
             guard let token = requireKey(for: .cesiumIon) else { return }
-            streamer = CNTileStreamer(ionAssetID: assetID, accessToken: token,
-                                      smoothNormals: settings.tileSource.smoothNormals)
+            streamer = CNTileStreamer(ionLayers: layers.map {
+                CNIonLayer(assetID: $0.assetID, imageryAssetID: $0.imageryAssetID ?? 0,
+                           smoothNormals: $0.smoothNormals)
+            }, accessToken: token)
         } else {
             guard let key = requireKey(for: .googleMaps) else { return }
             streamer = CNTileStreamer(tilesetURL: "https://tile.googleapis.com/v1/3dtiles/root.json?key=\(key)")
@@ -134,6 +142,7 @@ final class TileStreaming {
         tileUploader.untexturedColor = settings.tileSource.untexturedColor
         // Before the first update, so every tile goes through it.
         streamer.tileLoadHandler = customTileHandler ?? tileUploader.handler
+        streamer.rasterLoadHandler = customTileHandler == nil ? tileUploader.rasterHandler : customRasterHandler
         self.streamer = streamer
         applySettings()
         applyInputs()
@@ -146,6 +155,7 @@ final class TileStreaming {
         streamer = nil
         for entity in tileEntities.values { entity.removeFromParent() }
         tileEntities = [:]
+        appliedOverlays = [:]
         tileBoxes = [:]
         renderedTiles = []
         drawnTiles = []
@@ -160,7 +170,7 @@ final class TileStreaming {
     /// The service this source needs a key for; a debug tileset needs none.
     private var keyService: CredentialService? {
         if let override = ProcessInfo.processInfo.environment["ALSOMAPS_TILESET_URL"], !override.isEmpty { return nil }
-        return settings.tileSource.ionAssetID == nil ? .googleMaps : .cesiumIon
+        return settings.tileSource.ionLayers == nil ? .googleMaps : .cesiumIon
     }
 
     /// The key to stream with, or nil with a message saying how to get one.
@@ -230,6 +240,7 @@ final class TileStreaming {
 
         for id in frame.freedTileIDs {
             tileEntities.removeValue(forKey: id.uint64Value)?.removeFromParent()
+            appliedOverlays.removeValue(forKey: id.uint64Value)
             tileBoxes.removeValue(forKey: id.uint64Value)
         }
 
@@ -253,6 +264,13 @@ final class TileStreaming {
                     // Placed relative to the current anchor every frame, so there's
                     // no fixed origin for precision to drift away from.
                     tileEntities[tile.identifier]?.transform = Transform(matrix: placements[index])
+                    // Newly attached imagery replaces the old once its
+                    // texture is ready; until then the old stays.
+                    if let overlay = tile.overlay, overlay !== appliedOverlays[tile.identifier],
+                       let entity = tileEntities[tile.identifier],
+                       TileUploader.applyOverlay(overlay, to: entity) {
+                        appliedOverlays[tile.identifier] = overlay
+                    }
                 }
             }
             for (id, entity) in tileEntities {

@@ -5,15 +5,15 @@ import SwiftUI
 import UIKit
 
 /// Navigation and presentation for the map. The camera is the state
-/// (`navigation`); each host shows it through the adaptive model, which
-/// scales the world so the camera sits at the design eye point and what it
-/// looks at sits on the host's base plane. Tiles come from `streaming`. See
-/// docs/camera-core.md.
+/// (`navigation`); each host shows it through the eye-level placement, which
+/// puts the camera at the design eye point and the ground beneath it on the
+/// host's base plane, level unless the tilt tips it. Tiles come from
+/// `streaming`.
 @MainActor
 @Observable
 final class MapModel {
     /// Volume extents in metres (width, height, depth).
-    nonisolated static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
+    nonisolated static let volumeSize = MapPresentation.volumeSize
 
     /// Where the app starts: the Ferry Building, 600 m across the volume.
     static let defaultPlace = Place(id: "default", name: "San Francisco",
@@ -50,9 +50,6 @@ final class MapModel {
             guard presentation != oldValue else { return }
             stopPlayback()
             endManipulation()
-            // In the volume each host's level map has its own pitch; the
-            // assist re-targets. Immersive hosts ignore pitch.
-            settlesPitch = pitchFollowsAltitude && !usesEyeLevel
             reparentRoot()
             layOutGestureTarget()
             applyView()
@@ -85,32 +82,29 @@ final class MapModel {
     /// navigation state.
     private(set) var navigation: NavigationState
     private var flight = ModelFlightStyle()
-    /// The optional framing assist. In the volume, pitch eases toward the
-    /// level map up close and straight down far away (docs/camera-core.md
-    /// §12.3); in immersive hosts the map tilts with altitude instead.
-    var pitchFollowsAltitude = true
+    /// Drone mode's tilt assist: the map tilts toward you as you climb, from
+    /// none below 50 km to the host's full tilt by 500 km. Off, the map
+    /// stays level.
+    var tiltFollowsAltitude = true
     /// Lowest camera height above the estimated ground in room hosts.
     private static let minimumAltitude = 55.0
     /// Highest camera height above the estimated ground, metres: a view
     /// 10,000 km in half-width, roughly a hemisphere.
     private static let maximumAltitude = 11_000_000.0
 
-    // Ground estimates (docs/camera-core.md §8): the terrain height the view
-    // ray meets (h_ray), the low envelope placed on the base plane
-    // (h_env), and the ground under the camera, for speed and limits.
-    private var rayHeight = EasedHeight(0)
-    private var envelopeHeight = EasedHeight(0)
+    // Ground estimates: the placement ground, put
+    // on the base plane, and the ground under the camera, for speed and
+    // limits.
+    private var placementGround = EasedHeight(0)
     private var cameraGround = CameraGround()
     /// Bumped per sample request so a slow, older result can't win.
     private var groundSampleGeneration = 0
     private var wasMoving = false
-    /// Easing pitch to the new host's level map after a host switch.
-    private var settlesPitch = false
     /// A place's framing assumes ground at 0 m until the first sample there;
     /// that sample moves the camera with the ground instead of rescaling.
     private var placeAwaitsGround = true
 
-    /// The last valid framing, kept when the volume's view ray misses.
+    /// The current framing, set by `applyView`.
     private var framing: AdaptiveModel.Framing?
 
     /// Immersive only, for testing: the world stays at human scale (1:1) at
@@ -124,22 +118,14 @@ final class MapModel {
         }
     }
 
-    /// Immersive hosts use the eye-level model (the camera at the viewer's
-    /// eye, the map level unless tilted by altitude); the volume keeps the
-    /// adaptive model.
-    private var usesEyeLevel: Bool { presentation.host == .immersive }
+    private var isImmersive: Bool { presentation.host == .immersive }
 
-    /// The framing for `camera` in the current host, or nil when the
-    /// volume's view ray misses the surface.
-    private func frame(_ camera: CameraPose) -> AdaptiveModel.Framing? {
-        if usesEyeLevel {
-            let ground = effectiveEnvelope
-            let weight = pitchFollowsAltitude ? EyeLevelModel.tiltWeight(altitude: camera.height - ground) : 0
-            return EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground, tiltWeight: weight,
-                                         fixedScale: humanScale ? 1 : nil)
-        }
-        return AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
-                                     envelopeHeight: effectiveEnvelope)
+    /// The framing for `camera` in the current host: level unless the tilt
+    /// assist tips it, by an amount that depends only on where the camera is.
+    private func frame(_ camera: CameraPose) -> AdaptiveModel.Framing {
+        let weight = tiltFollowsAltitude ? EyeLevelModel.tiltWeight(for: camera) : 0
+        return EyeLevelModel.framing(camera: camera, room: room, groundHeight: placementGround.value,
+                                     tiltWeight: weight, fixedScale: humanScale && isImmersive ? 1 : nil)
     }
 
     // MARK: Tiles held
@@ -194,7 +180,7 @@ final class MapModel {
         place.longitude = env["ALSOMAPS_LON"].flatMap(Double.init) ?? place.longitude
         place.radius = env["ALSOMAPS_RADIUS"].flatMap(Double.init) ?? place.radius
         place.heading = env["ALSOMAPS_HEADING"].flatMap(Double.init) ?? place.heading
-        let camera = Self.framing(place, in: .volume, groundHeight: 0)
+        let camera = Self.framing(place, in: .volume, groundHeight: 0, tiltFollowsAltitude: true)
         navigation = ModelFlightStyle().activate(NavigationState(camera: camera))
 
         streaming = TileStreaming(inputs: StreamingInputs(anchor: StreamingAnchor(coordinate: place.coordinate)),
@@ -233,12 +219,14 @@ final class MapModel {
     /// The Metal immersive space opened: tiles are built for it until it
     /// closes. Streaming restarts each way; tiles come back from the cache.
     func metalImmersiveDidOpen(_ metal: MetalTileRenderer) {
+        streaming.customRasterHandler = metal.rasterHandler
         streaming.customTileHandler = metal.handler
         metalImmersiveIsOpen = true
     }
 
     func metalImmersiveDidClose() {
         metalImmersiveIsOpen = false
+        streaming.customRasterHandler = nil
         streaming.customTileHandler = nil
         immersiveSpaceDidClose()
     }
@@ -325,22 +313,18 @@ final class MapModel {
 
     // MARK: Places
 
-    /// The camera that frames `place` in a host: its centre on the base plane,
+    /// The camera that frames `place` in a host: its centre the view centre,
     /// `radius` metres of world across the host's half-width (half the
-    /// volume, or an immersive mode's magnified equivalent), level.
+    /// volume, or the immersive space's magnified equivalent).
     private static func framing(_ place: Place, in presentation: MapPresentation,
-                                groundHeight: Double) -> CameraPose {
+                                groundHeight: Double, tiltFollowsAltitude: Bool) -> CameraPose {
         guard case let .room(room) = presentation.geometry else {
             preconditionFailure("visionOS hosts are rooms")
         }
-        if presentation.host == .immersive {
-            return EyeLevelModel.framePlace(centre: place.coordinate, radius: place.radius,
-                                            heading: place.heading * .pi / 180,
-                                            room: room, groundHeight: groundHeight)
-        }
-        return AdaptiveModel.framePlace(centre: place.coordinate, radius: place.radius,
+        return EyeLevelModel.framePlace(centre: place.coordinate, radius: place.radius,
                                         heading: place.heading * .pi / 180,
-                                        room: room, groundHeight: groundHeight)
+                                        room: room, groundHeight: groundHeight,
+                                        tiltFollowsAltitude: tiltFollowsAltitude)
     }
 
     /// Jumps to `place`: a camera framing its position, size and facing.
@@ -350,15 +334,12 @@ final class MapModel {
         if tilesHeld { setTilesHeld(false) }
         stopPlayback()
         endManipulation()
-        // Framed level for this host already.
-        settlesPitch = false
         placeAwaitsGround = true
         currentPlaceID = place.id
-        rayHeight.reset(to: 0)
-        envelopeHeight.reset(to: 0)
+        placementGround.reset(to: 0)
         cameraGround.reset(to: 0)
         framing = nil
-        var camera = Self.framing(place, in: presentation, groundHeight: 0)
+        var camera = Self.framing(place, in: presentation, groundHeight: 0, tiltFollowsAltitude: tiltFollowsAltitude)
         camera.height = context.clampHeight(camera.height)
         navigation = flight.activate(NavigationState(camera: camera))
         tracks.markJump()
@@ -442,21 +423,13 @@ final class MapModel {
     /// the pinched scale and twisted heading.
     private func solveManipulation() {
         guard let m = manipulation else { return }
-        let room = self.room
-        let levelPitch = room.levelPitch
-        let startPitch = m.startPose.pitch
-        let followsAltitude = pitchFollowsAltitude && !usesEyeLevel
         let target = AdaptiveModel.AnchorTarget(
             grab: m.grab,
             target: m.start + m.translation,
             scale: m.startScale * m.magnification,
             heading: m.startPose.heading + m.twist,
-            headingOrigin: m.startPose.coordinate,
-            pitch: { altitude in
-                followsAltitude ? AdaptiveModel.pitchTarget(altitude: altitude, levelPitch: levelPitch) : startPitch
-            })
-        let solution = AdaptiveModel.solve(target, from: m.pose, room: room,
-                                           scaleSurface: usesEyeLevel ? effectiveEnvelope : rayHeight.value,
+            headingOrigin: m.startPose.coordinate)
+        let solution = AdaptiveModel.solve(target, from: m.pose, room: room, scaleSurface: placementGround.value,
                                            context: context, frame: frame)
         guard solution.error.isFinite else { return }
         var state = navigation
@@ -493,17 +466,6 @@ final class MapModel {
         applyInput(deltaTime: dt)
         if tracks.isPlaying {
             advancePlayback(deltaTime: dt)
-        } else if settlesPitch, manipulation == nil {
-            // Until the pitch reaches the new host's target: a new scene's
-            // first frames can have almost no time step, so a small step
-            // doesn't mean it's done.
-            navigation.camera = easedPitch(navigation.camera, deltaTime: dt)
-            settlesPitch = abs(pitchTarget(for: navigation.camera) - navigation.camera.pitch) > 1e-4
-            #if DEBUG
-            if !settlesPitch {
-                print("[AlsoMaps] pitch settled at \(String(format: "%.2f", navigation.camera.pitch * 180 / .pi))° for \(presentation.id)")
-            }
-            #endif
         }
         updateGround(deltaTime: dt)
         tracks.record(navigation.camera)
@@ -553,20 +515,22 @@ final class MapModel {
               deltaTime: deltaTime)
     }
 
-    /// Model flight, then the framing assists: pitch follows altitude (if
-    /// on) about the georeference point, within the horizon limit.
+    /// Model flight. Zooming heads for the view centre, not along the
+    /// camera's pitch, which room hosts don't show.
     private func steer(with input: ControlInput, deltaTime: Double) {
-        flight.dollySurfaceHeight = rayHeight.value
+        flight.dollySurfaceHeight = placementGround.value
+        flight.dollyTarget = framing?.georeferencePoint
+        // Zoom works only below where the tilt starts. Not a property of the
+        // world: we haven't found a model of zooming that works with the tilt
+        // assist (the view centre zoom heads for moves as the map tilts), and
+        // the limit keeps zooming out and back in from drifting confusingly.
+        flight.zoomCeiling = EyeLevelModel.tiltStartAltitude
         // Turning, climbing and zooming first, limited (while held) by how
         // much of the held region they'd show; then travel, limited by how
         // far it goes from it.
         var looking = input
         looking.move = .zero
         var state = flight.step(navigation, input: looking, deltaTime: deltaTime, context: context)
-        if pitchFollowsAltitude, !usesEyeLevel, input.climb != 0 || input.dolly != 0 {
-            state.camera = easedPitch(state.camera, deltaTime: deltaTime)
-        }
-        state.camera.pitch = min(state.camera.pitch, pitchLimit(for: state.camera))
         if withinHeldLimits(state, checking: [.size]) { navigation = state }
 
         guard input.move != .zero else { return }
@@ -574,35 +538,7 @@ final class MapModel {
         moving.move = input.move
         moving.fast = input.fast
         state = flight.step(navigation, input: moving, deltaTime: deltaTime, context: context)
-        state.camera.pitch = min(state.camera.pitch, pitchLimit(for: state.camera))
         if withinHeldLimits(state, checking: [.travel]) { navigation = state }
-    }
-
-    /// The pitch policy's step: toward θ_target for the altitude, swinging
-    /// the camera about the georeference point so what's on the table stays.
-    private func pitchTarget(for camera: CameraPose) -> Double {
-        min(AdaptiveModel.pitchTarget(altitude: camera.height - cameraGround.value, levelPitch: room.levelPitch),
-            pitchLimit(for: camera))
-    }
-
-    private func easedPitch(_ camera: CameraPose, deltaTime: Double) -> CameraPose {
-        let target = pitchTarget(for: camera)
-        guard abs(target - camera.pitch) > 1e-6 else { return camera }
-        let pitch = camera.pitch + (target - camera.pitch) * min(1, deltaTime * 6)
-        guard let current = AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
-                                                  envelopeHeight: effectiveEnvelope)
-        else { return camera }
-        var turned = camera
-        turned.pitch = pitch
-        let forward = turned.basis.forward
-        var swung = CameraPose(position: current.georeferencePoint - forward * current.range,
-                               forward: forward, fallbackHeading: camera.heading)
-        swung.height = context.clampHeight(swung.height)
-        return swung
-    }
-
-    private func pitchLimit(for camera: CameraPose) -> Double {
-        AdaptiveModel.pitchLimit(cameraHeight: camera.height, rayHeight: rayHeight.value, latitude: camera.latitude)
     }
 
     private func perform(_ action: MapInput.Action) {
@@ -614,7 +550,7 @@ final class MapModel {
             go(to: PlaceLibrary.place(in: places, stepping: -1, from: currentPlaceID))
         case .faceNorth where !tracks.isPlaying:
             navigation = NavigationOperations.faceNorth(navigation)
-        case .toggleFly:
+        case .toggleTileHold:
             setTilesHeld(!tilesHeld)
         default:
             break
@@ -625,7 +561,7 @@ final class MapModel {
 
     private var context: NavigationContext {
         NavigationContext(cameraGround: cameraGround.value,
-                          minimumAltitude: humanScale && usesEyeLevel ? 1.6 : Self.minimumAltitude,
+                          minimumAltitude: humanScale && isImmersive ? 1.6 : Self.minimumAltitude,
                           maximumAltitude: Self.maximumAltitude)
     }
 
@@ -637,9 +573,8 @@ final class MapModel {
     /// limit, and make it worse, is refused, so you slide to a stop.
     private func withinHeldLimits(_ state: NavigationState,
                                   checking limits: Set<HeldLimit> = [.travel, .size]) -> Bool {
-        guard tilesHeld, let held = heldInputs,
-              let candidate = frame(state.camera)
-        else { return true }
+        guard tilesHeld, let held = heldInputs else { return true }
+        let candidate = frame(state.camera)
         func ratio(_ limit: HeldLimit, _ framing: AdaptiveModel.Framing) -> Double {
             switch limit {
             case .travel:
@@ -658,15 +593,12 @@ final class MapModel {
 
     // MARK: Ground
 
-    /// The envelope used for placement, never above the ray surface.
-    private var effectiveEnvelope: Double { min(envelopeHeight.value, rayHeight.value) }
-
     /// The ground under the camera every frame (see `CameraGround`), for
     /// speed and limits.
     ///
-    /// The georeference ground (where the map sits on the base plane)
-    /// comes only from the 3×3 surface sample once motion settles, plus the
-    /// Earth's curve far out. Reading it from the loaded tiles continuously
+    /// The placement ground (what sits on the base plane) comes only from
+    /// the 3×3 surface sample once motion settles. Reading it from the
+    /// loaded tiles continuously
     /// fed back on itself: a new height rescaled the map, which moved the LOD
     /// camera, which changed the tiles, which changed the height. Nothing
     /// changes it while tiles are held or during a gesture.
@@ -675,32 +607,21 @@ final class MapModel {
         cameraGround.update(camera: navigation.camera, rendered: streaming.renderedHeightRanges(),
                             deltaTime: deltaTime)
 
-        guard !tilesHeld, manipulation == nil, let framing else { return }
-        let shown = framing.shownRadius(room)
-        if shown >= Self.curvatureAnchorRadius, !usesEyeLevel {
-            // In the volume, far out the Earth's curve, not the terrain,
-            // decides: sea level at the view's edges meets the base plane.
-            // Smooth in the camera, so it follows continuously. Immersive
-            // hosts tilt the globe to face the viewer instead.
-            envelopeHeight.aim(at: rayHeight.value - GroundEstimates.curvatureDrop(shown),
-                               hysteresis: 0.002 * shown)
-        }
-        rayHeight.ease(deltaTime: deltaTime)
-        envelopeHeight.ease(deltaTime: deltaTime)
+        guard !tilesHeld, manipulation == nil else { return }
+        placementGround.ease(deltaTime: deltaTime)
     }
 
-    /// Above this half-width the Earth's curve, not the terrain, decides
-    /// where the ground sits: the edges fall away by ~200 m at 50 km.
-    private static let curvatureAnchorRadius = 50_000.0
+    /// Above this half-width the terrain's detail no longer matters to where
+    /// the ground sits, and a sample would load tiles across a huge region.
+    private static let groundSampleRadius = 50_000.0
 
-    /// Where the map sits: the lowest of a 3×3 sample across the shown region
-    /// once motion settles (live only; it may load tiles), for both the
-    /// surface the view ray meets and the ground placed on the base plane. A
-    /// failed sample keeps the last estimate.
+    /// The placement ground: the lowest of a 3×3 sample across the shown
+    /// region once motion settles (live only; it may load tiles). A failed
+    /// sample keeps the last estimate.
     private func requestGroundSample() {
         guard !tilesHeld, let framing else { return }
         let shown = framing.shownRadius(room)
-        guard shown < Self.curvatureAnchorRadius else { return }
+        guard shown < Self.groundSampleRadius else { return }
         groundSampleGeneration += 1
         let generation = groundSampleGeneration
         let centre = Geodesy.geodetic(framing.georeferencePoint).coordinate
@@ -710,17 +631,15 @@ final class MapModel {
                 guard height.isFinite else { return }
                 let ground = min(max(height, -500), 9_000)
                 #if DEBUG
-                print("[AlsoMaps] ground sample \(Int(ground)) m (was \(Int(self.envelopeHeight.value)) m)")
+                print("[AlsoMaps] ground sample \(Int(ground)) m (was \(Int(self.placementGround.value)) m)")
                 #endif
                 if self.placeAwaitsGround {
                     // Places are framed relative to the ground.
                     self.placeAwaitsGround = false
-                    self.navigation.camera.height += ground - self.rayHeight.value
-                    self.rayHeight.reset(to: ground)
-                    self.envelopeHeight.reset(to: ground)
+                    self.navigation.camera.height += ground - self.placementGround.value
+                    self.placementGround.reset(to: ground)
                 } else {
-                    self.rayHeight.aim(at: ground)
-                    self.envelopeHeight.aim(at: ground)
+                    self.placementGround.aim(at: ground)
                 }
             }
         }
@@ -775,19 +694,8 @@ final class MapModel {
     /// live, the streaming inputs. Called every frame.
     private func applyView() {
         guard streaming.isStreaming else { return }
-        let room = self.room
-        let camera = navigation.camera
-        if let current = frame(camera) {
-            framing = current
-        } else if framing == nil {
-            framing = AdaptiveModel.nadirFraming(camera: camera, room: room, rayHeight: rayHeight.value,
-                                                 envelopeHeight: effectiveEnvelope)
-        } else {
-            #if DEBUG
-            print("[AlsoMaps] view ray missed the surface (pitch \(camera.pitch * 180 / .pi)°); keeping the last framing")
-            #endif
-        }
-        guard let framing else { return }
+        let framing = frame(navigation.camera)
+        self.framing = framing
 
         if !tilesHeld {
             streaming.inputs = streamingInputs(for: framing)
@@ -795,7 +703,7 @@ final class MapModel {
         let georeference = framing.georeference
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
 
-        // The slab lies on the ground at the placement point, level with the
+        // The slab lies on the ground at the view centre, level with the
         // ground there as shown.
         let g = Geodesy.geodetic(framing.georeferencePoint).coordinate
         let level = simd_quatd(Geodesy.anchorFrameRotation(latitude: g.latitude, longitude: g.longitude))
@@ -807,25 +715,8 @@ final class MapModel {
     /// The area of interest each host streams by default, and the LOD camera
     /// at the design eye point.
     private func streamingInputs(for framing: AdaptiveModel.Framing) -> StreamingInputs {
-        let room = self.room
-        let camera = navigation.camera
-        let policy: AOIPolicy = presentation.host == .immersive
-            ? .horizon(limitPerAltitude: settings.limitsImmersiveReach ? settings.immersiveReach : nil)
-            : .georeference(regionMultiplier: 1)
-        // The viewer is the eye, wherever the placement puts it in the world:
-        // in the immersive space, always the camera.
-        let (viewer, eyeHeight) = Geodesy.geodetic(framing.georeference.ecef(map: room.designEye))
-        let altitude = usesEyeLevel ? eyeHeight - effectiveEnvelope : camera.height - cameraGround.value
-        let area = policy.area(viewerNadir: viewer,
-                               altitude: max(altitude, 0),
-                               heading: camera.heading,
-                               georeferencePoint: Geodesy.geodetic(framing.georeferencePoint).coordinate,
-                               shownRadius: framing.shownRadius(room))
-        let anchor = StreamingAnchor(coordinate: area.centre, height: effectiveEnvelope)
-        return StreamingInputs(anchor: anchor,
-                               lod: AdaptiveModel.lodCamera(framing: framing, eye: room.designEye, anchor: anchor),
-                               regionHeading: area.heading,
-                               streamingRadius: area.radius)
+        StreamingInputs.room(framing: framing, room: room, camera: navigation.camera,
+                             policy: presentation.areaPolicy(settings), groundHeight: placementGround.value)
     }
 
     // MARK: Tracks
@@ -858,9 +749,8 @@ final class MapModel {
         guard let first = tracks.startPlayback() else { return }
         if tilesHeld { setTilesHeld(false) }
         endManipulation()
-        // Nothing but the track moves the camera: no pitch easing, and no
-        // ground sample lifting a place's framing.
-        settlesPitch = false
+        // Nothing but the track moves the camera: no ground sample lifting a
+        // place's framing.
         placeAwaitsGround = false
         lastPlaybackGroundSample = 0
         framing = nil
@@ -897,8 +787,8 @@ final class MapModel {
 
     func captureState() -> MapViewState {
         MapViewState(navigation: navigation,
-                     rayHeight: rayHeight.value,
-                     envelopeHeight: envelopeHeight.value,
+                     rayHeight: placementGround.value,
+                     envelopeHeight: placementGround.value,
                      host: presentation.id,
                      roomPlacement: roomPlacement,
                      heldStreaming: tilesHeld ? heldInputs : nil,
@@ -915,12 +805,12 @@ final class MapModel {
         settings = state.settings
         groundSampleGeneration += 1  // Drop any sample in flight.
         placeAwaitsGround = false
-        rayHeight.reset(to: state.groundEstimate.ray)
-        envelopeHeight.reset(to: state.groundEstimate.envelope)
+        // The ray estimate was always a sample; states saved before the
+        // volume moved to eye-level placement can have a curvature envelope
+        // tens of kilometres below the ground in `envelope`.
+        placementGround.reset(to: state.groundEstimate.ray)
         roomPlacement = state.roomPlacement.placement
-        var navigation = state.navigationState
-        navigation.camera.pitch = min(navigation.camera.pitch, pitchLimit(for: navigation.camera))
-        self.navigation = navigation
+        navigation = state.navigationState
         tracks.markJump()
         framing = nil
         if let held = state.heldStreaming {
