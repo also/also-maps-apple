@@ -66,9 +66,9 @@ struct CameraDiagramTests {
         #expect(high.tiltWeight == 1)
         #expect(abs(highRoom.tilt - volume.fullTilt) < 1e-9)
         // The volume's view center is on the line of sight, toward the box's
-        // centre at full tilt.
-        let toBoxCentre = simd_normalize(CameraDiagram.side(SIMD3(0, 0, 0) - volume.designEye))
-        #expect(simd_distance(highRoom.sightLine, toBoxCentre) < 1e-9)
+        // center at full tilt.
+        let toBoxCenter = simd_normalize(CameraDiagram.side(SIMD3(0, 0, 0) - volume.designEye))
+        #expect(simd_distance(highRoom.sightLine, toBoxCenter) < 1e-9)
         let toPlacement = simd_normalize(highRoom.placement - highRoom.eye)
         #expect(simd_distance(highRoom.sightLine, toPlacement) < 1e-3)
     }

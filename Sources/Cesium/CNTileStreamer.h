@@ -2,8 +2,8 @@
 // header, so Swift sees plain classes; CNTileStreamer.mm owns the Tileset.
 //
 // Coordinates: there is no global origin. Each tile's vertices are small
-// offsets from its own centre; every frame the bridge hands Swift a transform
-// per drawn tile that places it in the anchor's level frame, in metres and
+// offsets from its own center; every frame the bridge hands Swift a transform
+// per drawn tile that places it in the anchor's level frame, in meters and
 // RealityKit axes (x = east, y = up, z = south, the anchor at 0).
 
 #import <Foundation/Foundation.h>
@@ -14,14 +14,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// One glTF primitive flattened for RealityKit's MeshDescriptor.
 @interface CNPrimitive : NSObject
 /// float4 per vertex (xyz + padding) so it binds directly to SIMD3<Float>:
-/// ECEF-axis offsets in metres from the tile's centre; place with the
+/// ECEF-axis offsets in meters from the tile's center; place with the
 /// matching CNFrame.tileTransforms entry.
 @property (nonatomic, readonly) NSData *positions;
 /// float2 per vertex, v already flipped for RealityKit; nil if untextured.
 @property (nonatomic, readonly, nullable) NSData *texcoords;
 /// uint32 triangle list.
 @property (nonatomic, readonly) NSData *indices;
-/// RGBA8 base colour, textureWidth * textureHeight * 4 bytes; nil if none.
+/// RGBA8 base color, textureWidth * textureHeight * 4 bytes; nil if none.
 @property (nonatomic, readonly, nullable) NSData *rgba;
 @property (nonatomic, readonly) NSInteger textureWidth;
 @property (nonatomic, readonly) NSInteger textureHeight;
@@ -35,7 +35,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// content (drawn lit); nil for textured photogrammetry (drawn unlit). Flat
 /// normals are computed when the glTF has none.
 @property (nonatomic, readonly, nullable) NSData *normals;
-/// glTF base colour factor (linear RGBA); multiplies the texture if any.
+/// glTF base color factor (linear RGBA); multiplies the texture if any.
 @property (nonatomic, readonly) simd_float4 baseColor;
 /// float2 per vertex: where the vertex falls in the tileset's raster
 /// overlay, for untextured content in a tileset with imagery (terrain).
@@ -84,12 +84,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// Whatever the app built to draw this tile (a RealityKit entity), attached
 /// by the tile load handler before it completes.
 @property (atomic, strong, nullable) id renderObject;
-/// Where the tile's vertices are measured from, ECEF metres.
+/// Where the tile's vertices are measured from, ECEF meters.
 @property (nonatomic, readonly) simd_double3 centerECEF;
-/// Distance from centerECEF to the farthest vertex, metres.
+/// Distance from centerECEF to the farthest vertex, meters.
 @property (nonatomic, readonly) double radius;
-/// The lowest and highest vertex, metres above the WGS84 ellipsoid
-/// (measured radially, which is within metres of geodetic height).
+/// The lowest and highest vertex, meters above the WGS84 ellipsoid
+/// (measured radially, which is within meters of geodetic height).
 @property (nonatomic, readonly) double minimumHeight;
 @property (nonatomic, readonly) double maximumHeight;
 /// The imagery currently attached to this tile, if its tileset has an
@@ -149,9 +149,9 @@ typedef void (^CNRasterLoadHandler)(CNRaster *raster);
 
 /// A drawn tile's bounding volume as cesium-native sees it: an oriented
 /// box in the tile's own frame, like its vertices (ECEF-axis offsets from
-/// its centre; place it with the tile's CNFrame.tileTransforms entry).
+/// its center; place it with the tile's CNFrame.tileTransforms entry).
 typedef struct {
-  simd_float3 centre;
+  simd_float3 center;
   simd_float3 halfAxisA;
   simd_float3 halfAxisB;
   simd_float3 halfAxisC;
@@ -192,21 +192,21 @@ typedef struct {
                       accessToken:(NSString *)accessToken;
 - (instancetype)init NS_UNAVAILABLE;
 
-/// The anchor: the origin of the frame tiles are placed in, and the centre
+/// The anchor: the origin of the frame tiles are placed in, and the center
 /// of the area of interest. Degrees.
 @property (nonatomic) double anchorLatitude;
 @property (nonatomic) double anchorLongitude;
-/// Metres above the WGS84 ellipsoid.
+/// Meters above the WGS84 ellipsoid.
 @property (nonatomic) double anchorHeight;
-/// Half-width of the area of interest: the square, centred on the anchor,
-/// whose tiles may stream. Metres.
+/// Half-width of the area of interest: the square, centered on the anchor,
+/// whose tiles may stream. Meters.
 @property (nonatomic) double streamingRadius;
 /// Rotation of that square, radians clockwise from north.
 @property (nonatomic) double regionHeading;
 
 /// The LOD camera (the frustum detail is selected for), in the anchor's
-/// frame (x east, y up, z south, metres). Direction and up should be
-/// perpendicular unit vectors; the bridge normalises them and skips the
+/// frame (x east, y up, z south, meters). Direction and up should be
+/// perpendicular unit vectors; the bridge normalizes them and skips the
 /// view update if they're degenerate.
 @property (nonatomic) simd_double3 viewPosition;
 @property (nonatomic) simd_double3 viewDirection;
@@ -248,7 +248,7 @@ typedef struct {
 - (CNFrame *)updateWithDeltaTime:(float)deltaTime;
 
 /// Samples the most detailed surface on a 3×3 grid spanning 0.8 × `radius`
-/// metres around a point (degrees) and reports the lowest hit in metres
+/// meters around a point (degrees) and reports the lowest hit in meters
 /// above the ellipsoid, or NAN if every sample failed. May load tiles.
 /// Completion runs on the main thread during a later updateWithDeltaTime:
 /// call.

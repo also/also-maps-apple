@@ -8,7 +8,7 @@ enum TileSource: String, Codable, CaseIterable, Identifiable {
     /// Cesium OSM Buildings via Cesium ion: untextured buildings worldwide,
     /// drawn lit. No terrain or imagery.
     case cesiumOSMBuildings
-    /// Cesium World Terrain via Cesium ion, drawn lit in a flat colour.
+    /// Cesium World Terrain via Cesium ion, drawn lit in a flat color.
     case cesiumWorldTerrain
     /// Cesium World Terrain draped with Bing Maps Aerial imagery, with Cesium
     /// OSM Buildings on it, all via Cesium ion.
@@ -53,7 +53,7 @@ enum TileSource: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// Colour for untextured content that brings none of its own (linear
+    /// Color for untextured content that brings none of its own (linear
     /// RGBA). Terrain tiles are bare geometry, so give them an earthy tone.
     var untexturedColor: SIMD4<Float>? {
         self == .cesiumWorldTerrain ? SIMD4(0.30, 0.33, 0.24, 1) : nil

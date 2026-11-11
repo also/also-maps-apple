@@ -2,7 +2,7 @@ import SwiftUI
 import simd
 
 /// An on-screen thumbstick: drag the knob anywhere in the base; it springs
-/// back to the centre on release. Reports x right (+) and y up (+), length
+/// back to the center on release. Reports x right (+) and y up (+), length
 /// ≤ 1, with a dead zone and a squared response like a game controller's
 /// stick, so a light push moves slowly.
 struct Joystick: View {

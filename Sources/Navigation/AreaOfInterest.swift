@@ -1,7 +1,7 @@
 import Foundation
 import simd
 
-/// What streams: a square around a centre, turned to a heading. The centre
+/// What streams: a square around a center, turned to a heading. The center
 /// is also the streaming anchor.
 enum AOIPolicy: Codable, Equatable {
     /// Around the georeference point, `regionMultiplier` × the shown region.
@@ -20,20 +20,20 @@ enum AOIPolicy: Codable, Equatable {
 }
 
 struct AreaOfInterest: Equatable {
-    var centre: GeoCoordinate
-    /// Half-width, metres.
+    var center: GeoCoordinate
+    /// Half-width, meters.
     var radius: Double
     /// Radians clockwise from north.
     var heading: Double
 }
 
 extension AOIPolicy {
-    /// Smallest reach around the viewer, metres.
+    /// Smallest reach around the viewer, meters.
     static let minimumReach = 1_000.0
-    /// Terrain this high beyond the horizon still shows over it, metres.
+    /// Terrain this high beyond the horizon still shows over it, meters.
     static let terrainAllowance = 3_000.0
 
-    /// How far the viewer can see from `altitude` metres up: the horizon,
+    /// How far the viewer can see from `altitude` meters up: the horizon,
     /// plus how far past it terrain `terrainAllowance` high is visible.
     static func visibleDistance(altitude: Double) -> Double {
         let altitude = max(altitude, 0)
@@ -42,9 +42,9 @@ extension AOIPolicy {
             + (2 * r * terrainAllowance).squareRoot()
     }
 
-    /// The area for a viewer above `viewerNadir` at `altitude` metres,
+    /// The area for a viewer above `viewerNadir` at `altitude` meters,
     /// looking along `heading`, with the georeference point at
-    /// `georeferencePoint` and `shownRadius` metres of world shown.
+    /// `georeferencePoint` and `shownRadius` meters of world shown.
     func area(viewerNadir: GeoCoordinate, altitude: Double, heading: Double,
               georeferencePoint: GeoCoordinate, shownRadius: Double) -> AreaOfInterest {
         func reach(_ perAltitude: Double) -> Double {
@@ -54,18 +54,18 @@ extension AOIPolicy {
         }
         switch self {
         case let .georeference(multiplier):
-            return AreaOfInterest(centre: georeferencePoint, radius: shownRadius * multiplier, heading: heading)
+            return AreaOfInterest(center: georeferencePoint, radius: shownRadius * multiplier, heading: heading)
         case let .viewer(perAltitude):
-            return AreaOfInterest(centre: viewerNadir, radius: reach(perAltitude), heading: heading)
+            return AreaOfInterest(center: viewerNadir, radius: reach(perAltitude), heading: heading)
         case let .forward(perAltitude, lead):
             let r = reach(perAltitude)
-            let centre = GeoMath.destination(from: viewerNadir, bearing: heading, distance: lead * r)
-            return AreaOfInterest(centre: centre, radius: r * (1 + lead), heading: heading)
+            let center = GeoMath.destination(from: viewerNadir, bearing: heading, distance: lead * r)
+            return AreaOfInterest(center: center, radius: r * (1 + lead), heading: heading)
         case let .blended(perAltitude, multiplier):
             let t = min(max(log(max(altitude, 1) / 1_000) / log(50.0), 0), 1)
             let w = t * t * (3 - 2 * t)
             let separation = GeoMath.distance(from: viewerNadir, to: georeferencePoint)
-            let centre = separation > 0
+            let center = separation > 0
                 ? GeoMath.destination(from: viewerNadir,
                                       bearing: GeoMath.bearing(from: viewerNadir, to: georeferencePoint),
                                       distance: w * separation)
@@ -73,13 +73,13 @@ extension AOIPolicy {
             // Cover the viewer's surroundings (fading out) and the shown region.
             let aroundViewer = w * separation + (1 - w) * reach(perAltitude)
             let aroundShown = (1 - w) * separation + shownRadius * multiplier
-            return AreaOfInterest(centre: centre, radius: max(aroundViewer, aroundShown), heading: heading)
+            return AreaOfInterest(center: center, radius: max(aroundViewer, aroundShown), heading: heading)
         case let .horizon(limitPerAltitude):
             var radius = Self.visibleDistance(altitude: altitude)
             if let limitPerAltitude {
                 radius = min(radius, max(limitPerAltitude * max(altitude, 0), Self.minimumReach))
             }
-            return AreaOfInterest(centre: viewerNadir, radius: radius, heading: heading)
+            return AreaOfInterest(center: viewerNadir, radius: radius, heading: heading)
         }
     }
 }
@@ -87,11 +87,11 @@ extension AOIPolicy {
 /// A loaded tile's extent and height range, for ground estimates without
 /// the network.
 struct TileHeightRange: Equatable {
-    /// Centre of the tile's geometry, ECEF.
-    var centre: SIMD3<Double>
-    /// Distance from the centre to its farthest vertex, metres.
+    /// Center of the tile's geometry, ECEF.
+    var center: SIMD3<Double>
+    /// Distance from the center to its farthest vertex, meters.
     var radius: Double
-    /// Lowest and highest vertex, metres above the ellipsoid.
+    /// Lowest and highest vertex, meters above the ellipsoid.
     var minimumHeight: Double
     var maximumHeight: Double
 }
@@ -104,7 +104,7 @@ enum GroundStatistic: String, Codable, CaseIterable {
 
 enum GroundEstimates {
     /// How far the Earth's surface falls below the tangent plane `distance`
-    /// metres away, capped at a hemisphere.
+    /// meters away, capped at a hemisphere.
     static func curvatureDrop(_ distance: Double) -> Double {
         GeoMath.earthRadius * (1 - cos(min(distance / GeoMath.earthRadius, .pi / 2)))
     }
@@ -119,7 +119,7 @@ enum GroundEstimates {
         return best?.minimumHeight
     }
 
-    /// The low envelope of the ground within `radius` metres of `coordinate`,
+    /// The low envelope of the ground within `radius` meters of `coordinate`,
     /// measured along the up there (so the Earth's curve counts), or nil if
     /// no tile reaches the footprint.
     static func envelope(_ tiles: [TileHeightRange], around coordinate: GeoCoordinate, radius: Double,
@@ -141,7 +141,7 @@ enum GroundEstimates {
     }
 
     private static func horizontalDistance(_ tile: TileHeightRange, _ coordinate: GeoCoordinate) -> Double {
-        GeoMath.distance(from: Geodesy.geodetic(tile.centre).coordinate, to: coordinate)
+        GeoMath.distance(from: Geodesy.geodetic(tile.center).coordinate, to: coordinate)
     }
 }
 

@@ -7,7 +7,7 @@ import simd
 /// as the RealityKit path, without RealityKit. Each loaded tile gets Metal
 /// buffers and a texture, built off the main thread by `handler` before
 /// cesium-native counts it as loaded; `encode` draws a frame's tiles into a
-/// colour and depth target. Depth is reverse Z (1 near, 0 far), cleared to 0.
+/// color and depth target. Depth is reverse Z (1 near, 0 far), cleared to 0.
 ///
 /// Used when Settings › General › Draw with Metal is on
 /// (ViewPreferences.drawsWithMetal): for the map window on macOS and iOS
@@ -31,15 +31,15 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// Sampler states by glTF sampler, shared between tiles.
     private var samplers: [SIMD4<Int>: MTLSamplerState] = [:]
     private let samplersLock = NSLock()
-    /// Pipelines by colour and depth format and kind (tiles, or the
+    /// Pipelines by color and depth format and kind (tiles, or the
     /// depth-only sky pass), made on first use.
     private var pipelines: [SIMD3<UInt>: MTLRenderPipelineState] = [:]
     private let pipelinesLock = NSLock()
     /// A/B switch for device profiling; only draw submission changes.
     private let cullsOffscreen = ProcessInfo.processInfo.environment["ALSOMAPS_METAL_CULLING"] != "0"
 
-    /// The sky, as in ScreenMapView, as an sRGB target's clear colour (linear).
-    static let skyColour = MTLClearColor(red: pow(0.55, 2.2), green: pow(0.7, 2.2), blue: pow(0.85, 2.2), alpha: 1)
+    /// The sky, as in ScreenMapView, as an sRGB target's clear color (linear).
+    static let skyColor = MTLClearColor(red: pow(0.55, 2.2), green: pow(0.7, 2.2), blue: pow(0.85, 2.2), alpha: 1)
 
     enum MetalError: Error { case noDevice, setup }
 
@@ -219,22 +219,22 @@ final class MetalTileRenderer: @unchecked Sendable {
         var flags: UInt32
     }
 
-    private func pipeline(colour: MTLPixelFormat, depth: MTLPixelFormat,
+    private func pipeline(color: MTLPixelFormat, depth: MTLPixelFormat,
                           skyDepth: Bool = false) -> MTLRenderPipelineState? {
-        let key = SIMD3(colour.rawValue, depth.rawValue, skyDepth ? 1 : 0)
+        let key = SIMD3(color.rawValue, depth.rawValue, skyDepth ? 1 : 0)
         pipelinesLock.lock()
         defer { pipelinesLock.unlock() }
         if let pipeline = pipelines[key] { return pipeline }
         let descriptor = MTLRenderPipelineDescriptor()
         if skyDepth {
-            // Depth only: the colour already there (sky or tiles) stays.
+            // Depth only: the color already there (sky or tiles) stays.
             descriptor.vertexFunction = library.makeFunction(name: "skyDepthVertex")
             descriptor.colorAttachments[0].writeMask = []
         } else {
             descriptor.vertexFunction = library.makeFunction(name: "tileVertex")
             descriptor.fragmentFunction = library.makeFunction(name: "tileFragment")
         }
-        descriptor.colorAttachments[0].pixelFormat = colour
+        descriptor.colorAttachments[0].pixelFormat = color
         descriptor.depthAttachmentPixelFormat = depth
         do {
             let pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
@@ -249,14 +249,14 @@ final class MetalTileRenderer: @unchecked Sendable {
     /// Draws `tiles` (each placed in the anchor's frame) after `root` (anchor
     /// frame → scene) and `viewProjection` (scene → clip, reverse Z).
     @discardableResult
-    func encode(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat,
+    func encode(_ encoder: MTLRenderCommandEncoder, color: MTLPixelFormat, depth: MTLPixelFormat,
                 viewProjection: simd_float4x4, root: simd_float4x4,
                 tiles: [(tile: CNTileMesh, placement: simd_float4x4)]) -> MetalDrawStatistics {
         let signposter = Signposts.frame
         let interval = signposter.beginInterval("MetalEncode", id: signposter.makeSignpostID())
         defer { signposter.endInterval("MetalEncode", interval) }
         var statistics = MetalDrawStatistics()
-        guard let pipeline = pipeline(colour: colour, depth: depth) else { return statistics }
+        guard let pipeline = pipeline(color: color, depth: depth) else { return statistics }
         encoder.setRenderPipelineState(pipeline)
         encoder.setDepthStencilState(depthState)
         encoder.setCullMode(.none)
@@ -331,11 +331,11 @@ final class MetalTileRenderer: @unchecked Sendable {
     static let skyDepth: Float = 1e-6
 
     /// After the tiles, moves every pixel still at the far plane (the sky)
-    /// to `skyDepth`, leaving colour alone. Tiles farther than that keep
-    /// their colour and only have their depth raised, so nothing is hidden.
+    /// to `skyDepth`, leaving color alone. Tiles farther than that keep
+    /// their color and only have their depth raised, so nothing is hidden.
     /// Only a compositor needs it: a window shows the cleared sky as is.
-    func encodeSkyDepth(_ encoder: MTLRenderCommandEncoder, colour: MTLPixelFormat, depth: MTLPixelFormat) {
-        guard let pipeline = pipeline(colour: colour, depth: depth, skyDepth: true) else { return }
+    func encodeSkyDepth(_ encoder: MTLRenderCommandEncoder, color: MTLPixelFormat, depth: MTLPixelFormat) {
+        guard let pipeline = pipeline(color: color, depth: depth, skyDepth: true) else { return }
         encoder.setRenderPipelineState(pipeline)
         encoder.setDepthStencilState(depthState)
         var depth = Self.skyDepth
@@ -366,7 +366,7 @@ struct TileVertexOut {
     float3 normal;
 };
 
-/// Positions are float4 (xyz + padding) offsets from the tile's centre; the
+/// Positions are float4 (xyz + padding) offsets from the tile's center; the
 /// bridge flips v for RealityKit, so it's flipped back for Metal's top-left
 /// texture origin.
 vertex TileVertexOut tileVertex(uint vid [[vertex_id]],
@@ -392,15 +392,15 @@ fragment float4 tileFragment(TileVertexOut in [[stage_in]],
                              texture2d<float> texture [[texture(0)]],
                              sampler textureSampler [[sampler(0)]],
                              constant TileUniforms &uniforms [[buffer(0)]]) {
-    float4 colour = uniforms.baseColor;
+    float4 color = uniforms.baseColor;
     if (uniforms.flags & kTextured) {
-        colour *= texture.sample(textureSampler, in.uv);
+        color *= texture.sample(textureSampler, in.uv);
     }
     if (uniforms.flags & kLit) {
         float light = max(dot(normalize(in.normal), normalize(float3(0.3, 1, 0.2))), 0.0);
-        colour.rgb *= 0.55 + 0.45 * light;
+        color.rgb *= 0.55 + 0.45 * light;
     }
-    return colour;
+    return color;
 }
 
 struct SkyDepthOut {

@@ -18,7 +18,7 @@ final class TrackOverlay {
     private let model = ModelEntity()
     private var extruder = TubeExtruder(sides: 8)
 
-    /// The tube's radius in a room, metres.
+    /// The tube's radius in a room, meters.
     static let roomRadius = 0.005
     /// The tube's radius on a screen, as a fraction of the camera's height
     /// above the ground: a few pixels wide where you're looking.
@@ -58,7 +58,7 @@ final class TrackOverlay {
     }
 
     /// Places the tube for this frame's georeference (ECEF → map frame) and
-    /// rebuilds it if its world radius (metres) has stepped or the track
+    /// rebuilds it if its world radius (meters) has stepped or the track
     /// has grown.
     func update(georeference: Georeference, worldRadius: Double, now: Date = Date()) {
         guard root.isEnabled, let path, georeference.scale > 0, worldRadius > 0 else { return }

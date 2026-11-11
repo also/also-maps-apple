@@ -161,7 +161,7 @@ final class MetalImmersiveRenderer {
         let root = model.tilesInImmersiveSpace
         let tiles = model.streaming.drawnTiles
         // Mixed immersion (Settings › Immersion): passthrough wherever
-        // there's no map. The compositor takes premultiplied colour, so the
+        // there's no map. The compositor takes premultiplied color, so the
         // sky clears to transparent black, and its depth stays at the far
         // plane, where the compositor drops it. Full: an opaque sky that
         // has to be lifted off the far plane to be shown at all.
@@ -171,12 +171,12 @@ final class MetalImmersiveRenderer {
         // cleared once, each in its own viewport.
         let byTexture = Dictionary(grouping: drawable.views.indices) { drawable.views[$0].textureMap.textureIndex }
         for (textureIndex, viewIndices) in byTexture.sorted(by: { $0.key < $1.key }) {
-            let colour = drawable.colorTextures[textureIndex], depth = drawable.depthTextures[textureIndex]
+            let color = drawable.colorTextures[textureIndex], depth = drawable.depthTextures[textureIndex]
             let pass = MTLRenderPassDescriptor()
-            pass.colorAttachments[0].texture = colour
+            pass.colorAttachments[0].texture = color
             pass.colorAttachments[0].loadAction = .clear
             pass.colorAttachments[0].clearColor = passthrough ? MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
-                : MetalTileRenderer.skyColour
+                : MetalTileRenderer.skyColor
             pass.colorAttachments[0].storeAction = .store
             pass.depthAttachment.texture = depth
             pass.depthAttachment.loadAction = .clear
@@ -194,14 +194,14 @@ final class MetalImmersiveRenderer {
                 encoder.setViewport(view.textureMap.viewport)
                 // The compositor's projection: reverse Z over its default
                 // depth range, which the cleared 0 is the far end of.
-                statistics.add(metal.encode(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat,
+                statistics.add(metal.encode(encoder, color: color.pixelFormat, depth: depth.pixelFormat,
                              viewProjection: drawable.computeProjection(viewIndex: index)
                                  * (originFromDevice * view.transform).inverse,
                              root: root, tiles: tiles))
                 // Sky left at the far plane would be dropped as clipped,
                 // which is what mixed immersion wants.
                 if !passthrough {
-                    metal.encodeSkyDepth(encoder, colour: colour.pixelFormat, depth: depth.pixelFormat)
+                    metal.encodeSkyDepth(encoder, color: color.pixelFormat, depth: depth.pixelFormat)
                 }
             }
             encoder.endEncoding()

@@ -6,7 +6,7 @@ struct Place: Codable, Identifiable, Hashable {
     var name: String
     var latitude: Double
     var longitude: Double
-    /// View half-width, metres.
+    /// View half-width, meters.
     var radius: Double
     /// Direction the volume's front faces, degrees clockwise from north.
     var heading: Double = 0

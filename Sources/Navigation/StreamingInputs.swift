@@ -2,10 +2,10 @@ import Foundation
 import simd
 
 /// The origin of the bridge's anchor frame A, where it places every tile:
-/// RealityKit axes (x east, y up, z south), metres, the anchor at 0.
+/// RealityKit axes (x east, y up, z south), meters, the anchor at 0.
 struct StreamingAnchor: Codable, Equatable {
     var coordinate: GeoCoordinate
-    /// Metres above the WGS84 ellipsoid.
+    /// Meters above the WGS84 ellipsoid.
     var height = 0.0
 
     /// Anchor frame → ECEF.
@@ -30,7 +30,7 @@ struct LODCamera: Codable, Equatable {
     /// Width over height.
     var aspect = 1.0
 
-    /// Looking at the anchor from `distance` metres away, `elevation`
+    /// Looking at the anchor from `distance` meters away, `elevation`
     /// radians above its horizon, facing `heading` (radians clockwise from
     /// north). Direction and up are written down directly so they stay
     /// perpendicular unit vectors at any elevation, straight down included.
@@ -49,12 +49,12 @@ struct LODCamera: Codable, Equatable {
 /// to stream and the frustum detail is chosen for. Follows the camera while
 /// tiles are live; frozen while held.
 struct StreamingInputs: Codable, Equatable {
-    /// The area of interest's centre, and frame A's origin.
+    /// The area of interest's center, and frame A's origin.
     var anchor: StreamingAnchor
     var lod = LODCamera()
     /// Rotation of the area of interest's square, radians clockwise from north.
     var regionHeading = 0.0
-    /// Half-width of the area of interest, metres.
+    /// Half-width of the area of interest, meters.
     var streamingRadius = 500.0
 }
 
@@ -70,7 +70,7 @@ extension StreamingInputs {
                                heading: camera.heading,
                                georeferencePoint: Geodesy.geodetic(framing.georeferencePoint).coordinate,
                                shownRadius: framing.shownRadius(room))
-        let anchor = StreamingAnchor(coordinate: area.centre, height: groundHeight)
+        let anchor = StreamingAnchor(coordinate: area.center, height: groundHeight)
         return StreamingInputs(anchor: anchor,
                                lod: AdaptiveModel.lodCamera(framing: framing, eye: room.designEye, anchor: anchor),
                                regionHeading: area.heading,

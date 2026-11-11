@@ -42,7 +42,7 @@ struct EyeLevelTests {
     }
 
     @Test(arguments: [100.0, 5_000, 40_000])
-    func noTiltBelowFiftyKilometres(altitude: Double) {
+    func noTiltBelowFiftyKilometers(altitude: Double) {
         #expect(EyeLevelModel.tiltWeight(altitude: altitude) == 0)
     }
 
@@ -70,7 +70,7 @@ struct EyeLevelTests {
     }
 
     @Test(arguments: [1_510.0, 100_000, 158_000, 300_000, 600_000, 5_000_000])
-    func theViewCentreIsOnTheLineOfSight(altitude: Double) {
+    func theViewCenterIsOnTheLineOfSight(altitude: Double) {
         let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: altitude,
                                 heading: 0.5, pitch: -0.3)
         let w = EyeLevelModel.tiltWeight(for: camera)
@@ -93,7 +93,7 @@ struct EyeLevelTests {
     }
 
     @Test
-    func theViewCentreIsTheGroundBelowAtFullTilt() {
+    func theViewCenterIsTheGroundBelowAtFullTilt() {
         let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 600_000,
                                 heading: 0.5, pitch: -0.3)
         let f = framing(camera, weight: 1)
@@ -101,14 +101,14 @@ struct EyeLevelTests {
     }
 
     @Test(arguments: [600.0, 8_000, 30_000])
-    func placeCentreLandsOnTheMapCentreAtTheRequestedScale(radius: Double) {
-        let camera = EyeLevelModel.framePlace(centre: ronda, radius: radius, heading: 0.3,
+    func placeCenterLandsOnTheMapCenterAtTheRequestedScale(radius: Double) {
+        let camera = EyeLevelModel.framePlace(center: ronda, radius: radius, heading: 0.3,
                                               room: immersive, groundHeight: 565)
         let f = framing(camera)
-        let centre = Geodesy.ecef(ronda, height: 565)
-        // On the view centre: where the line of sight to C₀ meets the
+        let center = Geodesy.ecef(ronda, height: 565)
+        // On the view center: where the line of sight to C₀ meets the
         // ground, a little past C₀ for the Earth's curve.
-        let landed = f.georeference.map(centre)
+        let landed = f.georeference.map(center)
         #expect(simd_distance(landed, f.placementPoint) < 1e-3)
         #expect(simd_distance(landed, immersive.placementLevel) < 0.1)
         #expect(abs(f.shownRadius(immersive) / radius - 1) < 0.01)
@@ -132,7 +132,7 @@ struct EyeLevelTests {
 
     @Test
     func anchoredPinchKeepsTheGrabUnderTheHand() {
-        let start = EyeLevelModel.framePlace(centre: ronda, radius: 3_000, heading: 0.2,
+        let start = EyeLevelModel.framePlace(center: ronda, radius: 3_000, heading: 0.2,
                                              room: immersive, groundHeight: 565)
         let before = framing(start)
         let p = SIMD3(0.4, 0.02, -3.0)

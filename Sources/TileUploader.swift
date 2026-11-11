@@ -11,8 +11,8 @@ import RealityKit
 /// tiles are in flight so a burst doesn't create hundreds at once.
 final class TileUploader: @unchecked Sendable {
     private let limiter = AsyncLimiter(limit: 4)
-    /// Replaces the base colour of lit, untextured content when set, for
-    /// sources whose tiles carry no colour (terrain). Set before streaming.
+    /// Replaces the base color of lit, untextured content when set, for
+    /// sources whose tiles carry no color (terrain). Set before streaming.
     var untexturedColor: SIMD4<Float>?
 
     func setConcurrency(_ limit: Int) {
@@ -55,7 +55,7 @@ final class TileUploader: @unchecked Sendable {
 
     /// Name of the parts that take a tileset's imagery (`applyOverlay`).
     private static let overlayPartName = "overlay"
-    /// Terrain waiting for its imagery, briefly: the colour of the plain
+    /// Terrain waiting for its imagery, briefly: the color of the plain
     /// terrain source.
     private static let overlayPlaceholderColor = SIMD4<Float>(0.30, 0.33, 0.24, 1)
     /// Clamped: each overlay image covers its own patch of ground, and
@@ -93,7 +93,7 @@ final class TileUploader: @unchecked Sendable {
         var mesh: MeshResource
         var image: CGImage?
         var sampler: MaterialParameters.Texture.Sampler
-        /// Untextured content with normals: drawn lit, in its base colour.
+        /// Untextured content with normals: drawn lit, in its base color.
         var lit: Bool
         var baseColor: SIMD4<Float>
         /// Its texture coordinates are the overlay's: it shows the
@@ -164,7 +164,7 @@ final class TileUploader: @unchecked Sendable {
         return try? await TextureResource(image: image, options: .init(semantic: .color))
     }
 
-    /// glTF base colours are linear; Material.Color (UIColor or NSColor)
+    /// glTF base colors are linear; Material.Color (UIColor or NSColor)
     /// components are sRGB.
     private static func color(_ linear: SIMD4<Float>) -> Material.Color {
         func encode(_ c: Float) -> CGFloat { CGFloat(pow(max(c, 0), 1 / 2.2)) }

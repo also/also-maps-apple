@@ -104,7 +104,7 @@ since removed (commit f832a68 in PR #38, if it's needed again):
   the environment replaces passthrough. CompositorServices has no API
   touching system environments (none in the visionOS 27.2 SDK headers or
   Swift interface), and Apple documents `.coexist` only as a preference.
-- **Observed (simulator):** opaque colour at the far plane (depth 0) was
+- **Observed (simulator):** opaque color at the far plane (depth 0) was
   shown, not dropped, unlike the device in full immersion (the 2026-11-04
   entry below). The simulator's compositor may differ here.
 - Never submitting a drawable isn't a usable test: the app was shut down
@@ -122,7 +122,7 @@ since removed (commit f832a68 in PR #38, if it's needed again):
   `ALSOMAPS_FULL_IMMERSION=1` for full). Not yet checked on a device, nor
   switching the toggle while the space is open.
 - What mixed needed, per WWDC24 "Render Metal with passthrough in
-  visionOS" (10092): clear colour to all zeros (premultiplied alpha; full
+  visionOS" (10092): clear color to all zeros (premultiplied alpha; full
   clears opaque), depth still cleared to 0, and real depth for every drawn
   pixel. Nothing in `LayerRenderer.Configuration` changes. The sky's
   depth-only pass is skipped in mixed: sky pixels stay at the far plane,
@@ -130,7 +130,7 @@ since removed (commit f832a68 in PR #38, if it's needed again):
   each frame, so the toggle should apply live.
 - **Inferred:** tile fragments write their texture's alpha unblended. Google's
   photorealistic textures are opaque, so this should be fine; content with
-  alpha below 1 would show as unpremultiplied, translucent colour in mixed.
+  alpha below 1 would show as unpremultiplied, translucent color in mixed.
   Worth a look on the device.
 - **Progressive (Digital Crown) isn't done.** visionOS 26 adds it for
   CompositorServices ("Controlling Metal rendering immersion level"; WWDC25
