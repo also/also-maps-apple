@@ -125,7 +125,8 @@ struct CameraDiagram {
         var eye: SIMD2<Double>
         /// C₀: where the view center goes while level.
         var levelPlacement: SIMD2<Double>
-        /// The line of sight the view center is on (unit, from the eye).
+        /// The line of sight the view center is on (unit, from E, the design
+        /// eye point).
         var sightLine: SIMD2<Double>
         /// Where the view center is placed now.
         var placement: SIMD2<Double>

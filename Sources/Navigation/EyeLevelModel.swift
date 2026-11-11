@@ -20,7 +20,7 @@ import simd
 /// The returned framing's georeference point is the view centre: what
 /// gestures grab and what the area of interest and ground sample centre on.
 /// It's the ground along the line of sight `RoomGeometry.sightLine`: C₀
-/// while level, the ground below the camera at full tilt.
+/// while level, the ground below the navigation position at full tilt.
 enum EyeLevelModel {
     /// Where the tilt assist starts, metres above the ellipsoid.
     static let tiltStartAltitude = 50_000.0

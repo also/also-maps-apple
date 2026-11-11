@@ -34,8 +34,8 @@ struct ModelFlightStyle {
     /// Surface the dolly target is found on along the view, metres above
     /// the ellipsoid.
     var dollySurfaceHeight = 0.0
-    /// In a room host, where pitch doesn't show: the camera moved to a
-    /// height with its view centre held in place. Zoom then changes the
+    /// In a room host, where pitch doesn't show: the navigation position
+    /// moved to a height with its view centre held in place. Zoom then changes the
     /// height above the dolly surface, and the view centre stays put.
     /// Without it, zoom dollies along the view.
     var holdingViewCentre: ((CameraPose, _ height: Double) -> CameraPose)?

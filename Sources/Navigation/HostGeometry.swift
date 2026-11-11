@@ -22,9 +22,9 @@ struct RoomGeometry: Equatable {
     /// The direction (unit) from E of the line of sight the view centre is
     /// on at tilt weight `w`. It faces straight ahead (−z) and dips as E→C₀
     /// does seen from the side while level, turning evenly with the tilt to
-    /// where full tilt puts the ground below the camera (90° less
-    /// `fullTilt`). So the view centre is C₀ while level and the ground
-    /// below the camera at full tilt.
+    /// where full tilt puts the ground below the navigation position (90°
+    /// less `fullTilt`). So the view centre is C₀ while level and the ground
+    /// below the navigation position at full tilt.
     func sightLine(tiltWeight w: Double) -> SIMD3<Double> {
         let level = atan2(designEye.y - placementLevel.y, max(designEye.z - placementLevel.z, 1e-9))
         let dip = level + (.pi / 2 - fullTilt - level) * w
