@@ -169,6 +169,9 @@ final class MapModel {
         var translation = SIMD3<Double>.zero
         var magnification = 1.0
         var twist = 0.0
+        /// What the twist turns about, map frame: the ground's up at the
+        /// grabbed point as shown when the twist began.
+        var twistAxis: SIMD3<Double>?
     }
     private var manipulation: Manipulation?
     private var lastMagnifyUpdate = Date.distantPast
@@ -370,13 +373,19 @@ final class MapModel {
 
     func endMagnify() { end(.magnify) }
 
-    /// `rotation` is the two-handed twist since the gesture began, already in
-    /// the map frame. The map turns with the hands, about where they pinched.
+    /// `rotation` is the two-handed rotation since the gesture began, already
+    /// in the map frame. The map turns with the hands about the ground's up
+    /// where they pinched, as shown: about the vertical while the map is
+    /// level, toward you when the tilt stands a globe up in front of you.
     func rotate(by rotation: simd_quatf, startedAt start: SIMD3<Float>) {
-        guard beginOrContinue(.rotate, at: start) else { return }
-        // Signed angle about +Y (counterclockwise seen from above): the
-        // world turns that way, so the view heading turns clockwise.
-        manipulation?.twist = 2 * atan2(Double(rotation.imag.y), Double(rotation.real))
+        guard beginOrContinue(.rotate, at: start), let grab = manipulation?.grab else { return }
+        if manipulation?.twistAxis == nil { manipulation?.twistAxis = mapUp(at: grab) }
+        guard let axis = manipulation?.twistAxis else { return }
+        // The part of the rotation about the axis (swing-twist), signed
+        // counterclockwise seen from above the ground: the world turns that
+        // way, so the view heading turns clockwise.
+        let imaginary = SIMD3<Double>(rotation.imag)
+        manipulation?.twist = 2 * atan2(simd_dot(imaginary, axis), Double(rotation.real))
         solveManipulation()
     }
 

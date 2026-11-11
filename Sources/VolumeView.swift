@@ -268,9 +268,11 @@ extension View {
                     .onEnded { _ in model.endMagnify() }
             )
             .simultaneousGesture(
-                // Two-handed twist about the vertical; runs alongside zoom so
-                // one motion can turn and scale at once.
-                RotateGesture3D(constrainedToAxis: .y)
+                // Two-handed twist; runs alongside zoom so one motion can
+                // turn and scale at once. Unconstrained: the model takes the
+                // part about the ground's up as shown, which tilts with the
+                // map.
+                RotateGesture3D()
                     .targetedToEntity(model.gestureTarget)
                     .onChanged { value in
                         let rotation = value.convert(value.rotation, from: .local, to: model.root)
