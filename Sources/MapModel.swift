@@ -219,12 +219,14 @@ final class MapModel {
     /// The Metal immersive space opened: tiles are built for it until it
     /// closes. Streaming restarts each way; tiles come back from the cache.
     func metalImmersiveDidOpen(_ metal: MetalTileRenderer) {
+        streaming.customRasterHandler = metal.rasterHandler
         streaming.customTileHandler = metal.handler
         metalImmersiveIsOpen = true
     }
 
     func metalImmersiveDidClose() {
         metalImmersiveIsOpen = false
+        streaming.customRasterHandler = nil
         streaming.customTileHandler = nil
         immersiveSpaceDidClose()
     }

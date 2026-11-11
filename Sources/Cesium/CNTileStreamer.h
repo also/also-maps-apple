@@ -37,6 +37,36 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly, nullable) NSData *normals;
 /// glTF base colour factor (linear RGBA); multiplies the texture if any.
 @property (nonatomic, readonly) simd_float4 baseColor;
+/// float2 per vertex: where the vertex falls in the tileset's raster
+/// overlay, for untextured content in a tileset with imagery (terrain).
+/// cesium-native's convention, not flipped: (0, 0) at the south-west corner
+/// of the tile's projected rectangle, (1, 1) at the north-east. Sample the
+/// attached CNOverlay's image at `uv * scale + translation` (v up, so row 0
+/// of the image is v = 1). Nil without an overlay.
+@property (nonatomic, readonly, nullable) NSData *overlayTexcoords;
+@end
+
+/// One raster overlay image (a piece of imagery covering one or more
+/// geometry tiles). Lives until cesium-native frees it.
+@interface CNRaster : NSObject
+/// RGBA8, width * height * 4 bytes, row 0 northmost.
+@property (atomic, readonly) NSData *rgba;
+@property (nonatomic, readonly) NSInteger width;
+@property (nonatomic, readonly) NSInteger height;
+/// Whatever the app built to draw this image (a texture), attached by the
+/// raster load handler, possibly after it has returned.
+@property (atomic, strong, nullable) id renderObject;
+/// Drops the pixels once they've been uploaded.
+- (void)discardCPUData;
+@end
+
+/// A raster attached to a geometry tile, and the mapping from the tile's
+/// overlayTexcoords into it: `uv * scale + translation`. A tile may first
+/// get an ancestor's raster (scaled to its part of it) until its own loads.
+@interface CNOverlay : NSObject
+@property (nonatomic, readonly) CNRaster *raster;
+@property (nonatomic, readonly) simd_float2 translation;
+@property (nonatomic, readonly) simd_float2 scale;
 @end
 
 /// One attribution to show: its text, and its logo if the provider gave one
@@ -62,6 +92,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// (measured radially, which is within metres of geodetic height).
 @property (nonatomic, readonly) double minimumHeight;
 @property (nonatomic, readonly) double maximumHeight;
+/// The imagery currently attached to this tile, if its tileset has an
+/// overlay. Changes on the main thread during updateWithDeltaTime:, as
+/// better imagery loads; a new object each time.
+@property (atomic, readonly, nullable) CNOverlay *overlay;
 /// Drops the CPU-side buffers once they've been uploaded.
 - (void)discardCPUData;
 @end
@@ -72,6 +106,26 @@ NS_ASSUME_NONNULL_BEGIN
 /// thread. Until then the tile isn't drawable, so with forbidHoles cesium-
 /// native keeps its parent instead of leaving a gap.
 typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
+
+/// Called on a background thread for each overlay image as it loads. Start
+/// building its texture and attach it as `renderObject` when done; nothing
+/// waits for it, so until then tiles keep the imagery they had.
+typedef void (^CNRasterLoadHandler)(CNRaster *raster);
+
+/// One Cesium ion tileset to stream, optionally draped with an ion imagery
+/// asset.
+@interface CNIonLayer : NSObject
+- (instancetype)initWithAssetID:(int64_t)assetID
+                 imageryAssetID:(int64_t)imageryAssetID
+                  smoothNormals:(BOOL)smoothNormals NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@property (nonatomic, readonly) int64_t assetID;
+/// 0 for none.
+@property (nonatomic, readonly) int64_t imageryAssetID;
+/// Have cesium-native generate smooth normals for content without any
+/// (terrain); otherwise flat ones are computed (buildings).
+@property (nonatomic, readonly) BOOL smoothNormals;
+@end
 
 /// How tile requests have been satisfied since the streamer started, from
 /// URLSessionTaskMetrics.
@@ -131,6 +185,11 @@ typedef struct {
                      smoothNormals:(BOOL)smoothNormals;
 /// smoothNormals: have cesium-native generate smooth normals for content
 /// without any (terrain); otherwise flat ones are computed (buildings).
+/// Several ion tilesets drawn together (e.g. terrain and buildings), sharing
+/// the view, area of interest and settings. The first is the ground: height
+/// samples come from it alone.
+- (instancetype)initWithIonLayers:(NSArray<CNIonLayer *> *)layers
+                      accessToken:(NSString *)accessToken;
 - (instancetype)init NS_UNAVAILABLE;
 
 /// The anchor: the origin of the frame tiles are placed in, and the centre
@@ -160,6 +219,8 @@ typedef struct {
 /// Prepares each tile's renderer resources off the main thread. Set it before
 /// the first update; without one, tiles count as loaded immediately.
 @property (nonatomic, copy, nullable) CNTileLoadHandler tileLoadHandler;
+/// Builds each overlay image's texture. Set it before the first update.
+@property (nonatomic, copy, nullable) CNRasterLoadHandler rasterLoadHandler;
 
 // Live cesium-native TilesetOptions; changes apply on the next update.
 /// SSE threshold for tiles the LOD camera sees; lower = more detail. Default 16.
