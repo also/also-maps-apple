@@ -13,7 +13,7 @@ import UIKit
 @Observable
 final class MapModel {
     /// Volume extents in metres (width, height, depth).
-    nonisolated static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
+    nonisolated static let volumeSize = MapPresentation.volumeSize
 
     /// Where the app starts: the Ferry Building, 600 m across the volume.
     static let defaultPlace = Place(id: "default", name: "San Francisco",
@@ -715,23 +715,8 @@ final class MapModel {
     /// The area of interest each host streams by default, and the LOD camera
     /// at the design eye point.
     private func streamingInputs(for framing: AdaptiveModel.Framing) -> StreamingInputs {
-        let room = self.room
-        let camera = navigation.camera
-        let policy: AOIPolicy = presentation.host == .immersive
-            ? .horizon(limitPerAltitude: settings.limitsImmersiveReach ? settings.immersiveReach : nil)
-            : .georeference(regionMultiplier: 1)
-        // The viewer is the eye, which the placement puts on the camera.
-        let altitude = camera.height - placementGround.value
-        let area = policy.area(viewerNadir: camera.coordinate,
-                               altitude: max(altitude, 0),
-                               heading: camera.heading,
-                               georeferencePoint: Geodesy.geodetic(framing.georeferencePoint).coordinate,
-                               shownRadius: framing.shownRadius(room))
-        let anchor = StreamingAnchor(coordinate: area.centre, height: placementGround.value)
-        return StreamingInputs(anchor: anchor,
-                               lod: AdaptiveModel.lodCamera(framing: framing, eye: room.designEye, anchor: anchor),
-                               regionHeading: area.heading,
-                               streamingRadius: area.radius)
+        StreamingInputs.room(framing: framing, room: room, camera: navigation.camera,
+                             policy: presentation.areaPolicy(settings), groundHeight: placementGround.value)
     }
 
     // MARK: Tracks

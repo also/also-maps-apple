@@ -22,6 +22,9 @@ struct MapPresentation: Identifiable, Hashable {
     /// descending in place.
     let viewerPosition: SIMD3<Float>
 
+    /// Volume extents in meters (width, height, depth).
+    static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
+
     static let volume = MapPresentation(
         id: "volume",
         name: "Volume",
@@ -45,6 +48,16 @@ struct MapPresentation: Identifiable, Hashable {
 
     static let all: [MapPresentation] = [.volume, .immersive]
 
+    /// The area of interest this host streams: the shown region in the
+    /// volume, and in the immersive space everything visible, out to the
+    /// horizon, unless `settings` limits its reach.
+    func areaPolicy(_ settings: StreamingSettings) -> AOIPolicy {
+        switch host {
+        case .volume: .georeference(regionMultiplier: 1)
+        case .immersive: .horizon(limitPerAltitude: settings.limitsImmersiveReach ? settings.immersiveReach : nil)
+        }
+    }
+
     /// The presentation with `id`. Saved view states from before the
     /// immersive modes became one say "immersive5x", or earlier "floor5x".
     static func withID(_ id: String) -> MapPresentation? {
@@ -66,7 +79,7 @@ struct MapPresentation: Identifiable, Hashable {
         return .room(RoomGeometry(designEye: eye,
                                   placementLevel: level,
                                   placementDown: down,
-                                  contentHalfWidth: MapModel.volumeSize.x / 2 * magnification,
+                                  contentHalfWidth: Self.volumeSize.x / 2 * magnification,
                                   fullTilt: host == .volume ? RoomGeometry.tiltFacing(down, from: eye) : .pi / 2,
                                   viewCentreFollowsTilt: host == .volume))
     }

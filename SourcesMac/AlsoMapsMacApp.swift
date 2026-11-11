@@ -36,6 +36,8 @@ struct AlsoMapsMacApp: App {
 struct MacMapView: View {
     let settings: StreamingSettings
     @State private var map: ScreenMap
+    /// ALSOMAPS_DIAGRAM opens it at launch, for tools.
+    @State private var showsDiagram = ProcessInfo.processInfo.environment["ALSOMAPS_DIAGRAM"] != nil
     @FocusState private var focused: Bool
 
     init(start: StaticView, settings: StreamingSettings) {
@@ -57,14 +59,27 @@ struct MacMapView: View {
             .onAppear { focused = true }
             .onChange(of: settings) { _, settings in map.settings = settings }
             .overlay(alignment: .topTrailing) {
-                Menu("Places", systemImage: "mappin.and.ellipse") {
-                    ForEach(PlaceLibrary.all) { place in
-                        Button(place.name) { map.go(to: place) }
+                HStack {
+                    Button {
+                        showsDiagram.toggle()
+                    } label: {
+                        Label("Camera Diagram", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
                     }
+                    .help("Show how the camera is placed in each host (⌥⌘D)")
+                    .keyboardShortcut("d", modifiers: [.command, .option])
+                    Menu("Places", systemImage: "mappin.and.ellipse") {
+                        ForEach(PlaceLibrary.all) { place in
+                            Button(place.name) { map.go(to: place) }
+                        }
+                    }
+                    .menuStyle(.button)
                 }
-                .menuStyle(.button)
                 .fixedSize()
                 .padding(8)
+            }
+            .inspector(isPresented: $showsDiagram) {
+                CameraDiagramPanel(map: map)
+                    .inspectorColumnWidth(min: 340, ideal: 420, max: 720)
             }
     }
 }
