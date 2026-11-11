@@ -715,11 +715,8 @@ final class MapModel {
     /// The area of interest each host streams by default, and the LOD camera
     /// at the design eye point.
     private func streamingInputs(for framing: AdaptiveModel.Framing) -> StreamingInputs {
-        let policy: AOIPolicy = presentation.host == .immersive
-            ? .horizon(limitPerAltitude: settings.limitsImmersiveReach ? settings.immersiveReach : nil)
-            : .georeference(regionMultiplier: 1)
-        return StreamingInputs.room(framing: framing, room: room, camera: navigation.camera, policy: policy,
-                                    groundHeight: placementGround.value)
+        StreamingInputs.room(framing: framing, room: room, camera: navigation.camera,
+                             policy: presentation.areaPolicy(settings), groundHeight: placementGround.value)
     }
 
     // MARK: Tracks

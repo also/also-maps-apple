@@ -25,7 +25,7 @@ How to read it:
 - **Orange** is the placement ground, the ground estimate the scale is set from. Level, it lies on the base plane. The terrain is drawn too, at the same height here.
 - **The cross** is the view center, which gestures grab and streaming centers on. In the volume it's the ground along your line of sight to a point that rises from C₀ toward C₁ as the tilt grows, which keeps it in the box. In the immersive space it's the ground that was beneath C₀ while level, carried by the tilt.
 - **The box** (volume only) is the volume's bounds. **Teal** is the content square on the base plane: what the box shows, or in the immersive space, the area for gestures and the ground sample.
-- **Purple** is the LOD camera streaming uses, and **green** the streamed area.
+- **Purple** is the LOD camera streaming uses, and **green** the streamed area, with the default streaming settings.
 
 The scale comes from the navigation position's height above the placement ground, and the tilt doesn't change it.
 
@@ -38,11 +38,11 @@ The Mac app's camera diagram (⌥⌘D) draws the same views for any position. Ch
 From the repository root:
 
 ```bash
-swiftc -O -parse-as-library -o /tmp/tilt-figures Sources/Navigation/*.swift Sources/MapPresentation.swift Sources/Diagrams/CameraDiagramView.swift docs/tilt-assist/make-figures.swift
+swiftc -O -parse-as-library -o /tmp/tilt-figures Sources/Navigation/*.swift Sources/MapPresentation.swift Sources/StreamingSettings.swift Sources/TileSource.swift Sources/Diagrams/CameraDiagramView.swift docs/tilt-assist/make-figures.swift
 ```
 
 ```bash
 /tmp/tilt-figures docs/tilt-assist/figures
 ```
 
-[make-figures.swift](make-figures.swift) finds the three heights from `EyeLevelModel.tiltWeight` and takes each host's geometry from `MapPresentation`, so it needs no changes when those do.
+[make-figures.swift](make-figures.swift) finds the three heights from `EyeLevelModel.tiltWeight` and takes each host's geometry and streaming policy (with the default settings) from `MapPresentation`, so it needs no changes when those do.

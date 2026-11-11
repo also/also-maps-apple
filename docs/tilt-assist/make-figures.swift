@@ -2,11 +2,13 @@
 // and the camera diagram's views. From the repository root:
 //
 //   swiftc -O -parse-as-library -o /tmp/tilt-figures Sources/Navigation/*.swift \
-//     Sources/MapPresentation.swift Sources/Diagrams/CameraDiagramView.swift docs/tilt-assist/make-figures.swift
+//     Sources/MapPresentation.swift Sources/StreamingSettings.swift Sources/TileSource.swift \
+//     Sources/Diagrams/CameraDiagramView.swift docs/tilt-assist/make-figures.swift
 //   /tmp/tilt-figures docs/tilt-assist/figures
 //
 // Nothing here restates the behavior: the heights shown are found from
-// EyeLevelModel.tiltWeight, the hosts' geometry comes from MapPresentation,
+// EyeLevelModel.tiltWeight, the hosts' geometry and streaming policy (with
+// the default settings) come from MapPresentation,
 // and the placement from EyeLevelModel.framing (through CameraDiagram). If
 // the behavior changes, rerun this and the figures follow.
 
@@ -63,7 +65,8 @@ func camera(at height: Double) -> CameraPose {
 
 func diagram(_ host: Host, _ stage: Stage) -> CameraDiagram {
     CameraDiagram(CameraDiagram.Inputs(camera: camera(at: stage.height), presentation: .room(host.room),
-                                       terrainHeight: 0, groundHeight: 0, containerSize: host.containerSize))
+                                       terrainHeight: 0, groundHeight: 0, containerSize: host.containerSize,
+                                       areaPolicy: host.presentation.areaPolicy(.default)))
 }
 
 func distance(_ meters: Double) -> String {

@@ -48,6 +48,16 @@ struct MapPresentation: Identifiable, Hashable {
 
     static let all: [MapPresentation] = [.volume, .immersive]
 
+    /// The area of interest this host streams: the shown region in the
+    /// volume, and in the immersive space everything visible, out to the
+    /// horizon, unless `settings` limits its reach.
+    func areaPolicy(_ settings: StreamingSettings) -> AOIPolicy {
+        switch host {
+        case .volume: .georeference(regionMultiplier: 1)
+        case .immersive: .horizon(limitPerAltitude: settings.limitsImmersiveReach ? settings.immersiveReach : nil)
+        }
+    }
+
     /// The presentation with `id`. Saved view states from before the
     /// immersive modes became one say "immersive5x", or earlier "floor5x".
     static func withID(_ id: String) -> MapPresentation? {

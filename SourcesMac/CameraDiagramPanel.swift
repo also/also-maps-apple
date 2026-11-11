@@ -83,14 +83,11 @@ struct CameraDiagramPanel: View {
         case .volume: .room(Self.room(.volume))
         case .immersive: .room(Self.room(.immersive))
         }
-        let settings = map.settings
         return CameraDiagram.Inputs(camera: values.camera, presentation: presentation,
                                     terrainHeight: values.terrain, groundHeight: values.ground,
                                     containerSize: host == .volume ? MapPresentation.volumeSize : nil,
-                                    areaPolicy: host == .immersive
-                                        ? .horizon(limitPerAltitude: settings.limitsImmersiveReach
-                                                   ? settings.immersiveReach : nil)
-                                        : .georeference(regionMultiplier: 1))
+                                    areaPolicy: (host == .immersive ? MapPresentation.immersive : .volume)
+                                        .areaPolicy(map.settings))
     }
 
     /// The map's camera, with the placement ground settled on its ground.
