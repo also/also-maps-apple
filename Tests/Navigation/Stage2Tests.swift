@@ -160,6 +160,23 @@ struct PinchManipulationTests {
         }
     }
 
+    /// A hand held still holds the globe still, frame after frame, even
+    /// with the grabbed point rolled most of the way to the globe's edge.
+    @Test func aStillHandHoldsAGlobeStill() {
+        var pose = CameraPose(latitude: 37.79, longitude: -122.39, height: 10_000_000, heading: 0, pitch: -.pi / 2)
+        let before = framing(pose)
+        let p = before.placementPoint
+        let grabbed = AdaptiveModel.Grab(point: before.georeference.ecef(map: p), start: p,
+                                         startRotation: before.georeference.rotation,
+                                         translation: SIMD3(0.5, 0, 0))
+        pose = AdaptiveModel.pose(for: grabbed, height: pose.height, from: pose) { framing($0) }
+        let held = framing(pose).georeference.map(grabbed.point)
+        for _ in 0..<10 {
+            pose = AdaptiveModel.pose(for: grabbed, height: pose.height, from: pose) { framing($0) }
+            #expect(simd_distance(framing(pose).georeference.map(grabbed.point), held) < 1e-6)
+        }
+    }
+
     /// Gestures arrive in the map frame; the pose holds them there, so with
     /// any room placement the grabbed point stays put in the room too.
     @Test func holdsAfterANonIdentityRoomPlacement() {

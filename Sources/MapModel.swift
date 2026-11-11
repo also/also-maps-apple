@@ -351,11 +351,11 @@ final class MapModel {
     /// (`root`), in meters.
     func drag(from start: SIMD3<Float>, to current: SIMD3<Float>) {
         guard beginOrContinue(.drag, at: start) else { return }
-        // Content follows the hand, along the map's surface.
-        var translation = SIMD3<Double>(current - start)
-        let up = mapUp(at: manipulation!.grab)
-        translation -= up * simd_dot(translation, up)
-        manipulation?.translation = translation
+        // Content follows the hand along the map's surface. The pose takes
+        // the part of the movement along the surface where the drag began;
+        // measuring it against the surface as it's turned now would feed the
+        // drag back into itself, and on a globe flip between two poses.
+        manipulation?.translation = SIMD3<Double>(current - start)
         solveManipulation()
     }
 
