@@ -132,10 +132,31 @@ struct EyeLevelTests {
         // pivot.
         let tilted = EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565, tiltWeight: 1,
                                            fixedScale: 1)
-        let pivot = immersive.tiltPivot
+        let pivot = immersive.tiltPivot(groundBelow: 945)
         let below = immersive.designEye - SIMD3(0, 945, 0)
         let turned = pivot + simd_quatd(angle: immersive.fullTilt, axis: SIMD3(1, 0, 0)).act(below - pivot)
         #expect(simd_distance(tilted.georeference.map(nadir), turned) < 1e-6)
+    }
+
+    /// Turning human scale on or off changes only the scale, about the eye,
+    /// so the picture from the eye stays the same at any tilt: everything
+    /// keeps its direction, nearer or farther by the same factor.
+    @Test(arguments: [0.0, 0.5, 1])
+    func humanScaleLeavesThePictureFromTheEye(weight: Double) {
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 300_000,
+                                heading: 0.7, pitch: -0.4)
+        let model = framing(camera, weight: weight)
+        let human = EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565, tiltWeight: weight,
+                                          fixedScale: 1)
+        let eye = immersive.designEye
+        let points = [Geodesy.ecef(ronda, height: 565),
+                      Geodesy.ecef(GeoCoordinate(latitude: 37.5, longitude: -4.2), height: 0),
+                      Geodesy.ecef(GeoCoordinate(latitude: 35.0, longitude: -6.5), height: 2_000)]
+        for point in points {
+            let a = model.georeference.map(point) - eye, b = human.georeference.map(point) - eye
+            #expect(simd_distance(simd_normalize(a), simd_normalize(b)) < 1e-9)
+            #expect(abs(simd_length(b) / simd_length(a) * model.georeference.scale - 1) < 1e-9)
+        }
     }
 
     @Test

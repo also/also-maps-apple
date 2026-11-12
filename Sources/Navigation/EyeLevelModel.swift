@@ -67,7 +67,7 @@ enum EyeLevelModel {
                                translation: eye - scale * rotation.act(camera.position))
         let tilt = Similarity(scale: 1, rotation: simd_quatd(angle: w * room.fullTilt, axis: SIMD3(1, 0, 0)),
                               translation: .zero)
-        let pivot = room.tiltPivot
+        let pivot = room.tiltPivot(groundBelow: scale * above)
         let tilted = Similarity(translation: pivot).after(tilt).after(Similarity(translation: -pivot)).after(level)
 
         // The ground along the line of sight from the eye.

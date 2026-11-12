@@ -31,17 +31,26 @@ struct RoomGeometry: Equatable {
         return SIMD3(0, -sin(dip), -cos(dip))
     }
 
-    /// The point the tilt turns the world about. Level, the navigation
-    /// position is at E with the ground below it on the base plane; full
-    /// tilt turns that ground to face E along the full-tilt line of sight,
-    /// as far from E as C₀ is. So a point grabbed at the view center can
-    /// stay about as far away whether the map is tilted or level. (About E
-    /// itself, the ground below would stay E's height away at every tilt.)
+    /// The point the tilt turns the world about, with the ground below the
+    /// navigation position on the base plane while level. Full tilt turns
+    /// that ground to face E along the full-tilt line of sight, as far from
+    /// E as C₀ is. So a point grabbed at the view center can stay about as
+    /// far away whether the map is tilted or level. (About E itself, the
+    /// ground below would stay E's height away at every tilt.)
     var tiltPivot: SIMD3<Double> {
-        let height = max(designEye.y - placementLevel.y, 0.01)
-        let below = designEye - SIMD3(0, height, 0)
+        tiltPivot(groundBelow: max(designEye.y - placementLevel.y, 0.01))
+    }
+
+    /// `tiltPivot` for a level ground `groundBelow` meters below E: the
+    /// same shape, scaled about E. Whatever the scale, the tilt then keeps
+    /// what's seen from E the same, so changing only the scale (as human
+    /// scale does) leaves the picture from E unchanged.
+    func tiltPivot(groundBelow: Double) -> SIMD3<Double> {
+        let eyeHeight = max(designEye.y - placementLevel.y, 0.01)
+        let below = designEye - SIMD3(0, groundBelow, 0)
         let turn = simd_quatd(angle: fullTilt, axis: SIMD3(1, 0, 0))
-        let target = designEye + turn.act(SIMD3(0, -1, 0)) * simd_distance(placementLevel, designEye)
+        let reach = simd_distance(placementLevel, designEye) * groundBelow / eyeHeight
+        let target = designEye + turn.act(SIMD3(0, -1, 0)) * reach
         // pivot + turn(below − pivot) = target, in the y–z plane.
         let c = cos(fullTilt), s = sin(fullTilt)
         let rhs = target - turn.act(below)

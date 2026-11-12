@@ -4,6 +4,12 @@ Working notes for [also/also-maps-apple#61](https://github.com/also/also-maps-ap
 
 ## 2026-11-12
 
+### Human scale kept the picture only while level
+
+- **Observed (owner, headset):** with the raised pivot, turning human scale on or off changed the angular size of what's shown.
+- **Cause:** the toggle changes only the scale, applied about the navigation position. With the tilt about the eye, the navigation position stayed on the eye, so the picture from the eye didn't change. Tilted about a fixed raised pivot, the navigation position sits off the eye, so the same scale change moved and resized everything as seen.
+- **Change:** the pivot's offset from the eye scales with the distance to the level ground below (`RoomGeometry.tiltPivot(groundBelow:)`): the eye's height above the base plane at model scale, the real height at human scale. The whole placement is then the same shape at any scale, scaled about the eye, and `EyeLevelTests.humanScaleLeavesThePictureFromTheEye` checks directions and distances at three tilts. At model scale nothing changes.
+
 ### The tilt pivots ahead of and above the eye; zoom keeps the grab no farther
 
 - **Owner's rule:** zooming in, the point you grabbed shouldn't move much farther away.
