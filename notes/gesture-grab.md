@@ -4,6 +4,13 @@ Working notes for [also/also-maps-apple#61](https://github.com/also/also-maps-ap
 
 ## 2026-11-11
 
+### Open: how far a drag or zoom moves depends on where it started
+
+- **Observed (owner, headset):** in one gesture, dragging something far away toward you and then back moves it much further than grabbing something close and pushing it away by the same hand movement. Zooming about a point far away can also feel odd.
+- **Inferred, not checked:** visionOS seems to scale an indirect drag's reported location by the distance to what was grabbed, the way it moves distant windows further, and keeps that scale for the whole gesture. A drag that starts far keeps its large scale even once the point is close. The DEBUG `[AlsoMaps] pinch` step lines show the reported hand movement ("hand … m"); comparing that with the real movement for near and far grabs would confirm it.
+- **Inferred:** zoom holds the grabbed point fixed and scales everything about it. About a distant point, the ground near you rushes toward or away from it, and on the far side of the tilt range the view swings. That may be the expected cost of zooming about where you pinched.
+- **Options if it matters:** scale the drag by the grabbed point's current distance rather than its starting one, or ease the zoom's pivot toward the view center for distant grabs. No change for now.
+
 ### Pinches as a rotation of the globe (replaces the iterative solve)
 
 - **Observed (owner, headset):** zoom jumped in large steps around where the map starts to tilt. Fully zoomed out, dragging stopped following the hand, then flickered between two positions every frame once the hand had moved about a globe's diameter.
