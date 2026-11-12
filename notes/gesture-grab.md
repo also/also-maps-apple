@@ -4,6 +4,16 @@ Working notes for [also/also-maps-apple#61](https://github.com/also/also-maps-ap
 
 ## 2026-11-12
 
+### The tilt pivots ahead of and above the eye; zoom keeps the grab no farther
+
+- **Owner's rule:** zooming in, the point you grabbed shouldn't move much farther away.
+- **Observed (simulation):** with the tilt turning the world about the eye, the rule and the placement conflict. Immersive full tilt puts the globe's nearest point 1.58 m straight ahead; level, the only ground within 1.58 m of the eye is directly below it. So a grab at the globe's center either ends under your feet or moves away. Holding the line of sight fixed in the room sent the logged grab from 1.1 m to 10 m and behind the horizon; turning it with the world's full tilt kept every grab close but ended them all nearly below the eye.
+- **Observed (simulation):** tilting about the eye is the only pivot that keeps the nearest ground the eye's height away at every tilt (a rotation keeps distances only from its pivot). That's the drone-like feel of altitude it was chosen for.
+- **Change:** the tilt turns the world about `RoomGeometry.tiltPivot`, chosen so that full tilt puts the ground below the navigation position along the full-tilt line of sight, as far from the eye as C₀ is while level. Immersive: about 2.3 m ahead and 3.4 m above the floor with the eye at 1.1 m (2.1 m ahead and 3.7 m above the floor with the 1.6 m default); volume: 0.33 m ahead of and 0.23 m above the eye. Level, the navigation position is still on the eye. The view-center ray, the immersive gesture cap and the streaming area now work from the eye's place in the world, not the navigation position.
+- **Change:** a zoom holds the grab on the line of sight through where the pinch began, turned as the view center's line of sight turns with the tilt (`RoomGeometry.sightTurn`, 15.8° across the range in the immersive space). Zooming in, if that would put the grab farther than where it began, the line turns on toward the full tilt's turn only as far as keeps it no farther (`AdaptiveModel.held`). The DEBUG step log ends with the grab's distance relative to where it began, and `AWAY` when a zoom in has pushed it more than 5% farther.
+- **Observed (core tests, 900 km to 9 km):** every grab ends no farther than it began. The view center starts 5.7 m straight ahead and ends 5.7 m ahead and 11° down (immersive), the logged grab 6.1 m at +15° and ends 6.1 m at −10°; in the volume they end 31–44° down. Each 3% zoom step moves a grab at most 2.9% of its distance. Mid-zoom they come up to 25% closer and go back out: the tilt swings the ground on an arc about the pivot that passes nearer the eye than either end.
+- **Inferred, not tried:** climbing with the controller, the nearest ground now recedes from the eye's height to C₀'s distance across 50–500 km, beyond the scale change. Whether that still feels like flying is for the headset.
+
 ### When the line of sight misses, the grab rides the horizon
 
 - **Observed (owner, headset, immersive):** zooming in, the grabbed point could disappear beyond the horizon. In the log, a point grabbed about 30 cm above the eye from 434 km moved from 1.1 m away to about 10 m away and up as the zoom reached ×4 (about 110 km).

@@ -15,6 +15,12 @@ enum AdaptiveModel {
         /// |G − X|, meters.
         var range: Double
 
+        /// The design eye point in the world, ECEF: where what's shown is
+        /// seen from, which the tilt moves off the navigation position.
+        func eye(_ room: RoomGeometry) -> SIMD3<Double> {
+            georeference.ecef(map: room.designEye)
+        }
+
         /// Half-width of the shown region, world meters.
         func shownRadius(_ room: RoomGeometry) -> Double {
             room.contentHalfWidth / georeference.scale
@@ -67,6 +73,8 @@ extension AdaptiveModel {
         var start: SIMD3<Double>
         /// The georeference's rotation (ECEF → map frame) then.
         var startRotation: simd_quatd
+        /// The camera then, for the tilt at the start.
+        var startCamera: CameraPose
         /// The hand's movement since, map frame.
         var translation = SIMD3<Double>.zero
         /// Radians about the ground's up at the grabbed point; the world
@@ -81,30 +89,34 @@ extension AdaptiveModel {
     /// are fixed in the room; only its orientation depends on where the
     /// camera is and which way it faces. So the pinch is a rotation of that
     /// globe about its center:
-    /// - The grabbed point stays where you see it: on the line of sight from
-    ///   `eye` through where the pinch began, on the side of the globe facing
-    ///   you, or at the globe's edge nearest that line once the globe has
-    ///   shrunk out of it. That zooms about it.
+    /// - The grabbed point stays on the line of sight from `eye` through
+    ///   where the pinch began, turned with the tilt since: on the side of
+    ///   the globe facing you, or on the horizon nearest that line once the
+    ///   globe has shrunk out of it. That zooms about it. The line turns with
+    ///   the tilt, and a zoom in never pushes the point further away (see
+    ///   `held`).
     /// - The hand's movement rolls it along the surface by the same
     ///   distance: on a nearly flat map that's moving it with the hand; on a
     ///   globe it keeps turning past the edge as long as the hand moves.
     /// - The twist turns the globe about the grabbed point's up.
     /// The camera is then whichever pose gives that orientation, so there's
     /// always an answer, including where the tilt changes with height.
-    static func pose(for grab: Grab, height: Double, from camera: CameraPose, eye: SIMD3<Double>,
+    static func pose(for grab: Grab, height: Double, from camera: CameraPose, room: RoomGeometry,
                      iterations: Int = 3, frame: (CameraPose) -> Framing) -> CameraPose {
         var pose = camera
         pose.height = height
         let startDirection = simd_normalize(grab.startRotation.act(grab.point))
+        let startTilt = grab.startRotation * EyeLevelModel.levelRotation(grab.startCamera).inverse
+        let startScale = frame(grab.startCamera).georeference.scale
         for _ in 0..<iterations {
             let framing = frame(pose)
             let georeference = framing.georeference
             // The tilt depends on the height alone: what's left of the
             // rotation once the camera's level rotation is taken out.
             let tilt = georeference.rotation * EyeLevelModel.levelRotation(pose).inverse
-            let center = georeference.map(.zero)
+            let held = held(grab, room: room, startTilt: startTilt, startScale: startScale, framing: framing,
+                            tilt: tilt)
             let radius = georeference.scale * simd_length(grab.point)
-            let held = sighted(grab.start, from: eye, center: center, radius: radius)
             let roll = roll(held, by: grab.translation, radius: radius)
             let direction = roll.act(held)
             // The roll is a turn about a fixed axis rather than the shortest
@@ -119,6 +131,41 @@ extension AdaptiveModel {
             pose = Self.camera(level: tilt.inverse * rotation, height: height, pitch: camera.pitch)
         }
         return pose
+    }
+
+    /// Where the grabbed point is held for a zoom, as a direction from the
+    /// globe's center (see `pose(for:height:from:room:iterations:frame:)`).
+    ///
+    /// The line of sight through where the pinch began turns as the view
+    /// center's does with the tilt (`RoomGeometry.sightTurn`), so a point
+    /// grabbed at the view center stays with it. While zooming in, if that
+    /// would put the point farther from the eye than where it began, the
+    /// line turns on toward the full tilt's turn, only as far as keeps it no
+    /// farther. Turned the full tilt, the line has kept the point no farther
+    /// in every case tried, though it ends up nearly below the eye.
+    static func held(_ grab: Grab, room: RoomGeometry, startTilt: simd_quatd, startScale: Double,
+                     framing: Framing, tilt: simd_quatd) -> SIMD3<Double> {
+        let eye = room.designEye
+        let center = framing.georeference.map(.zero)
+        let radius = framing.georeference.scale * simd_length(grab.point)
+        let limit = simd_distance(grab.start, eye)
+        func held(_ turn: simd_quatd) -> SIMD3<Double> {
+            sighted(eye + turn.act(grab.start - eye), from: eye, center: center, radius: radius)
+        }
+        func tooFar(_ direction: SIMD3<Double>) -> Bool {
+            simd_distance(center + direction * radius, eye) > limit
+        }
+        let viewCenterTurn = room.sightTurn(from: startTilt, to: tilt)
+        let direction = held(viewCenterTurn)
+        guard framing.georeference.scale > startScale, tooFar(direction) else { return direction }
+        let worldTurn = tilt * startTilt.inverse
+        guard !tooFar(held(worldTurn)) else { return held(worldTurn) }
+        var near = 0.0, far = 1.0
+        for _ in 0..<40 {
+            let t = (near + far) / 2
+            if tooFar(held(simd_slerp(viewCenterTurn, worldTurn, t))) { near = t } else { far = t }
+        }
+        return held(simd_slerp(viewCenterTurn, worldTurn, far))
     }
 
     /// The direction from a globe's center to where the line of sight from

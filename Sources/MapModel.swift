@@ -449,8 +449,9 @@ final class MapModel {
             : EyeLevelModel.altitude(forScale: m.startScale * m.magnification, room: room)
         let height = context.clampHeight(ground + above)
         let grab = AdaptiveModel.Grab(point: m.grab, start: m.start, startRotation: m.startRotation,
+                                      startCamera: m.startPose,
                                       translation: m.translation, twist: m.twist)
-        let pose = AdaptiveModel.pose(for: grab, height: height, from: m.pose, eye: room.designEye, frame: frame)
+        let pose = AdaptiveModel.pose(for: grab, height: height, from: m.pose, room: room, frame: frame)
         guard pose.latitude.isFinite, pose.longitude.isFinite, pose.heading.isFinite else {
             pinchLog("pose not finite")
             return
@@ -490,18 +491,26 @@ final class MapModel {
     /// grabbed point and globe ended up.
     private func logStep(_ m: Manipulation, pose: CameraPose) {
         let before = frame(m.pose), after = frame(pose)
-        let center = after.georeference.map(.zero)
         let radius = after.georeference.scale * simd_length(m.grab)
-        let held = AdaptiveModel.sighted(m.start, from: room.designEye, center: center, radius: radius)
+        let eye = room.designEye
+        let startTilt = m.startRotation * EyeLevelModel.levelRotation(m.startPose).inverse
+        let tilt = after.georeference.rotation * EyeLevelModel.levelRotation(pose).inverse
+        let grab = AdaptiveModel.Grab(point: m.grab, start: m.start, startRotation: m.startRotation,
+                                      startCamera: m.startPose)
+        let held = AdaptiveModel.held(grab, room: room, startTilt: startTilt, startScale: m.startScale,
+                                      framing: after, tilt: tilt)
         let along = m.translation - held * simd_dot(m.translation, held)
         let turn = (after.georeference.rotation * before.georeference.rotation.inverse).angle
         let at = after.georeference.map(m.grab)
-        pinchLog(String(format: "step %@ hand %.3f m roll %.1f° ×%.3f twist %.1f° → %.2f, %.2f h %.0f km heading %.1f° turn %.2f° grab (%.3f, %.3f, %.3f)",
+        // The rule: a zoom in shouldn't push the grabbed point away.
+        let distance = simd_distance(at, eye) / max(simd_distance(m.start, eye), 1e-9)
+        let broken = m.magnification > 1 && distance > 1.05 ? " AWAY" : ""
+        pinchLog(String(format: "step %@ hand %.3f m roll %.1f° ×%.3f twist %.1f° → %.2f, %.2f h %.0f km heading %.1f° turn %.2f° grab (%.3f, %.3f, %.3f) distance ×%.2f%@",
                         m.starts.keys.map { "\($0)" }.sorted().joined(separator: "+"),
                         simd_length(m.translation), simd_length(along) / radius * 180 / .pi,
                         m.magnification, m.twist * 180 / .pi,
                         pose.latitude, pose.longitude, pose.height / 1000, pose.heading * 180 / .pi,
-                        min(turn, 2 * .pi - turn) * 180 / .pi, at.x, at.y, at.z))
+                        min(turn, 2 * .pi - turn) * 180 / .pi, at.x, at.y, at.z, distance, broken))
     }
     #endif
 
@@ -771,16 +780,16 @@ final class MapModel {
     /// Fits the gesture target to the ground as shown: a cap of the
     /// ellipsoid at the placement ground. The volume's covers twice the
     /// shown region around the view center; Immersive's reaches the horizon
-    /// around the point beneath the camera, so gaze anywhere on the ground
+    /// around the point beneath the eye, so gaze anywhere on the ground
     /// finds it. Rebuilt only when the view has moved enough to need it.
     private func placeGestureSurface(_ framing: AdaptiveModel.Framing) {
         let ground = placementGround.value
         let shownReach = 2 * framing.shownRadius(room) / GeoMath.earthRadius
         let desired: GestureSurface
         if presentation.host == .immersive {
-            let camera = navigation.camera
-            let horizon = GestureSurface.horizonAngle(cameraHeight: camera.height, groundHeight: ground)
-            desired = .desired(center: camera.coordinate, height: ground, reach: max(horizon, shownReach))
+            let eye = Geodesy.geodetic(framing.eye(room))
+            let horizon = GestureSurface.horizonAngle(cameraHeight: eye.height, groundHeight: ground)
+            desired = .desired(center: eye.coordinate, height: ground, reach: max(horizon, shownReach))
         } else {
             let g = Geodesy.geodetic(framing.georeferencePoint).coordinate
             desired = .desired(center: g, height: ground, reach: shownReach)

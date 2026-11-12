@@ -47,11 +47,14 @@ struct EyeLevelTests {
     }
 
     @Test(arguments: [0.0, 0.4, 1])
-    func theCameraStaysOnTheEyeAtAnyTilt(weight: Double) {
+    func theTiltTurnsTheNavigationPositionAboutThePivot(weight: Double) {
         let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 600_000,
                                 heading: 0.5, pitch: -0.3)
         let f = framing(camera, weight: weight)
-        #expect(simd_distance(f.georeference.map(camera.position), immersive.designEye) < 1e-6)
+        let pivot = immersive.tiltPivot
+        let turned = pivot + simd_quatd(angle: weight * immersive.fullTilt, axis: SIMD3(1, 0, 0))
+            .act(immersive.designEye - pivot)
+        #expect(simd_distance(f.georeference.map(camera.position), turned) < 1e-6)
     }
 
     @Test
@@ -60,11 +63,12 @@ struct EyeLevelTests {
         let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 600_000,
                                 heading: 0, pitch: -0.3)
         let f = framing(camera, weight: 1)
-        // The ground beneath the camera is straight ahead, as far as the base
-        // plane is below the eye, and the local up there points back at the
-        // viewer.
+        // The ground beneath the navigation position is straight ahead, as
+        // far as C₀ is from the eye, and the local up there points back at
+        // the viewer.
         let nadir = Geodesy.ecef(ronda, height: 565)
-        #expect(simd_distance(f.georeference.map(nadir), immersive.designEye - SIMD3(0, 0, 1.58)) < 1e-6)
+        let reach = simd_distance(immersive.placementLevel, immersive.designEye)
+        #expect(simd_distance(f.georeference.map(nadir), immersive.designEye - SIMD3(0, 0, reach)) < 1e-6)
         let up = Geodesy.enu(latitude: ronda.latitude, longitude: ronda.longitude).up
         #expect(simd_distance(simd_normalize(f.georeference.rotation.act(up)), SIMD3(0, 0, 1)) < 1e-9)
     }
@@ -115,7 +119,7 @@ struct EyeLevelTests {
     }
 
     @Test
-    func humanScaleKeepsTheCameraOnTheEyeAndTheGroundAtItsRealDistance() {
+    func humanScaleKeepsTheGroundAtItsRealDistance() {
         let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 1_510,
                                 heading: 0.7, pitch: -0.4)
         let f = EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565, tiltWeight: 0,
@@ -124,10 +128,14 @@ struct EyeLevelTests {
         #expect(simd_distance(f.georeference.map(camera.position), immersive.designEye) < 1e-6)
         let nadir = Geodesy.ecef(ronda, height: 565)
         #expect(simd_distance(f.georeference.map(nadir), immersive.designEye - SIMD3(0, 945, 0)) < 1e-6)
-        // Fully tilted, the ground below is straight ahead at the same distance.
+        // Fully tilted, the ground below faces the eye, turned about the
+        // pivot.
         let tilted = EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565, tiltWeight: 1,
                                            fixedScale: 1)
-        #expect(simd_distance(tilted.georeference.map(nadir), immersive.designEye - SIMD3(0, 0, 945)) < 1e-6)
+        let pivot = immersive.tiltPivot
+        let below = immersive.designEye - SIMD3(0, 945, 0)
+        let turned = pivot + simd_quatd(angle: immersive.fullTilt, axis: SIMD3(1, 0, 0)).act(below - pivot)
+        #expect(simd_distance(tilted.georeference.map(nadir), turned) < 1e-6)
     }
 
     @Test
@@ -140,9 +148,9 @@ struct EyeLevelTests {
         let p = before.georeference.map(grab)
         let height = 565 + EyeLevelModel.altitude(forScale: before.georeference.scale * 2, room: immersive)
         let pose = AdaptiveModel.pose(for: AdaptiveModel.Grab(point: grab, start: p,
-                                                              startRotation: before.georeference.rotation,
+                                                              startRotation: before.georeference.rotation, startCamera: start,
                                                               twist: 0.3),
-                                      height: height, from: start, eye: immersive.designEye) { framing($0) }
+                                      height: height, from: start, room: immersive) { framing($0) }
         let after = framing(pose)
         #expect(simd_distance(after.georeference.map(grab), p) < 1e-3)
         #expect(abs(after.georeference.scale / (before.georeference.scale * 2) - 1) < 1e-9)
