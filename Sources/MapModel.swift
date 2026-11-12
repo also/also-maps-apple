@@ -438,7 +438,7 @@ final class MapModel {
 
     /// Moves the camera for the pinch so far: the pinched scale, with the
     /// world turned so the grabbed point follows the hand (see
-    /// `AdaptiveModel.pose(for:height:from:frame:)`).
+    /// `AdaptiveModel.pose(for:height:from:eye:frame:)`).
     private func solveManipulation() {
         guard let m = manipulation else { return }
         let ground = placementGround.value
@@ -450,7 +450,7 @@ final class MapModel {
         let height = context.clampHeight(ground + above)
         let grab = AdaptiveModel.Grab(point: m.grab, start: m.start, startRotation: m.startRotation,
                                       translation: m.translation, twist: m.twist)
-        let pose = AdaptiveModel.pose(for: grab, height: height, from: m.pose, frame: frame)
+        let pose = AdaptiveModel.pose(for: grab, height: height, from: m.pose, eye: room.designEye, frame: frame)
         guard pose.latitude.isFinite, pose.longitude.isFinite, pose.heading.isFinite else {
             pinchLog("pose not finite")
             return
@@ -492,7 +492,7 @@ final class MapModel {
         let before = frame(m.pose), after = frame(pose)
         let center = after.georeference.map(.zero)
         let radius = after.georeference.scale * simd_length(m.grab)
-        let held = simd_normalize(m.start - center)
+        let held = AdaptiveModel.sighted(m.start, from: room.designEye, center: center, radius: radius)
         let along = m.translation - held * simd_dot(m.translation, held)
         let turn = (after.georeference.rotation * before.georeference.rotation.inverse).angle
         let at = after.georeference.map(m.grab)

@@ -81,15 +81,17 @@ extension AdaptiveModel {
     /// are fixed in the room; only its orientation depends on where the
     /// camera is and which way it faces. So the pinch is a rotation of that
     /// globe about its center:
-    /// - The grabbed point keeps its direction from the center as seen from
-    ///   where the pinch began, which zooms about it.
+    /// - The grabbed point stays where you see it: on the line of sight from
+    ///   `eye` through where the pinch began, on the side of the globe facing
+    ///   you, or at the globe's edge nearest that line once the globe has
+    ///   shrunk out of it. That zooms about it.
     /// - The hand's movement rolls it along the surface by the same
     ///   distance: on a nearly flat map that's moving it with the hand; on a
     ///   globe it keeps turning past the edge as long as the hand moves.
     /// - The twist turns the globe about the grabbed point's up.
     /// The camera is then whichever pose gives that orientation, so there's
     /// always an answer, including where the tilt changes with height.
-    static func pose(for grab: Grab, height: Double, from camera: CameraPose,
+    static func pose(for grab: Grab, height: Double, from camera: CameraPose, eye: SIMD3<Double>,
                      iterations: Int = 3, frame: (CameraPose) -> Framing) -> CameraPose {
         var pose = camera
         pose.height = height
@@ -102,12 +104,14 @@ extension AdaptiveModel {
             let tilt = georeference.rotation * EyeLevelModel.levelRotation(pose).inverse
             let center = georeference.map(.zero)
             let radius = georeference.scale * simd_length(grab.point)
-            let held = simd_normalize(grab.start - center)
+            let held = sighted(grab.start, from: eye, center: center, radius: radius)
             let roll = roll(held, by: grab.translation, radius: radius)
             let direction = roll.act(held)
-            // Built as a turn about a fixed axis rather than the shortest
+            // The roll is a turn about a fixed axis rather than the shortest
             // turn from start to finish, which has no fixed axis once the
-            // point has rolled to the far side.
+            // point has rolled to the far side. The shortest turn is safe
+            // for the zoom: both directions face the eye, so they're never
+            // opposite.
             let rotation = simd_quatd(angle: grab.twist, axis: direction)
                 * roll
                 * simd_quatd(from: startDirection, to: held)
@@ -115,6 +119,24 @@ extension AdaptiveModel {
             pose = Self.camera(level: tilt.inverse * rotation, height: height, pitch: camera.pitch)
         }
         return pose
+    }
+
+    /// The direction from a globe's center to where the line of sight from
+    /// `eye` through `point` first meets the globe, or, if it misses, to
+    /// the point on the globe's edge nearest that line.
+    static func sighted(_ point: SIMD3<Double>, from eye: SIMD3<Double>, center: SIMD3<Double>,
+                        radius: Double) -> SIMD3<Double> {
+        let sight = simd_normalize(point - eye)
+        let toCenter = center - eye
+        let along = simd_dot(toCenter, sight)
+        let nearest = eye + sight * along
+        let miss = simd_distance(nearest, center)
+        guard miss < radius else { return simd_normalize(nearest - center) }
+        // The near crossing, in a form that keeps its precision when the
+        // globe is huge and the ground close.
+        let half = (radius * radius - miss * miss).squareRoot()
+        let distance = (simd_length_squared(toCenter) - radius * radius) / (along + half)
+        return simd_normalize(eye + sight * distance - center)
     }
 
     /// The turn of a globe of `radius` that rolls the point in `direction`

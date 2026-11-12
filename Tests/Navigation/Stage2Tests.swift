@@ -55,7 +55,7 @@ struct PinchManipulationTests {
         let grabbed = AdaptiveModel.Grab(point: grab, start: p, startRotation: before.georeference.rotation,
                                          translation: translation, twist: twist)
         let pose = AdaptiveModel.pose(for: grabbed, height: EyeLevelModel.altitude(forScale: scale, room: room),
-                                      from: start) { framing($0, room) }
+                                      from: start, eye: room.designEye) { framing($0, room) }
         return (framing(pose, room), grab, scale)
     }
 
@@ -92,7 +92,8 @@ struct PinchManipulationTests {
     /// Between 50 and 500 km the tilt changes with height, which moves the
     /// globe's center in the room, so the grabbed point can't stay exactly
     /// where it was. The pinch still reaches the scale exactly and keeps the
-    /// point in the same direction from the center: the nearest it can be.
+    /// point where you see it, on the line of sight through where you
+    /// pinched.
     @Test(arguments: [0.6, 1.6])
     func zoomWhileTheTiltChanges(magnification: Double) {
         let start = EyeLevelModel.framePlace(center: sanFrancisco, radius: 120_000, heading: 0.2, room: volume)
@@ -101,9 +102,9 @@ struct PinchManipulationTests {
         let p = framing(start).placementPoint + SIMD3(0.1, 0, 0.05)
         let (after, grab, scale) = pinch(grabAt: p, magnification: magnification, twist: 0, radius: 120_000)
         #expect(abs(after.georeference.scale / scale - 1) < 1e-9)
-        let center = after.georeference.map(.zero)
-        let held = simd_dot(simd_normalize(after.georeference.map(grab) - center), simd_normalize(p - center))
-        #expect(held > 1 - 1e-9)
+        let sight = simd_normalize(p - volume.designEye)
+        let seen = simd_normalize(after.georeference.map(grab) - volume.designEye)
+        #expect(simd_dot(sight, seen) > 1 - 1e-9)
     }
 
     /// Zooming steadily from the city out past the tilt range, frame by
@@ -121,7 +122,7 @@ struct PinchManipulationTests {
         for step in 1...200 {
             let scale = before.georeference.scale * pow(0.97, Double(step))
             pose = AdaptiveModel.pose(for: grabbed, height: EyeLevelModel.altitude(forScale: scale, room: volume),
-                                      from: pose) { framing($0) }
+                                      from: pose, eye: volume.designEye) { framing($0) }
             let f = framing(pose)
             #expect(abs(log(f.georeference.scale / previous) - log(0.97)) < 1e-9)
             let at = f.georeference.map(grabbed.point)
@@ -151,7 +152,7 @@ struct PinchManipulationTests {
         for step in 1...300 {
             // Up to three globe diameters of hand movement.
             grabbed.translation = side * (6 * radius * Double(step) / 300)
-            pose = AdaptiveModel.pose(for: grabbed, height: pose.height, from: pose) { framing($0) }
+            pose = AdaptiveModel.pose(for: grabbed, height: pose.height, from: pose, eye: volume.designEye) { framing($0) }
             let at = framing(pose).georeference.map(grabbed.point)
             let arc = simd_length(grabbed.translation) / radius
             let expected = center + radius * (up * cos(arc) + side * sin(arc))
@@ -166,6 +167,38 @@ struct PinchManipulationTests {
         }
     }
 
+    /// Zooming out from a flat view to a small globe turns the globe only a
+    /// little each step, wherever the pinch began, and an unchanged pinch
+    /// leaves it still. (Holding the grabbed point's direction from the
+    /// globe's center instead sent it under the globe once the shrinking
+    /// globe's center rose past it, spinning the globe up to 1.6 rad in a
+    /// step near 9,900 km.)
+    @Test(arguments: [0.0, 0.001, 0.15], [20_000.0, 120_000, 300_000, 1_000_000])
+    func zoomOutToAGlobeTurnsSmoothly(side: Double, radius: Double) {
+        var pose = EyeLevelModel.framePlace(center: sanFrancisco, radius: radius, heading: 0.2, room: volume)
+        let before = framing(pose)
+        let start = before.placementPoint + SIMD3(side, 0, 0)
+        let point = GestureSurface.snap(before.georeference.ecef(map: start), toHeight: 0)
+        let grab = AdaptiveModel.Grab(point: point, start: before.georeference.map(point),
+                                      startRotation: before.georeference.rotation)
+        let startHeight = EyeLevelModel.altitude(forScale: before.georeference.scale, room: volume)
+        var previous = before.georeference.rotation
+        for step in 1...700 {
+            let height = min(11_000_000, startHeight * pow(1.01, Double(step)))
+            pose = AdaptiveModel.pose(for: grab, height: height, from: pose, eye: volume.designEye) { framing($0) }
+            let rotation = framing(pose).georeference.rotation
+            let turn = (rotation * previous.inverse).angle
+            #expect(min(turn, 2 * .pi - turn) < 0.1)
+            previous = rotation
+        }
+        for _ in 0..<15 {
+            pose = AdaptiveModel.pose(for: grab, height: pose.height, from: pose, eye: volume.designEye) { framing($0) }
+            let turn = (framing(pose).georeference.rotation * previous.inverse).angle
+            #expect(min(turn, 2 * .pi - turn) < 1e-6)
+            previous = framing(pose).georeference.rotation
+        }
+    }
+
     /// A hand held still holds the globe still, frame after frame, even
     /// with the grabbed point rolled most of the way to the globe's edge.
     @Test func aStillHandHoldsAGlobeStill() {
@@ -175,10 +208,10 @@ struct PinchManipulationTests {
         let grabbed = AdaptiveModel.Grab(point: before.georeference.ecef(map: p), start: p,
                                          startRotation: before.georeference.rotation,
                                          translation: SIMD3(0.5, 0, 0))
-        pose = AdaptiveModel.pose(for: grabbed, height: pose.height, from: pose) { framing($0) }
+        pose = AdaptiveModel.pose(for: grabbed, height: pose.height, from: pose, eye: volume.designEye) { framing($0) }
         let held = framing(pose).georeference.map(grabbed.point)
         for _ in 0..<10 {
-            pose = AdaptiveModel.pose(for: grabbed, height: pose.height, from: pose) { framing($0) }
+            pose = AdaptiveModel.pose(for: grabbed, height: pose.height, from: pose, eye: volume.designEye) { framing($0) }
             #expect(simd_distance(framing(pose).georeference.map(grabbed.point), held) < 1e-6)
         }
     }

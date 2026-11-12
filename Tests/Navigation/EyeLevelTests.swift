@@ -131,17 +131,18 @@ struct EyeLevelTests {
     }
 
     @Test
-    func anchoredPinchKeepsTheGrabUnderTheHand() {
+    func pinchKeepsTheGrabbedPointWhereItWas() {
         let start = EyeLevelModel.framePlace(center: ronda, radius: 3_000, heading: 0.2,
                                              room: immersive, groundHeight: 565)
         let before = framing(start)
-        let p = SIMD3(0.4, 0.02, -3.0)
-        let grab = before.georeference.ecef(map: p)
+        // As the app grabs: the gaze hit put on the ground.
+        let grab = GestureSurface.snap(before.georeference.ecef(map: SIMD3(0.4, 0.02, -3.0)), toHeight: 565)
+        let p = before.georeference.map(grab)
         let height = 565 + EyeLevelModel.altitude(forScale: before.georeference.scale * 2, room: immersive)
         let pose = AdaptiveModel.pose(for: AdaptiveModel.Grab(point: grab, start: p,
                                                               startRotation: before.georeference.rotation,
                                                               twist: 0.3),
-                                      height: height, from: start) { framing($0) }
+                                      height: height, from: start, eye: immersive.designEye) { framing($0) }
         let after = framing(pose)
         #expect(simd_distance(after.georeference.map(grab), p) < 1e-3)
         #expect(abs(after.georeference.scale / (before.georeference.scale * 2) - 1) < 1e-9)

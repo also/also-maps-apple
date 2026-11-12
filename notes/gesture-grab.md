@@ -4,6 +4,12 @@ Working notes for [also/also-maps-apple#61](https://github.com/also/also-maps-ap
 
 ## 2026-11-11
 
+### Zoom holds the grabbed point on the line of sight
+
+- **Observed (PR review probe):** zooming out from a 20 km view with the grab at or near the view center spun the globe 1.09–1.62 rad in a single 1% height step near 9,900 km, and an unchanged pinch there kept turning it (up to 0.74 rad). Other starting heights, and grabs 15 cm off center, stayed under 0.05 rad a step.
+- **Cause:** the zoom kept the grabbed point's direction from the globe's center. From a flat view that's straight up. As the globe shrinks its center rises, and near 9,900 km it passes the height of where you pinched, so the held direction flips to straight down, under the globe. The shortest turn from the start direction to an opposite one has no defined axis.
+- **Change:** the grabbed point stays on the line of sight from the design eye through where the pinch began, where it first meets the globe, or at the globe's edge nearest that line once the globe has shrunk out of it (`AdaptiveModel.sighted`). Both directions then face the eye, so the shortest turn is safe. On a nearly flat map it's the same as before. The review probe is now `PinchManipulationTests.zoomOutToAGlobeTurnsSmoothly`: under 0.1 rad a step everywhere, and no turn for an unchanged pinch. Not yet tried on the headset.
+
 ### Open: how far a drag or zoom moves depends on where it started
 
 - **Observed (owner, headset):** in one gesture, dragging something far away toward you and then back moves it much further than grabbing something close and pushing it away by the same hand movement. Zooming about a point far away can also feel odd.
