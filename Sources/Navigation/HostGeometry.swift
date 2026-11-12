@@ -13,10 +13,10 @@ struct RoomGeometry: Equatable {
     /// C₀: the content center on the base plane, where the view center sits
     /// while the map is level.
     var placementLevel: SIMD3<Double>
-    /// Half-width of the shown region and the gesture slab.
+    /// Half-width of the shown region.
     var contentHalfWidth: Double
-    /// The tilt at full weight, radians about the room's right axis through
-    /// E: 0 level, π/2 the ground below straight ahead.
+    /// The tilt at full weight, radians about the room's right axis (through
+    /// `tiltPivot`): 0 level, π/2 the ground below straight ahead.
     var fullTilt = Double.pi / 2
 
     /// The direction (unit) from E of the line of sight the view center is
@@ -29,6 +29,45 @@ struct RoomGeometry: Equatable {
         let level = atan2(designEye.y - placementLevel.y, max(designEye.z - placementLevel.z, 1e-9))
         let dip = level + (.pi / 2 - fullTilt - level) * w
         return SIMD3(0, -sin(dip), -cos(dip))
+    }
+
+    /// The point the tilt turns the world about, with the ground below the
+    /// navigation position on the base plane while level. Full tilt turns
+    /// that ground to face E along the full-tilt line of sight, as far from
+    /// E as C₀ is. So a point grabbed at the view center can stay about as
+    /// far away whether the map is tilted or level. (About E itself, the
+    /// ground below would stay E's height away at every tilt.)
+    var tiltPivot: SIMD3<Double> {
+        tiltPivot(groundBelow: max(designEye.y - placementLevel.y, 0.01))
+    }
+
+    /// `tiltPivot` for a level ground `groundBelow` meters below E: the
+    /// same shape, scaled about E. Whatever the scale, the tilt then keeps
+    /// what's seen from E the same, so changing only the scale (as human
+    /// scale does) leaves the picture from E unchanged.
+    func tiltPivot(groundBelow: Double) -> SIMD3<Double> {
+        let eyeHeight = max(designEye.y - placementLevel.y, 0.01)
+        let below = designEye - SIMD3(0, groundBelow, 0)
+        let turn = simd_quatd(angle: fullTilt, axis: SIMD3(1, 0, 0))
+        let reach = simd_distance(placementLevel, designEye) * groundBelow / eyeHeight
+        let target = designEye + turn.act(SIMD3(0, -1, 0)) * reach
+        // pivot + turn(below − pivot) = target, in the y–z plane.
+        let c = cos(fullTilt), s = sin(fullTilt)
+        let rhs = target - turn.act(below)
+        let m = simd_double2x2(rows: [SIMD2(1 - c, s), SIMD2(-s, 1 - c)])
+        guard abs(m.determinant) > 1e-9 else { return designEye }
+        let yz = m.inverse * SIMD2(rhs.y, rhs.z)
+        return SIMD3(designEye.x, yz.x, yz.y)
+    }
+
+    /// The turn of the view center's line of sight (`sightLine`) between
+    /// two tilts, given as rotations about the room's right axis.
+    func sightTurn(from start: simd_quatd, to end: simd_quatd) -> simd_quatd {
+        func weight(_ tilt: simd_quatd) -> Double {
+            guard abs(fullTilt) > 1e-9 else { return 0 }
+            return 2 * atan2(tilt.imag.x, tilt.real) / fullTilt
+        }
+        return simd_quatd(from: sightLine(tiltWeight: weight(start)), to: sightLine(tiltWeight: weight(end)))
     }
 
     /// The tilt that points the ground below the eye at `point`: 90° less

@@ -18,7 +18,7 @@ struct DebugControls: View {
                                            set: { model.setTilesHeld($0) }))
         note("Streaming keeps what's loaded and requests nothing more. You can travel about 1.5× and zoom out about 3× the held region before stopping. X on a game controller does the same.")
         Toggle("Pivot and center markers", isOn: $model.showsDebugMarkers)
-        note("Red: the point turns and zooms rotate around. Blue: the map's center.")
+        note("Red: the point turns and zooms rotate around. Blue: the map's center. While you pinch: orange, the point you grabbed, and white, where your hand has moved it; they should stay together. Purple: where your gaze hit the gesture target, just above or below the grabbed point.")
         Toggle("Tile bounds", isOn: $model.showsTileBounds)
         note("Each drawn tile's box: cyan inside the LOD camera's view, orange outside. Yellow: the area of interest. Pink: the LOD camera's view; white: its view direction.")
         Button("Copy View State") {

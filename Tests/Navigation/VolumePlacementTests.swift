@@ -100,22 +100,28 @@ struct VolumePlacementTests {
         }
     }
 
+    /// The navigation position is on the eye while level, and the tilt
+    /// turns it about the pivot with the rest of the world.
     @Test(arguments: [600.0, 120_000, 900_000, 11_000_000])
-    func theCameraStaysOnTheEyeAtAnyTilt(height: Double) {
+    func theTiltTurnsTheNavigationPositionAboutThePivot(height: Double) {
         let camera = CameraPose(latitude: -33.86, longitude: 151.21, height: height, heading: 4, pitch: -0.4)
+        let w = EyeLevelModel.tiltWeight(for: camera)
         let f = framing(camera, volume)
-        #expect(simd_distance(f.georeference.map(camera.position), volume.designEye) < 1e-6)
+        let pivot = volume.tiltPivot
+        let turned = pivot + simd_quatd(angle: w * volume.fullTilt, axis: SIMD3(1, 0, 0)).act(volume.designEye - pivot)
+        #expect(simd_distance(f.georeference.map(camera.position), turned) < 1e-6)
     }
 
     /// Fully tilted, the ground below faces you along your line of sight to
-    /// the box's center, as far from the eye as the base plane is below it.
+    /// the box's center, as far from the eye as C₀ is while level.
     @Test func fullTiltFacesTheViewerAtTheBoxCenter() {
         let camera = CameraPose(latitude: 37.79, longitude: -122.39, height: 900_000, heading: 0.3, pitch: -0.4)
         #expect(EyeLevelModel.tiltWeight(for: camera) == 1)
         let f = framing(camera, volume, ground: 10)
         let nadir = Geodesy.ecef(camera.coordinate, height: 10)
         let towardCenter = simd_normalize(SIMD3(0, 0, 0) - volume.designEye)
-        #expect(simd_distance(f.georeference.map(nadir), volume.designEye + 0.55 * towardCenter) < 1e-6)
+        let reach = simd_distance(volume.placementLevel, volume.designEye)
+        #expect(simd_distance(f.georeference.map(nadir), volume.designEye + reach * towardCenter) < 1e-6)
         #expect(simd_distance(shownUp(f, camera), -towardCenter) < 1e-9)
         // The view center is the ground below.
         #expect(GeoMath.distance(from: Geodesy.geodetic(f.georeferencePoint).coordinate, to: camera.coordinate) < 1)

@@ -1,18 +1,20 @@
 import Foundation
 import simd
 
-/// The room hosts' presentation (the volume and the immersive space): the
-/// camera is at the design eye point at every altitude, and the map is level
-/// unless the tilt tips it.
+/// The room hosts' presentation (the volume and the immersive space): level,
+/// the navigation position is at the design eye point, and the tilt tips the
+/// map from there.
 ///
-/// - Untilted, the ground beneath the camera sits on the base plane below
-///   the design eye point, and the camera's heading faces away from the
-///   viewer. The scale makes the camera's height above that ground the
-///   eye's height above the base plane (or is fixed, as at human scale).
-///   The camera's pitch plays no part.
-/// - The tilt turns the world about the room's right axis through the eye,
-///   so the camera stays on the eye and the ground below comes up toward
-///   straight ahead, like looking down at a globe. Its weight is the
+/// - Untilted, the ground beneath the navigation position sits on the base
+///   plane below the design eye point, and its heading faces away from the
+///   viewer. The scale makes its height above that ground the eye's height
+///   above the base plane (or is fixed, as at human scale). The camera
+///   pose's pitch plays no part.
+/// - The tilt turns the world about the room's right axis through
+///   `RoomGeometry.tiltPivot`, so the ground below comes up toward straight
+///   ahead, like looking at a globe, and at full tilt is as far from the eye
+///   as the view center is while level. The navigation position turns with
+///   the world, off the eye. Its weight is the
 ///   interaction mode's choice; drone mode's assist follows the camera's
 ///   height above the ellipsoid (`tiltWeight`). Each host says how far full
 ///   weight tilts (`RoomGeometry.fullTilt`).
@@ -38,6 +40,13 @@ enum EyeLevelModel {
         tiltWeight(altitude: camera.height)
     }
 
+    /// How high above the ground the camera is for the framing to have
+    /// `scale` (unless a fixed scale is given): the inverse of `framing`'s.
+    static func altitude(forScale scale: Double, room: RoomGeometry) -> Double {
+        let eyeHeight = max(room.designEye.y - room.placementLevel.y, 0.01)
+        return max(eyeHeight / scale, AdaptiveModel.minimumRange)
+    }
+
     /// The framing for `camera` over ground at `groundHeight` (meters above
     /// the ellipsoid), tilted by `tiltWeight` (0...1) of the host's full
     /// tilt. With `fixedScale` (1 is human scale) the scale stays put and the
@@ -52,33 +61,36 @@ enum EyeLevelModel {
         let scale = fixedScale ?? eyeHeight / above
         let rotation = levelRotation(camera)
 
-        // The camera on the eye, level, then tilted about the eye.
+        // The navigation position on the eye, level, then tilted about the
+        // pivot.
         let level = Similarity(scale: scale, rotation: rotation,
                                translation: eye - scale * rotation.act(camera.position))
         let tilt = Similarity(scale: 1, rotation: simd_quatd(angle: w * room.fullTilt, axis: SIMD3(1, 0, 0)),
                               translation: .zero)
-        let tilted = Similarity(translation: eye).after(tilt).after(Similarity(translation: -eye)).after(level)
+        let pivot = room.tiltPivot(groundBelow: scale * above)
+        let tilted = Similarity(translation: pivot).after(tilt).after(Similarity(translation: -pivot)).after(level)
 
-        // The ground along the line of sight.
+        // The ground along the line of sight from the eye.
+        let from = tilted.inverse.apply(eye)
         let through = tilted.inverse.apply(eye + room.sightLine(tiltWeight: w))
-        let georeferencePoint = ground(from: camera, toward: through, groundHeight: groundHeight)
+        let georeferencePoint = ground(from: from, toward: through, fallback: camera, groundHeight: groundHeight)
         return AdaptiveModel.Framing(georeference: Georeference(tilted),
                                      georeferencePoint: georeferencePoint,
                                      placementPoint: tilted.apply(georeferencePoint),
                                      range: simd_distance(georeferencePoint, camera.position))
     }
 
-    /// Where the ray from the camera through `point` (ECEF) meets the ground,
-    /// or the ground beneath the camera if it doesn't.
-    private static func ground(from camera: CameraPose, toward point: SIMD3<Double>,
+    /// Where the ray from `origin` through `point` (both ECEF) meets the
+    /// ground, or the ground beneath `fallback` if it doesn't.
+    private static func ground(from origin: SIMD3<Double>, toward point: SIMD3<Double>, fallback: CameraPose,
                                groundHeight: Double) -> SIMD3<Double> {
-        let ray = Ray(origin: camera.position, direction: point - camera.position)
+        let ray = Ray(origin: origin, direction: point - origin)
         if case let .hit(hit, _) = Geodesy.intersect(ray: ray, surfaceHeight: groundHeight) { return hit }
-        return Geodesy.ecef(camera.coordinate, height: groundHeight)
+        return Geodesy.ecef(fallback.coordinate, height: groundHeight)
     }
 
     /// Level: the camera's local up is the room's up, its heading faces −z.
-    private static func levelRotation(_ camera: CameraPose) -> simd_quatd {
+    static func levelRotation(_ camera: CameraPose) -> simd_quatd {
         let frame = Geodesy.enu(latitude: camera.latitude, longitude: camera.longitude)
         let forward = frame.north * cos(camera.heading) + frame.east * sin(camera.heading)
         let right = frame.east * cos(camera.heading) - frame.north * sin(camera.heading)

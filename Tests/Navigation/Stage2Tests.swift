@@ -42,65 +42,254 @@ struct PlaceFramingTests {
     }
 }
 
-struct AnchoredManipulationTests {
-    private func solve(grabAt p: SIMD3<Double>, to target: SIMD3<Double>, magnification: Double,
+struct PinchManipulationTests {
+    /// A pinch from `start` (a place framed at `radius`), grabbing map-frame
+    /// point `p`; returns the framing it ends at and the grabbed point.
+    private func pinch(grabAt p: SIMD3<Double>, translation: SIMD3<Double> = .zero, magnification: Double,
                        twist: Double, radius: Double = 600,
-                       room: RoomGeometry = volume) -> (AdaptiveModel.Framing, SIMD3<Double>, Double, Double) {
+                       room: RoomGeometry = volume) -> (AdaptiveModel.Framing, SIMD3<Double>, Double) {
         let start = EyeLevelModel.framePlace(center: sanFrancisco, radius: radius, heading: 0.2, room: room)
         let before = framing(start, room)
         let grab = before.georeference.ecef(map: p)
-        let anchor = AdaptiveModel.AnchorTarget(
-            grab: grab, target: target, scale: before.georeference.scale * magnification,
-            heading: start.heading + twist, headingOrigin: start.coordinate)
-        let solution = AdaptiveModel.solve(anchor, from: start, room: room, scaleSurface: 0,
-                                           context: context) { framing($0, room) }
-        let after = framing(solution.pose, room)
-        return (after, grab, before.georeference.scale * magnification, solution.error)
+        let scale = before.georeference.scale * magnification
+        let grabbed = AdaptiveModel.Grab(point: grab, start: p, startRotation: before.georeference.rotation, startCamera: start,
+                                         translation: translation, twist: twist)
+        let pose = AdaptiveModel.pose(for: grabbed, height: EyeLevelModel.altitude(forScale: scale, room: room),
+                                      from: start, room: room) { framing($0, room) }
+        return (framing(pose, room), grab, scale)
     }
 
     @Test(arguments: [0.5, 2.0, 5.0])
-    func pinchKeepsTheGrabbedPointUnderTheHand(magnification: Double) {
+    func zoomKeepsTheGrabbedPointWhereItWas(magnification: Double) {
         let p = SIMD3(0.2, -0.25, 0.15)
-        let (after, grab, scale, _) = solve(grabAt: p, to: p, magnification: magnification, twist: 0)
+        let (after, grab, scale) = pinch(grabAt: p, magnification: magnification, twist: 0)
         #expect(simd_distance(after.georeference.map(grab), p) < 1e-3)
-        #expect(abs(after.georeference.scale / scale - 1) < 1e-3)
+        #expect(abs(after.georeference.scale / scale - 1) < 1e-9)
     }
 
-    @Test func pinchTwistAndDragTogether() {
+    @Test func zoomTwistAndDragTogether() {
         let p = SIMD3(-0.1, -0.25, 0.2)
-        let target = p + SIMD3(0.05, 0, -0.08)
-        let (after, grab, scale, _) = solve(grabAt: p, to: target, magnification: 1.7, twist: 40 * degrees)
-        #expect(simd_distance(after.georeference.map(grab), target) < 1e-3)
-        #expect(abs(after.georeference.scale / scale - 1) < 1e-3)
+        let move = SIMD3(0.05, 0, -0.08)
+        let (after, grab, scale) = pinch(grabAt: p, translation: move, magnification: 1.7, twist: 40 * degrees)
+        #expect(simd_distance(after.georeference.map(grab), p + move) < 1e-3)
+        #expect(abs(after.georeference.scale / scale - 1) < 1e-9)
     }
 
-    /// Between 50 and 500 km the tilt changes with the height the pinch
-    /// asks for, turning the ground about the eye, so the grabbed point
-    /// can't stay exactly under the hand: the solve reaches the scale and
-    /// keeps the point as close as it can. (×1.6 at 120 km: the ground turns
-    /// about 19°.) A known limit of tilting about the eye; see
-    /// notes/volume-placement.md.
+    /// The twist turns the map about the grabbed point's up, counterclockwise
+    /// seen from above, so the view heading turns clockwise by as much.
+    @Test func twistTurnsAboutTheGrabbedPoint() {
+        let p = SIMD3(0.1, -0.25, 0.1)
+        let start = EyeLevelModel.framePlace(center: sanFrancisco, radius: 600, heading: 0.2, room: volume)
+        let (after, grab, _) = pinch(grabAt: p, magnification: 1, twist: 0.5)
+        #expect(simd_distance(after.georeference.map(grab), p) < 1e-3)
+        let north = Geodesy.enu(latitude: sanFrancisco.latitude, longitude: sanFrancisco.longitude).north
+        let before = framing(start).georeference.rotation.act(north)
+        let now = after.georeference.rotation.act(north)
+        let angle = atan2(simd_cross(before, now).y, simd_dot(before, now))
+        #expect(abs(angle - 0.5) < 1e-3)
+    }
+
+    /// Between 50 and 500 km the tilt changes with height, which turns the
+    /// globe about the pivot, so the grabbed point can't stay exactly where
+    /// it was. The pinch still reaches the scale exactly and keeps the point
+    /// on the line of sight through where you pinched, turned as the view
+    /// center's is; zooming in, it may turn further, only to keep the point
+    /// no farther than it was.
     @Test(arguments: [0.6, 1.6])
-    func pinchWhileTheTiltChangesReachesTheScale(magnification: Double) {
+    func zoomWhileTheTiltChanges(magnification: Double) {
         let start = EyeLevelModel.framePlace(center: sanFrancisco, radius: 120_000, heading: 0.2, room: volume)
         let weight = EyeLevelModel.tiltWeight(for: start)
         #expect(weight > 0.1 && weight < 0.9)
         let p = framing(start).placementPoint + SIMD3(0.1, 0, 0.05)
-        let (after, grab, scale, _) = solve(grabAt: p, to: p, magnification: magnification, twist: 0,
-                                            radius: 120_000)
-        #expect(abs(after.georeference.scale / scale - 1) < 1e-3)
-        #expect(simd_distance(after.georeference.map(grab), p) < 0.15)
+        let (after, grab, scale) = pinch(grabAt: p, magnification: magnification, twist: 0, radius: 120_000)
+        #expect(abs(after.georeference.scale / scale - 1) < 1e-9)
+        let w = EyeLevelModel.tiltWeight(altitude: EyeLevelModel.altitude(forScale: scale, room: volume))
+        let sight = simd_quatd(from: volume.sightLine(tiltWeight: weight), to: volume.sightLine(tiltWeight: w))
+            .act(simd_normalize(p - volume.designEye))
+        let at = after.georeference.map(grab)
+        let onSight = simd_dot(sight, simd_normalize(at - volume.designEye)) > 1 - 1e-9
+        let held = magnification > 1
+            && abs(simd_distance(at, volume.designEye) - simd_distance(p, volume.designEye)) < 1e-6
+        #expect(onSight || held)
     }
 
-    /// Gestures arrive in the reference space and pass through the room
-    /// placement first; the solve then holds in the map frame, so the grab
-    /// stays under the hand in the room too.
+    /// Zooming steadily from the city out past the tilt range, frame by
+    /// frame from the last pose: the scale follows the hands exactly, and
+    /// the grabbed point moves only a little each frame beyond the tilt's
+    /// own turn (toward the globe's center as it shrinks).
+    @Test func zoomThroughTheTiltRangeHasNoSteps() {
+        var pose = EyeLevelModel.framePlace(center: sanFrancisco, radius: 20_000, heading: 0.2, room: volume)
+        let before = framing(pose)
+        let p = before.placementPoint + SIMD3(0.15, 0, 0.1)
+        let grabbed = AdaptiveModel.Grab(point: before.georeference.ecef(map: p), start: p,
+                                         startRotation: before.georeference.rotation, startCamera: pose)
+        var previous = before.georeference.scale
+        var previousGrab = p
+        var previousWeight = EyeLevelModel.tiltWeight(for: pose)
+        for step in 1...200 {
+            let scale = before.georeference.scale * pow(0.97, Double(step))
+            pose = AdaptiveModel.pose(for: grabbed, height: EyeLevelModel.altitude(forScale: scale, room: volume),
+                                      from: pose, room: volume) { framing($0) }
+            let f = framing(pose)
+            #expect(abs(log(f.georeference.scale / previous) - log(0.97)) < 1e-9)
+            let at = f.georeference.map(grabbed.point)
+            let tiltTurn = abs(EyeLevelModel.tiltWeight(for: pose) - previousWeight) * volume.fullTilt
+            #expect(simd_distance(at, previousGrab) < 0.015 + tiltTurn * simd_distance(previousGrab, volume.designEye))
+            previousWeight = EyeLevelModel.tiltWeight(for: pose)
+            previous = f.georeference.scale
+            previousGrab = at
+        }
+        #expect(pose.height > 1_000_000)
+    }
+
+    /// Fully zoomed out, dragging rolls the globe: the grabbed point moves
+    /// along the surface as far as the hand moves, past the edge and around
+    /// the back, and the globe turns a little each frame, with no jumps
+    /// (including the spin about the point as it crosses the far side).
+    @Test func dragRollsAGlobe() {
+        var pose = CameraPose(latitude: 37.79, longitude: -122.39, height: 10_000_000, heading: 0, pitch: -.pi / 2)
+        let before = framing(pose)
+        let p = before.placementPoint
+        let center = before.georeference.map(.zero)
+        let radius = simd_distance(center, p)
+        var grabbed = AdaptiveModel.Grab(point: before.georeference.ecef(map: p), start: p,
+                                         startRotation: before.georeference.rotation, startCamera: pose)
+        let up = simd_normalize(p - center)
+        let side = simd_normalize(SIMD3(1, 0, 0) - up * up.x)
+        var previous = p
+        var previousRotation = before.georeference.rotation
+        for step in 1...300 {
+            // Up to three globe diameters of hand movement.
+            grabbed.translation = side * (6 * radius * Double(step) / 300)
+            pose = AdaptiveModel.pose(for: grabbed, height: pose.height, from: pose, room: volume) { framing($0) }
+            let at = framing(pose).georeference.map(grabbed.point)
+            let arc = simd_length(grabbed.translation) / radius
+            let expected = center + radius * (up * cos(arc) + side * sin(arc))
+            // Within the Earth's flattening of a sphere's roll.
+            #expect(simd_distance(at, expected) < 0.02 * radius)
+            #expect(simd_distance(at, previous) < 0.03 * radius)
+            let rotation = framing(pose).georeference.rotation
+            let turn = (rotation * previousRotation.inverse).angle
+            #expect(min(turn, 2 * .pi - turn) < 0.03)
+            previous = at
+            previousRotation = rotation
+        }
+    }
+
+    /// Zooming out from a flat view to a small globe turns the globe only a
+    /// little each step, wherever the pinch began, and an unchanged pinch
+    /// leaves it still. (Holding the grabbed point's direction from the
+    /// globe's center instead sent it under the globe once the shrinking
+    /// globe's center rose past it, spinning the globe up to 1.6 rad in a
+    /// step near 9,900 km.)
+    @Test(arguments: [0.0, 0.001, 0.15], [20_000.0, 120_000, 300_000, 1_000_000])
+    func zoomOutToAGlobeTurnsSmoothly(side: Double, radius: Double) {
+        var pose = EyeLevelModel.framePlace(center: sanFrancisco, radius: radius, heading: 0.2, room: volume)
+        let before = framing(pose)
+        let start = before.placementPoint + SIMD3(side, 0, 0)
+        let point = GestureSurface.snap(before.georeference.ecef(map: start), toHeight: 0)
+        let grab = AdaptiveModel.Grab(point: point, start: before.georeference.map(point),
+                                      startRotation: before.georeference.rotation, startCamera: pose)
+        let startHeight = EyeLevelModel.altitude(forScale: before.georeference.scale, room: volume)
+        var previous = before.georeference.rotation
+        for step in 1...700 {
+            let height = min(11_000_000, startHeight * pow(1.01, Double(step)))
+            pose = AdaptiveModel.pose(for: grab, height: height, from: pose, room: volume) { framing($0) }
+            let rotation = framing(pose).georeference.rotation
+            let turn = (rotation * previous.inverse).angle
+            #expect(min(turn, 2 * .pi - turn) < 0.1)
+            previous = rotation
+        }
+        for _ in 0..<15 {
+            pose = AdaptiveModel.pose(for: grab, height: pose.height, from: pose, room: volume) { framing($0) }
+            let turn = (framing(pose).georeference.rotation * previous.inverse).angle
+            #expect(min(turn, 2 * .pi - turn) < 1e-6)
+            previous = framing(pose).georeference.rotation
+        }
+    }
+
+    /// The rule for zoom: zooming in never pushes the grabbed point farther
+    /// from the eye than where it began, and moves it smoothly. Through the
+    /// tilt range, in both rooms, for points grabbed near and far, left and
+    /// right, and above the eye (the headset log: grabbed 30 cm above a
+    /// measured eye at 434 km, the point went from 1.1 m to 10 m away and
+    /// then behind the horizon, when the line of sight stayed fixed in the
+    /// room while the tilt eased). It can come closer and go back out:
+    /// the tilt turns the ground about the pivot, an arc that passes nearer
+    /// the eye than either end.
+    @Test(arguments: [false, true])
+    func zoomingInNeverPushesTheGrabPastWhereItBegan(immersive: Bool) {
+        let room = immersive
+            ? RoomGeometry(designEye: SIMD3(0.01, 1.10, 0), placementLevel: SIMD3(0, 0.02, -5.6),
+                           contentHalfWidth: 5, fullTilt: .pi / 2)
+            : volume
+        let ground = 1_000.0
+        func frame(_ c: CameraPose) -> AdaptiveModel.Framing {
+            EyeLevelModel.framing(camera: c, room: room, groundHeight: ground,
+                                  tiltWeight: EyeLevelModel.tiltWeight(for: c))
+        }
+        let first = CameraPose(latitude: 44.06, longitude: -117.81, height: 900_000,
+                               heading: 7.6 * degrees, pitch: -0.57)
+        let f = frame(first)
+        // Gaze directions: the view center, either side, nearer, farther,
+        // and (immersive) above the eye as in the log.
+        var looks = [f.placementPoint]
+        for offset in [SIMD3(0.3, 0, 0), SIMD3(-0.3, 0, 0), SIMD3(0, -0.1, 0.2), SIMD3(0, 0.1, -0.2)] {
+            looks.append(f.placementPoint + offset * (immersive ? 3 : 1))
+        }
+        if immersive { looks.append(SIMD3(0.074, 1.395, -1.105)) }
+        for look in looks {
+            let sight = Ray(origin: f.georeference.ecef(map: room.designEye),
+                            direction: f.georeference.rotation.inverse.act(simd_normalize(look - room.designEye)))
+            guard case let .hit(point, _) = Geodesy.intersect(ray: sight, surfaceHeight: ground) else { continue }
+            var pose = first
+            let start = f.georeference.map(point)
+            let grab = AdaptiveModel.Grab(point: point, start: start, startRotation: f.georeference.rotation,
+                                          startCamera: first)
+            let limit = simd_distance(start, room.designEye)
+            var previous = start
+            // ×100 in 1.03 steps: 900 km to under 10 km.
+            for step in 1...160 {
+                let scale = f.georeference.scale * pow(1.03, Double(step))
+                pose = AdaptiveModel.pose(for: grab, height: ground + EyeLevelModel.altitude(forScale: scale, room: room),
+                                          from: pose, room: room, frame: frame)
+                let after = frame(pose)
+                let at = after.georeference.map(point)
+                #expect(simd_distance(at, room.designEye) <= limit * (1 + 1e-6))
+                #expect(simd_distance(at, previous) < 0.04 * limit)
+                // On the ground's side facing the eye.
+                let up = simd_normalize(at - after.georeference.map(.zero))
+                #expect(simd_dot(up, room.designEye - at) > -1e-6)
+                previous = at
+            }
+            #expect(pose.height < 20_000)
+        }
+    }
+
+    /// A hand held still holds the globe still, frame after frame, even
+    /// with the grabbed point rolled most of the way to the globe's edge.
+    @Test func aStillHandHoldsAGlobeStill() {
+        var pose = CameraPose(latitude: 37.79, longitude: -122.39, height: 10_000_000, heading: 0, pitch: -.pi / 2)
+        let before = framing(pose)
+        let p = before.placementPoint
+        let grabbed = AdaptiveModel.Grab(point: before.georeference.ecef(map: p), start: p,
+                                         startRotation: before.georeference.rotation, startCamera: pose,
+                                         translation: SIMD3(0.5, 0, 0))
+        pose = AdaptiveModel.pose(for: grabbed, height: pose.height, from: pose, room: volume) { framing($0) }
+        let held = framing(pose).georeference.map(grabbed.point)
+        for _ in 0..<10 {
+            pose = AdaptiveModel.pose(for: grabbed, height: pose.height, from: pose, room: volume) { framing($0) }
+            #expect(simd_distance(framing(pose).georeference.map(grabbed.point), held) < 1e-6)
+        }
+    }
+
+    /// Gestures arrive in the map frame; the pose holds them there, so with
+    /// any room placement the grabbed point stays put in the room too.
     @Test func holdsAfterANonIdentityRoomPlacement() {
         let placement = RoomPlacement(translation: SIMD3(0.3, 0, -0.4), yaw: 0.6)
-        // On the base plane, where the gesture slab is.
         let handInRoom = SIMD3(0.5, 0.02, -2.6)
         let p = placement.similarity.inverse.apply(handInRoom)
-        let (after, grab, _, _) = solve(grabAt: p, to: p, magnification: 2, twist: 0.3, room: immersive5)
+        let (after, grab, _) = pinch(grabAt: p, magnification: 2, twist: 0.3, room: immersive5)
         #expect(simd_distance(placement.similarity.apply(after.georeference.map(grab)), handInRoom) < 1e-3)
     }
 }
