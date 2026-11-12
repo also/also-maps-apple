@@ -123,7 +123,8 @@ extension AdaptiveModel {
 
     /// The direction from a globe's center to where the line of sight from
     /// `eye` through `point` first meets the globe, or, if it misses, to
-    /// the point on the globe's edge nearest that line.
+    /// the point on the horizon seen from `eye` nearest that line. (The
+    /// globe's point nearest the line is past the horizon, out of sight.)
     static func sighted(_ point: SIMD3<Double>, from eye: SIMD3<Double>, center: SIMD3<Double>,
                         radius: Double) -> SIMD3<Double> {
         let sight = simd_normalize(point - eye)
@@ -131,7 +132,16 @@ extension AdaptiveModel {
         let along = simd_dot(toCenter, sight)
         let nearest = eye + sight * along
         let miss = simd_distance(nearest, center)
-        guard miss < radius else { return simd_normalize(nearest - center) }
+        guard miss < radius else {
+            // The horizon point in the plane of the eye, the center and the
+            // line: where a tangent from the eye touches.
+            let d = simd_length(toCenter)
+            let toEye = -toCenter / d
+            let aside = sight - simd_dot(sight, toEye) * toEye
+            guard simd_length(aside) > 0 else { return toEye }
+            let cosine = min(radius / d, 1)
+            return toEye * cosine + simd_normalize(aside) * (1 - cosine * cosine).squareRoot()
+        }
         // The near crossing, in a form that keeps its precision when the
         // globe is huge and the ground close.
         let half = (radius * radius - miss * miss).squareRoot()

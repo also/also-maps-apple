@@ -2,6 +2,15 @@
 
 Working notes for [also/also-maps-apple#61](https://github.com/also/also-maps-apple/issues/61): find the grab point by intersecting the gaze ray with the real surface, not from where gaze hits the flat gesture slab. Newest first.
 
+## 2026-11-12
+
+### When the line of sight misses, the grab rides the horizon
+
+- **Observed (owner, headset, immersive):** zooming in, the grabbed point could disappear beyond the horizon. In the log, a point grabbed about 30 cm above the eye from 434 km moved from 1.1 m away to about 10 m away and up as the zoom reached ×4 (about 110 km).
+- **Observed (core test, logged geometry):** the point stayed exactly on the line of sight up to about ×3.8. Below that height the tilt has eased and lowered the globe, so a line of sight aimed above the eye passes over it. The fallback then took the globe's point nearest the line, and for a line that passes just over the globe that point is past the horizon, facing away from the eye.
+- **Change:** when the line misses, `AdaptiveModel.sighted` takes the point on the horizon seen from the eye nearest the line (where a tangent from the eye touches, in the plane of the eye, the center and the line). That's the same point where the line just grazes, so there's no jump. The grab then follows the horizon as it sinks with the tilt instead of going behind it. `PinchManipulationTests.zoomInPastTheLineOfSightKeepsTheGrabOnTheHorizon` replays the logged zoom. It fails with the old fallback. Not yet tried on the headset.
+- **Inferred:** no point on the globe can stay where you pinched once the line misses, so for these grabs the horizon is the closest the zoom can hold.
+
 ## 2026-11-11
 
 ### Zoom holds the grabbed point on the line of sight

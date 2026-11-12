@@ -199,6 +199,43 @@ struct PinchManipulationTests {
         }
     }
 
+    /// Zooming in on a point grabbed above the eye, from a tilted globe in
+    /// the immersive space: the point stays on the line of sight while the
+    /// line meets the globe, then rides the horizon rather than slipping
+    /// behind it. (As logged on the headset; the grab used to go to the
+    /// globe's point nearest the line, out of sight past the horizon.)
+    @Test func zoomInPastTheLineOfSightKeepsTheGrabOnTheHorizon() {
+        let room = RoomGeometry(designEye: SIMD3(0.01, 1.10, 0), placementLevel: SIMD3(0, 0.02, -5.6),
+                                contentHalfWidth: 5, fullTilt: .pi / 2)
+        let ground = 1_000.0
+        func frame(_ c: CameraPose) -> AdaptiveModel.Framing {
+            EyeLevelModel.framing(camera: c, room: room, groundHeight: ground,
+                                  tiltWeight: EyeLevelModel.tiltWeight(for: c))
+        }
+        var pose = CameraPose(latitude: 44.06, longitude: -117.81, height: 434_000,
+                              heading: 7.6 * degrees, pitch: -0.57)
+        let before = frame(pose)
+        let point = GestureSurface.snap(before.georeference.ecef(map: SIMD3(0.074, 1.395, -1.105)), toHeight: ground)
+        let start = before.georeference.map(point)
+        let sight = simd_normalize(start - room.designEye)
+        let grab = AdaptiveModel.Grab(point: point, start: start, startRotation: before.georeference.rotation)
+        var reachedHorizon = false
+        for step in 0...60 {
+            let scale = before.georeference.scale * pow(1.03, Double(step))
+            pose = AdaptiveModel.pose(for: grab, height: ground + EyeLevelModel.altitude(forScale: scale, room: room),
+                                      from: pose, eye: room.designEye, frame: frame)
+            let after = frame(pose)
+            let at = after.georeference.map(point)
+            let up = simd_normalize(at - after.georeference.map(.zero))
+            let facing = simd_dot(up, simd_normalize(room.designEye - at))
+            let off = simd_length(simd_cross(simd_normalize(at - room.designEye), sight))
+            #expect(facing > -1e-6)
+            if facing > 1e-3 { #expect(off < 1e-6) }
+            reachedHorizon = reachedHorizon || facing < 1e-3
+        }
+        #expect(reachedHorizon)
+    }
+
     /// A hand held still holds the globe still, frame after frame, even
     /// with the grabbed point rolled most of the way to the globe's edge.
     @Test func aStillHandHoldsAGlobeStill() {
