@@ -4,6 +4,15 @@ Working notes for [also/also-maps-apple#61](https://github.com/also/also-maps-ap
 
 ## 2026-11-12
 
+### What the owner accepted, and what's left open
+
+- **Observed (owner, headset):** the gestures feel better overall with this branch as it stands.
+- **Not settled:** that is not approval of the specifics below: the scale, the placement, or where particular points sit in the room. Don't infer from it which of them made the difference.
+- **Accepted, not asked for or expected:** in the immersive space, zoomed all the way out, the globe is farther from the reference head pose than before (up to 5.8 m, from 1.6 m). The owner expects to try changing it back.
+- **Possible outcomes:** the owner likes it as it is, or we look at separate curves for scale and for position over altitude that keep the angular size seen from the reference head pose for a given altitude, without holding the ground at a fixed distance in the room.
+- **Correction to "Owner's rule" below:** "farther away" was read as meters in the room. The owner meant it in the angular sense: zooming a very large map, it's confusing when the zoom point moves toward the horizon or away from it depending on how far away it is and where the altitude is in the tilt range. The raised pivot and the "no farther" hold answer the room-meters reading, not that one.
+- **Effect of the raised pivot on placement:** between 50 and 500 km the navigation position is no longer at the reference head pose, so its height is lower than the height of the world point that is there, by up to 3.6 times. Before, the ground below was 1.6 m from the reference head pose at every altitude (scale = 1.6 m ÷ height above the ground). Cleanup to put the navigation position back at the reference head pose is planned for after the merge.
+
 ### Human scale kept the picture only while level
 
 - **Observed (owner, headset):** with the raised pivot, turning human scale on or off changed the angular size of what's shown.
