@@ -93,9 +93,9 @@ struct VolumeView: View {
                     }
                     .labelStyle(.iconOnly)
                 }
-                // Shown whenever tiles are held, even with the debug controls
-                // hidden (X on a controller holds them), since the map stops
-                // at the edge of what's loaded. Tapping releases them.
+                // Shown whenever tiles are held, even with the debug panel
+                // closed, since the map stops at the edge of what's loaded.
+                // Tapping releases them.
                 if model.tilesHeld, !showsDebugPanel {
                     Button("Tiles Held", systemImage: "pause.circle.fill") { model.setTilesHeld(false) }
                         .help("Tiles are held: tap to stream again")

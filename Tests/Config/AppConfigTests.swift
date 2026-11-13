@@ -209,21 +209,3 @@ struct AppConfigStoreTests {
         #expect(fetches == 3)
     }
 }
-
-struct PlaceSteppingTests {
-    private let places = ["a", "b", "c"].map {
-        Place(id: $0, name: $0, latitude: 0, longitude: 0, radius: 1)
-    }
-
-    @Test func wraps() {
-        #expect(PlaceLibrary.place(in: places, stepping: 1, from: "c").id == "a")
-        #expect(PlaceLibrary.place(in: places, stepping: -1, from: "a").id == "c")
-    }
-
-    @Test func startsFromTheEndsWithoutACurrentPlace() {
-        for id in [nil, "removed"] {
-            #expect(PlaceLibrary.place(in: places, stepping: 1, from: id).id == "a")
-            #expect(PlaceLibrary.place(in: places, stepping: -1, from: id).id == "c")
-        }
-    }
-}

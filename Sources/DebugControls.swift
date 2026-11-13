@@ -16,7 +16,7 @@ struct DebugControls: View {
         @Bindable var model = model
         Toggle("Hold tiles", isOn: Binding(get: { model.tilesHeld },
                                            set: { model.setTilesHeld($0) }))
-        note("Streaming keeps what's loaded and requests nothing more. You can travel about 1.5× and zoom out about 3× the held region before stopping. X on a game controller does the same.")
+        note("Streaming keeps what's loaded and requests nothing more. You can travel about 1.5× and zoom out about 3× the held region before stopping.")
         Toggle("Pivot and center markers", isOn: $model.showsDebugMarkers)
         note("Red: the point turns and zooms rotate around. Blue: the map's center. While you pinch: orange, the point you grabbed, and white, where your hand has moved it; they should stay together. Purple: where your gaze hit the gesture target, just above or below the grabbed point.")
         Toggle("Tile bounds", isOn: $model.showsTileBounds)
