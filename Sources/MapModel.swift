@@ -130,13 +130,30 @@ final class MapModel {
 
     /// `frame`, with the current host, ground and settings captured.
     private var framer: (CameraPose) -> AdaptiveModel.Framing {
-        let room = room, ground = placementGround.value, tiltFollowsAltitude = tiltFollowsAltitude
-        let fixedScale: Double? = humanScale && isImmersive ? 1 : nil
+        let room = room, ground = placementGround.value, follows = tiltFollowsAltitude, fixedScale = fixedScale
         return { camera in
-            let weight = tiltFollowsAltitude ? EyeLevelModel.tiltWeight(for: camera) : 0
-            return EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground,
-                                         tiltWeight: weight, fixedScale: fixedScale)
+            EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground,
+                                  tiltWeight: Self.tiltWeight(for: camera, follows: follows), fixedScale: fixedScale)
         }
+    }
+
+    private static func tiltWeight(for camera: CameraPose, follows: Bool) -> Double {
+        follows ? EyeLevelModel.tiltWeight(for: camera) : 0
+    }
+
+    private var fixedScale: Double? { humanScale && isImmersive ? 1 : nil }
+
+    /// What the camera diagram draws for the current view: the host
+    /// geometry, ground estimates, tilt, scale and streaming the app uses.
+    var diagramInputs: CameraDiagram.Inputs {
+        let camera = navigation.camera
+        return CameraDiagram.Inputs(camera: camera, presentation: .room(room),
+                                    terrainHeight: cameraGround.value, groundHeight: placementGround.value,
+                                    tiltWeight: Self.tiltWeight(for: camera, follows: tiltFollowsAltitude),
+                                    fixedScale: fixedScale,
+                                    containerSize: isImmersive ? nil : MapModel.volumeSize,
+                                    areaPolicy: presentation.areaPolicy(settings),
+                                    heldStreaming: tilesHeld ? heldInputs : nil)
     }
 
     // MARK: Tiles held

@@ -25,7 +25,13 @@ struct VolumeView: View {
         // With the map in an immersive space the volume is only the control
         // panel; its baseplate would outline an empty box.
         .volumeBaseplateVisibility(model.presentation.host == .volume ? .automatic : .hidden)
-        .onAppear { model.volumeIsOpen = true }
+        .onAppear {
+            model.volumeIsOpen = true
+            // ALSOMAPS_DIAGRAM at launch opens the camera diagram too.
+            if ProcessInfo.processInfo.environment["ALSOMAPS_DIAGRAM"] != nil {
+                openWindow(id: CameraDiagramWindow.windowID)
+            }
+        }
         .onDisappear { model.volumeDidClose() }
         // Closing the window doesn't make it disappear, it sends its scene
         // to the background; coming back (Show Controls) makes it active.

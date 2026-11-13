@@ -140,10 +140,11 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 - **Hold tiles**: see [Holding tiles](#holding-tiles).
 - **Pivot and center markers** draws a red post where turns and zooms pivot, and a blue post at the map's center.
 - **Tile bounds** draws each drawn tile's box, cyan inside the LOD camera's view and orange outside, with the area of interest in yellow and the LOD camera's view in pink.
+- **Camera Diagram** opens a window of live side views: where the world is placed, the reference head, the ground estimates, the tilt, the LOD camera and what's streamed. It's the Mac app's camera diagram, drawn from the inputs the placement uses.
 - **Copy View State** copies the whole view as JSON (position, zoom, heading, presentation, held tiles and settings) and prints it to the console.
 - **Restore from Clipboard** brings a copied state back.
 
-At launch, `ALSOMAPS_STATE=<that JSON>` restores a state and `ALSOMAPS_MARKERS=1` shows the markers and `ALSOMAPS_TILE_BOUNDS=1` the tile bounds.
+At launch, `ALSOMAPS_STATE=<that JSON>` restores a state, `ALSOMAPS_MARKERS=1` shows the markers, `ALSOMAPS_TILE_BOUNDS=1` the tile bounds, and `ALSOMAPS_DIAGRAM=1` opens the camera diagram.
 
 ## Tests
 

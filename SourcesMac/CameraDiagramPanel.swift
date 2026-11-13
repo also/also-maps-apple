@@ -62,7 +62,7 @@ struct CameraDiagramPanel: View {
                         .foregroundStyle(.secondary)
                 }
                 CameraDiagramLegend(diagram: diagram)
-                readouts(diagram)
+                CameraDiagramReadouts(diagram: diagram).font(.callout)
                 Divider()
                 controls
             }
@@ -104,46 +104,6 @@ struct CameraDiagramPanel: View {
             content()
                 .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
-        }
-    }
-
-    private func readouts(_ d: CameraDiagram) -> some View {
-        let camera = d.inputs.camera
-        let degrees = 180 / Double.pi
-        return Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
-            row("Camera", String(format: "%.4f°, %.4f°", camera.latitude, camera.longitude))
-            row("Height (ellipsoid)", Self.distance(camera.height))
-            row("Heading, pitch", String(format: "%.1f°, %.1f°", camera.heading * degrees, camera.pitch * degrees))
-            row("Terrain height", Self.distance(d.inputs.terrainHeight))
-            if host != .window { row("Placement ground height", Self.distance(d.inputs.groundHeight)) }
-            Divider().gridCellUnsizedAxes(.horizontal)
-            row("Camera above terrain", Self.distance(d.cameraAltitude))
-            row("Eye above terrain", Self.distance(d.viewerAltitude), color: d.viewerAltitude < 0 ? .red : nil)
-            if let room = d.room {
-                row("Tilt", String(format: "%.0f%% of full, %.0f°", d.tiltWeight * 100, room.tilt * degrees))
-            }
-            if let scale = d.scale { row("Scale", "1 : \((1 / scale).formatted(.number.precision(.significantDigits(3))))") }
-            if let rho = d.shownRadius {
-                row(host == .immersive ? "Content square half-width" : "Shown half-width", Self.distance(rho))
-            }
-            row("Streamed half-width", Self.distance(d.streamingRadius))
-            if let range = d.rangeToGeoreference, let ground = d.groundDistanceToGeoreference {
-                row("G: range, along ground", "\(Self.distance(range)), \(Self.distance(ground))")
-            } else {
-                row("G", "none: the view ray misses")
-            }
-            row("Horizon, along ground", Self.distance(d.horizonDistance))
-            if let fieldOfView = d.viewer.fieldOfView {
-                row("LOD field of view", String(format: "%.0f°", fieldOfView * degrees))
-            }
-        }
-        .font(.callout)
-    }
-
-    private func row(_ name: String, _ value: String, color: Color? = nil) -> some View {
-        GridRow {
-            Text(name).foregroundStyle(.secondary)
-            Text(value).monospacedDigit().foregroundStyle(color ?? .primary)
         }
     }
 
@@ -254,11 +214,5 @@ struct CameraDiagramPanel: View {
             }
             animation = nil
         }
-    }
-
-    private static func distance(_ meters: Double) -> String {
-        abs(meters) < 1_000
-            ? "\(meters.formatted(.number.precision(.fractionLength(0)))) m"
-            : "\((meters / 1_000).formatted(.number.precision(.fractionLength(1)))) km"
     }
 }

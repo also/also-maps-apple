@@ -114,6 +114,20 @@ struct CameraDiagramTests {
         #expect(immersiveDiagram.streamedArea.count > 1)
     }
 
+    @Test func heldStreamingIsDrawnInsteadOfThePolicys() throws {
+        let camera = CameraPose(latitude: 37.8, longitude: -122.4, height: 3_000, heading: 0.5, pitch: -0.7)
+        var inputs = CameraDiagram.Inputs(camera: camera, presentation: .room(volume), terrainHeight: 0,
+                                          groundHeight: 0, containerSize: nil)
+        let live = CameraDiagram(inputs)
+        var held = StreamingInputs(anchor: StreamingAnchor(coordinate: GeoCoordinate(latitude: 37.7, longitude: -122.5),
+                                                           height: 0))
+        held.streamingRadius = 12_345
+        inputs.heldStreaming = held
+        let d = CameraDiagram(inputs)
+        #expect(d.streamingRadius == 12_345)
+        #expect(live.streamingRadius != 12_345)
+    }
+
     @Test func farOutTheWorldViewGoesRoundTheEarth() {
         let camera = CameraPose(latitude: 0, longitude: 0, height: 20_000_000, heading: 0, pitch: -.pi / 2)
         let d = diagram(camera, .window(fieldOfView: .pi / 4))
