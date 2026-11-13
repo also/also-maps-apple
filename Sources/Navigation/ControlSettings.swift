@@ -2,18 +2,19 @@ import Foundation
 import simd
 
 /// How fast the keyboard, game controller and on-screen sticks fly the map,
-/// and how the sticks respond. Speeds are multiples of the control styles'
-/// built-in rates, so 1 is how the app shipped. Saved with the other
-/// settings (`StreamingSettings.controls`), so Reset to Defaults covers them.
-struct ControlSettings: Codable, Equatable {
-    /// Multiple of the turn (and orbit) rate.
-    var turnSpeed = 1.0
-    /// Multiple of the move (and pan) rate.
-    var moveSpeed = 1.0
-    /// Multiple of the climb rate.
-    var climbSpeed = 1.0
-    /// Multiple of the zoom rate.
-    var zoomSpeed = 1.0
+/// and how the sticks respond: the values the control styles fly with. The
+/// defaults here are the app's; `ControlSettings` holds the ones someone
+/// changed.
+struct ControlValues: Equatable {
+    /// Radians per second.
+    var turnRate = Double.pi / 3
+    /// Fraction of height above ground (in orbit, of the distance to the
+    /// pivot) traveled per second.
+    var moveRate = 0.75
+    /// e-folds of height above ground per second.
+    var climbRate = 1.0
+    /// e-folds of range (in orbit, of distance to the pivot) per second.
+    var zoomRate = 1.0
     /// Rates are multiplied by this while boost (LB, left stick click, Shift)
     /// is held.
     var boost = 3.0
@@ -34,28 +35,7 @@ struct ControlSettings: Codable, Equatable {
     /// keeps only the larger.
     var axisLock = 0.0
 
-    static let `default` = ControlSettings()
-
-    init() {}
-
-    /// Missing keys keep their defaults, as in `StreamingSettings`.
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        let d = ControlSettings()
-        func value(_ key: CodingKeys, _ fallback: Double) throws -> Double {
-            try c.decodeIfPresent(Double.self, forKey: key) ?? fallback
-        }
-        turnSpeed = try value(.turnSpeed, d.turnSpeed)
-        moveSpeed = try value(.moveSpeed, d.moveSpeed)
-        climbSpeed = try value(.climbSpeed, d.climbSpeed)
-        zoomSpeed = try value(.zoomSpeed, d.zoomSpeed)
-        boost = try value(.boost, d.boost)
-        deadZone = try value(.deadZone, d.deadZone)
-        responseCurve = try value(.responseCurve, d.responseCurve)
-        acceleration = try value(.acceleration, d.acceleration)
-        deceleration = try value(.deceleration, d.deceleration)
-        axisLock = try value(.axisLock, d.axisLock)
-    }
+    static let `default` = ControlValues()
 
     // MARK: Sticks
 
@@ -111,5 +91,41 @@ struct ControlSettings: Codable, Equatable {
         next.dolly = ramp(current.dolly, toward: target.dolly, deltaTime: deltaTime)
         next.pitch = ramp(current.pitch, toward: target.pitch, deltaTime: deltaTime)
         return next
+    }
+}
+
+/// The control values someone has set in Settings, saved with the other
+/// settings (`StreamingSettings.controls`). Each is nil until it's set, and
+/// a nil one follows `ControlValues.default`, so changing a default reaches
+/// everyone who left it alone without changing what anyone chose. Units are
+/// `ControlValues`'.
+struct ControlSettings: Codable, Equatable {
+    var turnRate: Double?
+    var moveRate: Double?
+    var climbRate: Double?
+    var zoomRate: Double?
+    var boost: Double?
+    var deadZone: Double?
+    var responseCurve: Double?
+    var acceleration: Double?
+    var deceleration: Double?
+    var axisLock: Double?
+
+    /// Nothing set: every value is the default.
+    var isDefault: Bool { self == ControlSettings() }
+
+    /// The values to fly with: each one set, or else the default.
+    var values: ControlValues {
+        let d = ControlValues.default
+        return ControlValues(turnRate: turnRate ?? d.turnRate,
+                             moveRate: moveRate ?? d.moveRate,
+                             climbRate: climbRate ?? d.climbRate,
+                             zoomRate: zoomRate ?? d.zoomRate,
+                             boost: boost ?? d.boost,
+                             deadZone: deadZone ?? d.deadZone,
+                             responseCurve: responseCurve ?? d.responseCurve,
+                             acceleration: acceleration ?? d.acceleration,
+                             deceleration: deceleration ?? d.deceleration,
+                             axisLock: axisLock ?? d.axisLock)
     }
 }

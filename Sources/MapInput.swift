@@ -35,7 +35,7 @@ struct MapInput {
 
     /// Keyboard and controller together, with the controller's sticks
     /// shaped by `controls`.
-    static func current(controls: ControlSettings) -> MapInput {
+    static func current(controls: ControlValues) -> MapInput {
         var input = keyboard()
         input.merge(gamepad(controls: controls))
         return input
@@ -98,7 +98,7 @@ struct MapInput {
 
     /// Sticks, triggers and buttons right now, or no input if there's no
     /// controller. Laid out for an Xbox-style extended gamepad.
-    static func gamepad(controls: ControlSettings) -> MapInput {
+    static func gamepad(controls: ControlValues) -> MapInput {
         guard let pad = controller?.extendedGamepad else { return MapInput() }
         var input = MapInput()
         input.move = controls.stick(stick(pad.leftThumbstick))
@@ -115,7 +115,7 @@ struct MapInput {
         return input
     }
 
-    /// The stick's raw position; `ControlSettings.stick` shapes it.
+    /// The stick's raw position; `ControlValues.stick` shapes it.
     private static func stick(_ pad: GCControllerDirectionPad) -> SIMD2<Double> {
         SIMD2(Double(pad.xAxis.value), Double(pad.yAxis.value))
     }

@@ -162,13 +162,13 @@ struct SettingsView: View {
             Section {
                 ControlSettingsRows(controls: $settings.controls)
             } footer: {
-                Text("For the keyboard, a game controller and the on-screen sticks. Speeds are multiples of how the app ships.")
+                Text("For the keyboard, a game controller and the on-screen sticks. A slider you haven't moved follows the app's default.")
             }
             Section {
                 Button("Reset Controls") {
-                    settings.controls = .default
+                    settings.controls = ControlSettings()
                 }
-                .disabled(settings.controls == .default)
+                .disabled(settings.controls.isDefault)
             }
         }
         .formStyle(.grouped)

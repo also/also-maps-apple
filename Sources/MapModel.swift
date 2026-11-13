@@ -564,7 +564,7 @@ final class MapModel {
             #endif
         }
 
-        let input = MapInput.current(controls: settings.controls)
+        let input = MapInput.current(controls: settings.controls.values)
 
         // Buttons act once, on the frame they go down.
         for action in input.held.subtracting(heldActions) {
@@ -578,7 +578,7 @@ final class MapModel {
         } else {
             let target = ControlInput(move: input.move, turn: input.turn, climb: input.altitude,
                                       dolly: input.zoom, fast: input.fast)
-            rates = settings.controls.ramp(rates, toward: target, deltaTime: deltaTime)
+            rates = settings.controls.values.ramp(rates, toward: target, deltaTime: deltaTime)
         }
         guard rates.isMoving else {
             // Re-sample once movement settles, like the end of a drag.
@@ -595,7 +595,7 @@ final class MapModel {
     /// Model flight. Zooming changes height with the view center held in
     /// place, not along the camera's pitch, which room hosts don't show.
     private func steer(with input: ControlInput, deltaTime: Double) {
-        flight.controls = settings.controls
+        flight.controls = settings.controls.values
         flight.dollySurfaceHeight = placementGround.value
         let framer = framer
         flight.holdingViewCenter = { EyeLevelModel.pose($0, at: $1, holdingViewCenter: framer) }

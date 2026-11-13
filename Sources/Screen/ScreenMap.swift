@@ -192,7 +192,7 @@ final class ScreenMap {
         let controller = MapInput.controller?.vendorName ?? (MapInput.controller == nil ? nil : "Controller")
         if controllerName != controller { controllerName = controller }
 
-        var input = MapInput.current(controls: settings.controls)
+        var input = MapInput.current(controls: settings.controls.values)
         input.merge(touchInput)
         // Buttons act once, on the frame they go down.
         for action in input.held.subtracting(heldActions) {
@@ -204,9 +204,10 @@ final class ScreenMap {
             rates = ControlInput()
             return
         }
-        rates = settings.controls.ramp(rates, toward: input.controlInput, deltaTime: deltaTime)
+        let controls = settings.controls.values
+        rates = controls.ramp(rates, toward: input.controlInput, deltaTime: deltaTime)
         guard rates.isMoving else { return }
-        flight.controls = settings.controls
+        flight.controls = controls
         flight.dollySurfaceHeight = cameraGround.value
         navigation = flight.step(navigation, input: rates, deltaTime: deltaTime, context: context)
     }

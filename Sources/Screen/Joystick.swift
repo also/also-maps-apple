@@ -4,11 +4,11 @@ import simd
 /// An on-screen thumbstick: drag the knob anywhere in the base; it springs
 /// back to the center on release. Reports x right (+) and y up (+), length
 /// ≤ 1, with the same dead zone and response curve as a game controller's
-/// stick (`ControlSettings.stick`), so a light push moves slowly.
+/// stick (`ControlValues.stick`), so a light push moves slowly.
 struct Joystick: View {
     var label: String
-    var controls = ControlSettings.default
-    /// Drops the smaller axis near either one, per `ControlSettings.axisLock`.
+    var controls = ControlValues.default
+    /// Drops the smaller axis near either one, per `ControlValues.axisLock`.
     var locksAxes = false
     var onChange: (SIMD2<Double>) -> Void
     var diameter: CGFloat = 132
@@ -61,12 +61,12 @@ struct DroneControls: View {
 
     var body: some View {
         HStack(alignment: .bottom) {
-            Joystick(label: "move", controls: map.settings.controls) { value in
+            Joystick(label: "move", controls: map.settings.controls.values) { value in
                 map.touchInput.move = value
             }
             Spacer()
-            TiltControl(controls: map.settings.controls) { map.touchInput.pitch = $0 }
-            Joystick(label: "turn · climb", controls: map.settings.controls, locksAxes: true) { value in
+            TiltControl(controls: map.settings.controls.values) { map.touchInput.pitch = $0 }
+            Joystick(label: "turn · climb", controls: map.settings.controls.values, locksAxes: true) { value in
                 map.touchInput.turn = value.x
                 map.touchInput.altitude = value.y
             }
@@ -77,7 +77,7 @@ struct DroneControls: View {
 
 /// A vertical spring-loaded slider: push up to look up, down to look down.
 struct TiltControl: View {
-    var controls = ControlSettings.default
+    var controls = ControlValues.default
     var onChange: (Double) -> Void
     var height: CGFloat = 132
     @State private var offset: CGFloat = 0

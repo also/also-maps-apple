@@ -171,9 +171,9 @@ struct ControlStyleTests {
     }
 }
 
-struct ControlSettingsTests {
+struct ControlValuesTests {
     @Test func defaultsMatchTheShippedStickResponse() {
-        let controls = ControlSettings()
+        let controls = ControlValues()
         #expect(controls.stick(SIMD2(0.1, 0)) == .zero)
         #expect(abs(controls.stick(SIMD2(1, 0)).x - 1) < 1e-12)
         let half = controls.stick(SIMD2(0, 0.575))
@@ -181,7 +181,7 @@ struct ControlSettingsTests {
     }
 
     @Test func responseCurveAndDeadZoneShapeTheStick() {
-        var controls = ControlSettings()
+        var controls = ControlValues()
         controls.deadZone = 0
         controls.responseCurve = 1
         #expect(abs(controls.stick(SIMD2(0.3, 0.4)).x - 0.3) < 1e-12)
@@ -192,7 +192,7 @@ struct ControlSettingsTests {
     }
 
     @Test func axisLockKeepsTheLargerAxisNearIt() {
-        var controls = ControlSettings()
+        var controls = ControlValues()
         #expect(controls.lockingAxes(SIMD2(0.8, 0.2)) == SIMD2(0.8, 0.2))
         controls.axisLock = 20
         #expect(controls.lockingAxes(SIMD2(0.8, 0.2)) == SIMD2(0.8, 0))   // ~14°
@@ -203,13 +203,13 @@ struct ControlSettingsTests {
     }
 
     @Test func rampIsInstantByDefault() {
-        let controls = ControlSettings()
+        let controls = ControlValues()
         #expect(controls.ramp(0, toward: 1, deltaTime: 0.01) == 1)
         #expect(controls.ramp(1, toward: -1, deltaTime: 0.01) == -1)
     }
 
     @Test func rampAcceleratesAndDecelerates() {
-        var controls = ControlSettings()
+        var controls = ControlValues()
         controls.acceleration = 0.5
         controls.deceleration = 0.25
         #expect(abs(controls.ramp(0, toward: 1, deltaTime: 0.1) - 0.2) < 1e-12)
@@ -221,7 +221,7 @@ struct ControlSettingsTests {
     }
 
     @Test func rampingAnInputKeepsBoost() {
-        var controls = ControlSettings()
+        var controls = ControlValues()
         controls.acceleration = 1
         let ramped = controls.ramp(ControlInput(), toward: ControlInput(move: SIMD2(0, 1), turn: -1, fast: true),
                                    deltaTime: 0.25)
@@ -231,26 +231,48 @@ struct ControlSettingsTests {
         #expect(ramped.isMoving)
     }
 
-    @Test func speedsScaleTheFlightRates() {
+    @Test func ratesComeFromTheControlValues() {
         var flight = ModelFlightStyle()
         let state = flight.activate(NavigationState(camera: start))
-        flight.controls.turnSpeed = 0.5
+        flight.controls.turnRate = .pi / 6
         let turned = flight.step(state, input: ControlInput(turn: 1), deltaTime: 0.5, context: context)
         #expect(angleDifference(turned.camera.heading, start.heading + .pi / 12) < 1e-9)
 
-        flight.controls.climbSpeed = 2
+        flight.controls.climbRate = 2
         flight.controls.boost = 1.5
         let climbed = flight.step(state, input: ControlInput(climb: 1, fast: true), deltaTime: 0.5, context: context)
         #expect(abs(climbed.camera.height - 900 * exp(1.5)) < 1e-6)
+    }
+}
+
+/// Saved control settings: only what was set, the rest following the
+/// defaults.
+struct ControlSettingsTests {
+    @Test func unsetValuesFollowTheDefaults() {
+        var settings = ControlSettings()
+        #expect(settings.isDefault)
+        #expect(settings.values == .default)
+        settings.turnRate = 1
+        #expect(!settings.isDefault)
+        #expect(settings.values.turnRate == 1)
+        #expect(settings.values.boost == ControlValues.default.boost)
+    }
+
+    @Test func onlySetValuesAreSaved() throws {
+        var settings = ControlSettings()
+        settings.boost = 2
+        let json = try #require(String(data: JSONEncoder().encode(settings), encoding: .utf8))
+        #expect(json == #"{"boost":2}"#)
     }
 
     @Test func savedSettingsWithoutControlsKeepTheDefaults() throws {
         let old = try JSONDecoder().decode(StreamingSettings.self, from: Data(#"{"detail": 8}"#.utf8))
         #expect(old.detail == 8)
-        #expect(old.controls == .default)
+        #expect(old.controls.isDefault)
         let partial = try JSONDecoder().decode(StreamingSettings.self,
-                                               from: Data(#"{"controls": {"turnSpeed": 0.5}}"#.utf8))
-        #expect(partial.controls.turnSpeed == 0.5)
-        #expect(partial.controls.boost == 3)
+                                               from: Data(#"{"controls": {"turnRate": 0.5}}"#.utf8))
+        #expect(partial.controls.turnRate == 0.5)
+        #expect(partial.controls.boost == nil)
+        #expect(partial.controls.values.boost == ControlValues.default.boost)
     }
 }

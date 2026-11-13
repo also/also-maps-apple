@@ -29,7 +29,7 @@ struct StreamingSettings: Codable, Equatable {
     var tileSource = TileSource.googlePhotorealistic
 
     /// Speeds and stick response for the keyboard, game controller and
-    /// on-screen sticks.
+    /// on-screen sticks: only the ones changed from the defaults.
     var controls = ControlSettings()
 
     static let `default` = StreamingSettings()

@@ -124,13 +124,13 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 - **Terms** links the app's [Terms of Use](https://maps.also.dev/terms/), the Google Maps/Google Earth Additional Terms of Service and the Google Privacy Policy. See [Google Maps Platform terms](#google-maps-platform-terms).
 
 **Controls**: speeds and stick response for the keyboard, game controller and on-screen sticks.
-- **Turn, Move, Climb and Zoom speed** are multiples (0.25× to 2×) of the built-in rates in `ModelFlightStyle`.
+- **Turn speed** in degrees per second, **Move speed** as a share of your height above the ground per second, and **Climb** and **Zoom speed** as how much height or distance multiplies by each second.
 - **Boost** is the speed multiple while LB, the left stick button or Shift is held.
 - **Stick dead zone** and **Stick response** (the curve's exponent; 1 is linear) apply to the controller's sticks and the on-screen ones.
 - **Acceleration** and **Deceleration** are the seconds to ramp up to full speed and back down to rest. Instant (0) is the default.
 - **Turn and climb lock**: within this angle of either axis, the right stick only turns or only climbs. Off by default.
 
-The same sliders are in the debug panel on visionOS, to change while flying. Reset to Defaults covers them.
+Only the sliders you've moved are saved. The rest follow the defaults in `ControlValues`, so a change to a default reaches them without changing a value anyone chose. Reset Controls, or Reset to Defaults, goes back to all defaults. The same sliders are in the debug panel on visionOS, to change while flying.
 
 **Immersion** (visionOS): **Full immersion**, **Human scale (test)**, and
 - **Limit reach** (Immersive only): by default Immersive streams everything you could see, all around you out to the horizon (plus ~200 km for mountains beyond it), measured from where your eye is in the world, so a tilted globe shows its whole visible face. Turn this on to stream only **Reach** around you instead: 5× to 100× your height above the ground (the same multiple of your eye height above the floor).
