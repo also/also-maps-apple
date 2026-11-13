@@ -97,7 +97,7 @@ The remote config can replace these defaults; see [docs/remote-config.md](docs/r
 
 ### Place links
 
-A link opens the app at a place, for "Open in Also Maps" buttons on the web (visionOS, iOS and macOS; not tvOS). It goes to the place in the open map or volume, without opening a window or saving the place. Two forms share one fragment:
+A link opens the app at a place, for "Open in Also Maps" buttons on the web (visionOS, iOS and macOS; not tvOS). It goes to the place in the open map or volume rather than a new window. Two forms share one fragment:
 
 ```
 https://maps.also.dev/p#lat=48.8584&lon=2.2945&r=400&h=120
