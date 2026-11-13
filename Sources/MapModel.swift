@@ -29,6 +29,9 @@ final class MapModel {
     let gestureTarget = Entity()
     /// The cap the gesture target has now, nil until one is built.
     private var gestureSurface: GestureSurface?
+    /// The cap whose collision mesh is being generated, or that last failed
+    /// to generate (so it isn't retried every frame).
+    private var pendingGestureSurface: GestureSurface?
 
     /// The tiles, their credits and stats.
     let streaming: TileStreaming
@@ -185,8 +188,6 @@ final class MapModel {
     /// Both scenes deliver frame updates; only the presented host's are used.
     private var updateSubscriptions: [MapPresentation.Host: EventSubscription] = [:]
     private var heldActions: Set<MapInput.Action> = []
-    /// The last place jumped to, for cycling.
-    private var currentPlaceID: String?
 
     init() {
         let settings = StreamingSettings.load()
@@ -335,7 +336,6 @@ final class MapModel {
         stopPlayback()
         endManipulation()
         placeAwaitsGround = true
-        currentPlaceID = place.id
         placementGround.reset(to: 0)
         cameraGround.reset(to: 0)
         framing = nil
@@ -620,16 +620,9 @@ final class MapModel {
     }
 
     private func perform(_ action: MapInput.Action) {
-        let places = PlaceLibrary.all
         switch action {
-        case .nextPlace where !places.isEmpty:
-            go(to: PlaceLibrary.place(in: places, stepping: 1, from: currentPlaceID))
-        case .previousPlace where !places.isEmpty:
-            go(to: PlaceLibrary.place(in: places, stepping: -1, from: currentPlaceID))
         case .faceNorth where !tracks.isPlaying:
             navigation = NavigationOperations.faceNorth(navigation)
-        case .toggleTileHold:
-            setTilesHeld(!tilesHeld)
         default:
             break
         }
@@ -802,16 +795,9 @@ final class MapModel {
             let g = Geodesy.geodetic(framing.georeferencePoint).coordinate
             desired = .desired(center: g, height: ground, reach: shownReach)
         }
-        if gestureSurface?.needsRebuild(for: desired) ?? true {
-            let surface = GestureSurface.built(for: desired)
-            gestureTarget.components.set(CollisionComponent(shapes: [
-                .generateConvex(from: surface.localPoints())
-            ]))
-            gestureSurface = surface
-            if manipulation != nil {
-                pinchLog(String(format: "target rebuilt at %.2f, %.2f reaching %.1f°", surface.center.latitude,
-                                surface.center.longitude, surface.angularRadius * 180 / .pi))
-            }
+        if gestureSurface?.needsRebuild(for: desired) ?? true,
+           pendingGestureSurface?.needsRebuild(for: desired) ?? true {
+            rebuildGestureTarget(GestureSurface.built(for: desired))
         }
         guard let surface = gestureSurface else { return }
         // At the current ground height; a small change since it was built
@@ -822,6 +808,34 @@ final class MapModel {
         gestureTarget.orientation = simd_quatf(vector: SIMD4<Float>((georeference.rotation * level).vector))
         gestureTarget.position = SIMD3<Float>(georeference.map(Geodesy.ecef(c, height: ground)))
         gestureTarget.scale = SIMD3(repeating: Float(georeference.scale * surface.unit))
+    }
+
+    /// Gives the gesture target `surface`'s mesh. Generating it is async, so
+    /// the old cap keeps taking gestures until the new one is ready; the
+    /// shape and the cap it's placed by change together.
+    private func rebuildGestureTarget(_ surface: GestureSurface) {
+        pendingGestureSurface = surface
+        let mesh = surface.localMesh()
+        Task {
+            let shape: ShapeResource
+            do {
+                shape = try await ShapeResource.generateStaticMesh(positions: mesh.positions,
+                                                                    faceIndices: mesh.faceIndices)
+            } catch {
+                print("[AlsoMaps] gesture target mesh failed: \(error)")
+                return
+            }
+            // A newer cap was asked for meanwhile.
+            guard pendingGestureSurface == surface else { return }
+            pendingGestureSurface = nil
+            gestureTarget.components.set(CollisionComponent(shapes: [shape], isStatic: true))
+            gestureSurface = surface
+            if manipulation != nil {
+                pinchLog(String(format: "target rebuilt at %.2f, %.2f reaching %.1f°", surface.center.latitude,
+                                surface.center.longitude, surface.angularRadius * 180 / .pi))
+            }
+            if let framing { placeGestureSurface(framing) }
+        }
     }
 
     /// The area of interest each host streams by default, and the LOD camera

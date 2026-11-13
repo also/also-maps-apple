@@ -25,7 +25,7 @@ struct MapInput {
 
     /// One-shot actions; reported while the button is held, so the model
     /// fires them on the frame a button goes down.
-    enum Action: Hashable { case previousPlace, nextPlace, faceNorth, toggleTileHold }
+    enum Action: Hashable { case faceNorth }
     var held: Set<Action> = []
 
     /// The same values as rates for the control styles.
@@ -88,7 +88,7 @@ struct MapInput {
 
     // MARK: Game controller
 
-    static let controllerHint = "Left stick move · Right stick turn, climb/descend · RT LT zoom · LB faster · D-pad places · Y north · X hold tiles"
+    static let controllerHint = "Left stick move · Right stick turn, climb/descend · RT LT zoom · LB faster · Y north"
 
     /// The controller in use, if any (the most recently used one, or else
     /// the first connected).
@@ -108,10 +108,7 @@ struct MapInput {
         input.altitude = right.y
         input.zoom = trigger(pad.rightTrigger) - trigger(pad.leftTrigger)
         input.fast = pad.leftShoulder.isPressed || pad.leftThumbstickButton?.isPressed == true
-        if pad.dpad.left.isPressed { input.held.insert(.previousPlace) }
-        if pad.dpad.right.isPressed { input.held.insert(.nextPlace) }
         if pad.buttonY.isPressed { input.held.insert(.faceNorth) }
-        if pad.buttonX.isPressed { input.held.insert(.toggleTileHold) }
         return input
     }
 

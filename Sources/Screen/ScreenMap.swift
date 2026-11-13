@@ -40,7 +40,6 @@ final class ScreenMap {
     /// read it alongside the camera.
     var groundHeight: Double { cameraGround.value }
     @ObservationIgnored private var heldActions: Set<MapInput.Action> = []
-    @ObservationIgnored private var currentPlaceID: String?
     /// Sampled again if there was no streamer to ask.
     @ObservationIgnored private var lastGroundSample: (center: GeoCoordinate, radius: Double, liftsCamera: Bool)?
     /// Bumped per ground sample so a slow, older result can't win.
@@ -68,7 +67,6 @@ final class ScreenMap {
     convenience init(place: Place, settings: StreamingSettings) {
         self.init(camera: ScreenView.framePlace(place, fieldOfView: Self.fieldOfView), settings: settings,
                   startGround: (place.coordinate, place.radius, true))
-        currentPlaceID = place.id
     }
 
     init(camera: CameraPose, settings: StreamingSettings,
@@ -127,7 +125,6 @@ final class ScreenMap {
         touch = TouchState()
         tracks.stopPlayback()
         tracks.markJump()
-        currentPlaceID = place.id
         let camera = ScreenView.framePlace(place, fieldOfView: Self.fieldOfView)
         navigation = flight.activate(NavigationState(camera: camera))
         cameraGround.reset(to: 0)
@@ -213,12 +210,7 @@ final class ScreenMap {
     }
 
     private func perform(_ action: MapInput.Action) {
-        let places = PlaceLibrary.all
         switch action {
-        case .nextPlace where !places.isEmpty:
-            go(to: PlaceLibrary.place(in: places, stepping: 1, from: currentPlaceID))
-        case .previousPlace where !places.isEmpty:
-            go(to: PlaceLibrary.place(in: places, stepping: -1, from: currentPlaceID))
         case .faceNorth where !tracks.isPlaying:
             navigation = NavigationOperations.faceNorth(navigation)
         default:

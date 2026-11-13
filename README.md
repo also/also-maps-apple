@@ -69,7 +69,7 @@ Immersive doesn't clip the map's edges the way the volume does, so whole tiles s
 - **Zoom:** pinch with both hands and move them apart or together. The view's half-width ranges from 50 m to 10,000 km, about a hemisphere. Below 50 km the ground is placed by sampling terrain. Above 50 km it's placed by the Earth's curve, so sea level at the view's edges meets the base plane, with no sampling. At hemisphere scale, tiles on the far side of the Earth are skipped.
 - **Turn:** pinch with both hands and twist about the ground's up where you pinched: the vertical while the map is level, toward you when it tilts to face you. The map turns around that point and can turn while zooming.
 - **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F descend and climb (which is zoom), `=` and `-` zoom, and holding Shift goes faster (three times by default). The ornament shows these hints while a keyboard is connected.
-- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone and a response curve. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. D-pad left and right step through places, Y faces north, and X holds or releases the loaded tiles (see [Holding tiles](#holding-tiles)). The ornament shows these hints while a controller is connected. Keyboard and controller input combine. Speeds and stick response are adjustable in Settings → Controls.
+- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone and a response curve. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. Y faces north. The ornament shows these hints while a controller is connected. Keyboard and controller input combine. Speeds and stick response are adjustable in Settings → Controls.
 
 On a Mac, the map also takes the usual mouse and trackpad controls:
 
@@ -83,7 +83,7 @@ On iPhone and iPad, drag to pan, pinch to zoom, twist to turn and move two finge
 
 ## Holding tiles
 
-**Hold tiles**, in the debug panel, or X on a controller, freezes streaming, so the loaded tiles stay as they are. Every control then does exactly what it does with live tiles: the same moves, turns and zoom and at the same rates, applied to the frozen scene instead of the live map. The surface stays on the base plane. Releasing the tiles resumes streaming from where you are, without anything visibly moving. While tiles are held and the debug panel is closed, the toolbar shows a Tiles Held button that releases them.
+**Hold tiles**, in the debug panel, freezes streaming, so the loaded tiles stay as they are. Every control then does exactly what it does with live tiles: the same moves, turns and zoom and at the same rates, applied to the frozen scene instead of the live map. The surface stays on the base plane. Releasing the tiles resumes streaming from where you are, without anything visibly moving. While tiles are held and the debug panel is closed, the toolbar shows a Tiles Held button that releases them.
 
 Detail doesn't improve as you zoom in, because nothing new loads while frozen. You can travel about 1.5× and zoom out about 3× the held region before stopping. Changing view mode or going to a place releases the tiles.
 
