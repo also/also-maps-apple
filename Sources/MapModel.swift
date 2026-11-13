@@ -84,6 +84,8 @@ final class MapModel {
     /// navigation state.
     private(set) var navigation: NavigationState
     private var flight = ModelFlightStyle()
+    /// The rates being flown, ramping toward the input's per Settings.
+    private var rates = ControlInput()
     /// Drone mode's tilt assist: the map tilts toward you as you climb, from
     /// none below 50 km to the host's full tilt by 500 km. Off, the map
     /// stays level.
@@ -562,7 +564,7 @@ final class MapModel {
             #endif
         }
 
-        let input = MapInput.current()
+        let input = MapInput.current(controls: settings.controls)
 
         // Buttons act once, on the frame they go down.
         for action in input.held.subtracting(heldActions) {
@@ -571,7 +573,14 @@ final class MapModel {
         heldActions = input.held
 
         // The played track has the camera; movement is ignored.
-        guard input.isMoving, !tracks.isPlaying else {
+        if tracks.isPlaying {
+            rates = ControlInput()
+        } else {
+            let target = ControlInput(move: input.move, turn: input.turn, climb: input.altitude,
+                                      dolly: input.zoom, fast: input.fast)
+            rates = settings.controls.ramp(rates, toward: target, deltaTime: deltaTime)
+        }
+        guard rates.isMoving else {
             // Re-sample once movement settles, like the end of a drag.
             if wasMoving {
                 wasMoving = false
@@ -580,14 +589,13 @@ final class MapModel {
             return
         }
         wasMoving = true
-        steer(with: ControlInput(move: input.move, turn: input.turn, climb: input.altitude,
-                                 dolly: input.zoom, fast: input.fast),
-              deltaTime: deltaTime)
+        steer(with: rates, deltaTime: deltaTime)
     }
 
     /// Model flight. Zooming changes height with the view center held in
     /// place, not along the camera's pitch, which room hosts don't show.
     private func steer(with input: ControlInput, deltaTime: Double) {
+        flight.controls = settings.controls
         flight.dollySurfaceHeight = placementGround.value
         let framer = framer
         flight.holdingViewCenter = { EyeLevelModel.pose($0, at: $1, holdingViewCenter: framer) }

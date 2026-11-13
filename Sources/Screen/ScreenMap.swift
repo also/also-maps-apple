@@ -33,6 +33,8 @@ final class ScreenMap {
     let tracks = TrackSession()
 
     @ObservationIgnored private var flight = ModelFlightStyle()
+    /// The rates being flown, ramping toward the input's per Settings.
+    @ObservationIgnored private var rates = ControlInput()
     @ObservationIgnored private var cameraGround = CameraGround()
     /// The ground under the camera, meters above the ellipsoid. Not observed:
     /// read it alongside the camera.
@@ -190,7 +192,7 @@ final class ScreenMap {
         let controller = MapInput.controller?.vendorName ?? (MapInput.controller == nil ? nil : "Controller")
         if controllerName != controller { controllerName = controller }
 
-        var input = MapInput.current()
+        var input = MapInput.current(controls: settings.controls)
         input.merge(touchInput)
         // Buttons act once, on the frame they go down.
         for action in input.held.subtracting(heldActions) {
@@ -198,9 +200,15 @@ final class ScreenMap {
         }
         heldActions = input.held
 
-        guard input.isMoving, !tracks.isPlaying else { return }
+        guard !tracks.isPlaying else {
+            rates = ControlInput()
+            return
+        }
+        rates = settings.controls.ramp(rates, toward: input.controlInput, deltaTime: deltaTime)
+        guard rates.isMoving else { return }
+        flight.controls = settings.controls
         flight.dollySurfaceHeight = cameraGround.value
-        navigation = flight.step(navigation, input: input.controlInput, deltaTime: deltaTime, context: context)
+        navigation = flight.step(navigation, input: rates, deltaTime: deltaTime, context: context)
     }
 
     private func perform(_ action: MapInput.Action) {

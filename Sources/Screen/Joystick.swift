@@ -3,10 +3,13 @@ import simd
 
 /// An on-screen thumbstick: drag the knob anywhere in the base; it springs
 /// back to the center on release. Reports x right (+) and y up (+), length
-/// ≤ 1, with a dead zone and a squared response like a game controller's
-/// stick, so a light push moves slowly.
+/// ≤ 1, with the same dead zone and response curve as a game controller's
+/// stick (`ControlSettings.stick`), so a light push moves slowly.
 struct Joystick: View {
     var label: String
+    var controls = ControlSettings.default
+    /// Drops the smaller axis near either one, per `ControlSettings.axisLock`.
+    var locksAxes = false
     var onChange: (SIMD2<Double>) -> Void
     var diameter: CGFloat = 132
     @State private var offset: CGSize = .zero
@@ -38,7 +41,8 @@ struct Joystick: View {
                     let reach = Double(radius - knob / 2)
                     if simd_length(d) > reach { d = d / simd_length(d) * reach }
                     offset = CGSize(width: d.x, height: d.y)
-                    onChange(Self.response(SIMD2(d.x, -d.y) / reach))
+                    let value = controls.stick(SIMD2(d.x, -d.y) / reach)
+                    onChange(locksAxes ? controls.lockingAxes(value) : value)
                 }
                 .onEnded { _ in
                     withAnimation(.spring(duration: 0.2)) { offset = .zero }
@@ -46,15 +50,6 @@ struct Joystick: View {
                 }
         )
         .accessibilityLabel(label)
-    }
-
-    /// Radial dead zone, then squared.
-    static func response(_ raw: SIMD2<Double>) -> SIMD2<Double> {
-        let deadZone = 0.12
-        let magnitude = min(simd_length(raw), 1)
-        guard magnitude > deadZone else { return .zero }
-        let scaled = (magnitude - deadZone) / (1 - deadZone)
-        return raw / simd_length(raw) * scaled * scaled
     }
 }
 
@@ -66,12 +61,12 @@ struct DroneControls: View {
 
     var body: some View {
         HStack(alignment: .bottom) {
-            Joystick(label: "move") { value in
+            Joystick(label: "move", controls: map.settings.controls) { value in
                 map.touchInput.move = value
             }
             Spacer()
-            TiltControl { map.touchInput.pitch = $0 }
-            Joystick(label: "turn · climb") { value in
+            TiltControl(controls: map.settings.controls) { map.touchInput.pitch = $0 }
+            Joystick(label: "turn · climb", controls: map.settings.controls, locksAxes: true) { value in
                 map.touchInput.turn = value.x
                 map.touchInput.altitude = value.y
             }
@@ -82,6 +77,7 @@ struct DroneControls: View {
 
 /// A vertical spring-loaded slider: push up to look up, down to look down.
 struct TiltControl: View {
+    var controls = ControlSettings.default
     var onChange: (Double) -> Void
     var height: CGFloat = 132
     @State private var offset: CGFloat = 0
@@ -107,7 +103,7 @@ struct TiltControl: View {
                     let reach = height / 2 - 15
                     offset = min(max(value.location.y - height / 2, -reach), reach)
                     let raw = Double(-offset / reach)
-                    onChange(Joystick.response(SIMD2(0, raw)).y)
+                    onChange(controls.stick(SIMD2(0, raw)).y)
                 }
                 .onEnded { _ in
                     withAnimation(.spring(duration: 0.2)) { offset = 0 }
