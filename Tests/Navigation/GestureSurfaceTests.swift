@@ -19,19 +19,31 @@ struct GestureSurfaceTests {
         #expect(abs(arc - angularRadius) < 1e-6 * max(angularRadius, 1e-3))
     }
 
-    /// In the center's frame the cap curves down from the origin, fits in a
-    /// unit-sized box at any size, and has some thickness even when nearly
-    /// flat, so it can be a convex hull.
+    /// In the center's frame the cap curves down from the origin and fits in
+    /// a unit-sized box at any size. Its triangles use every point, cover
+    /// each ring all the way round, and face up, toward a viewer above.
     @Test(arguments: [1e-5, 0.01, 0.5, Double.pi / 2])
-    func localPointsAreUnitSizedAndHaveVolume(angularRadius: Double) {
+    func localMeshIsUnitSizedAndFacesUp(angularRadius: Double) {
         let surface = GestureSurface(center: Self.sanFrancisco, height: 50, angularRadius: angularRadius)
-        let points = surface.localPoints()
-        #expect(points.first == SIMD3<Float>(0, 0, 0))
-        let lowest = points.map(\.y).min()!
-        #expect(lowest < -0.01)
-        for point in points {
+        let (positions, faces) = surface.localMesh()
+        #expect(positions.count == surface.ecefPoints().count)
+        #expect(positions.first == SIMD3<Float>(0, 0, 0))
+        for point in positions {
             #expect(point.y <= 1e-6)
             #expect(simd_length(point) < 1.6)
+        }
+        let rings = GestureSurface.rings, bearings = GestureSurface.bearings
+        #expect(faces.count == 3 * (bearings + 2 * bearings * (rings - 1)))
+        #expect(Set(faces) == Set((0..<positions.count).map(UInt16.init)))
+        for t in stride(from: 0, to: faces.count, by: 3) {
+            let a = SIMD3<Double>(positions[Int(faces[t])])
+            let b = SIMD3<Double>(positions[Int(faces[t + 1])])
+            let c = SIMD3<Double>(positions[Int(faces[t + 2])])
+            // Up in the center's frame, and away from the globe's center at
+            // the triangle, which the hemisphere's rim tilts far from up.
+            #expect(simd_cross(b - a, c - a).y > 0)
+            let earthCenter = SIMD3<Double>(0, -GeoMath.earthRadius / surface.unit, 0)
+            #expect(simd_dot(simd_cross(b - a, c - a), (a + b + c) / 3 - earthCenter) > 0)
         }
     }
 
@@ -75,7 +87,7 @@ struct GestureSurfaceTests {
         #expect(built.needsRebuild(for: raised))
     }
 
-    /// A hit on the hull, between its points, lands on the ground at about
+    /// A hit on the mesh, between its points, lands on the ground at about
     /// the same place.
     @Test func snapPutsAHitOnTheGround() {
         let surface = GestureSurface(center: Self.sanFrancisco, height: 120, angularRadius: 0.2)
