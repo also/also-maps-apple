@@ -107,6 +107,10 @@ targets:
         # Documents (camera tracks) shows in the Files app.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # Opens place links (Sources/Places/PlaceLink.swift): alsomaps://p#lat=…
+        CFBundleURLTypes: &placeLinkURLTypes
+          - CFBundleURLName: dev.also.maps.place
+            CFBundleURLSchemes: [alsomaps]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
           UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleVolumetricApplication
@@ -138,10 +142,11 @@ targets:
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
       configs:
-        # App Attest, for the app's key, needs an explicit App ID on the
-        # maintainer's team. Debug builds leave it out unless
-        # Config/Secrets.xcconfig opts in (Config/App.xcconfig), so anyone's
-        # team can sign them with its wildcard profile.
+        # App Attest, for the app's key, and associated domains, for
+        # universal place links, need an explicit App ID on the maintainer's
+        # team. Debug builds leave them out unless Config/Secrets.xcconfig
+        # opts in (Config/App.xcconfig), so anyone's team can sign them with
+        # its wildcard profile.
         Debug: &debugEntitlements
           CODE_SIGN_ENTITLEMENTS: $(DEBUG_CODE_SIGN_ENTITLEMENTS)
         Optimized: *debugEntitlements
@@ -205,6 +210,8 @@ targets:
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         LSApplicationCategoryType: public.app-category.navigation
+        # Place links, as for the visionOS app.
+        CFBundleURLTypes: *placeLinkURLTypes
     postBuildScripts:
       # Which checkout, branch and commit the build came from, for Settings >
       # Advanced. Every build, since none of that is a declared input.
@@ -224,8 +231,11 @@ targets:
         # Debug builds run unsandboxed so tools and agents can launch the
         # binary with ALSOMAPS_* variables, read its stdout, and inspect its
         # caches under ~/Library/Caches. Release keeps the sandbox.
+        # Universal place links need an explicit App ID on the maintainer's
+        # team, so Debug builds have them only when Config/Secrets.xcconfig
+        # opts in (Config/App.xcconfig).
         Debug:
-          CODE_SIGN_ENTITLEMENTS: SourcesMac/AlsoMapsMac.Debug.entitlements
+          CODE_SIGN_ENTITLEMENTS: $(DEBUG_MAC_CODE_SIGN_ENTITLEMENTS)
         Release:
           CODE_SIGN_ENTITLEMENTS: SourcesMac/AlsoMapsMac.entitlements
           # Keys come from the user; see CredentialStore.
@@ -247,6 +257,8 @@ targets:
       - path: Sources/Metal/MetalVisibility.swift
       - path: Tests/Metal
       - path: Sources/Places/Place.swift
+      - path: Sources/Places/PlaceLink.swift
+      - path: Tests/Places
       - path: Sources/Config/AppConfig.swift
       - path: Sources/Config/AppConfigStore.swift
       - path: Sources/Credentials/CredentialStore.swift
@@ -357,6 +369,8 @@ targets:
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         UILaunchScreen: {}
+        # Place links, as for the visionOS app.
+        CFBundleURLTypes: *placeLinkURLTypes
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

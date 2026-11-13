@@ -95,11 +95,29 @@ The pin button next to the mode picker jumps to a saved place: its position, zoo
 
 The remote config can replace these defaults; see [docs/remote-config.md](docs/remote-config.md).
 
+### Place links
+
+A link opens the app at a place, for "Open in Also Maps" buttons on the web (visionOS, iOS and macOS; not tvOS). It goes to the place in the open map or volume, without opening a window or saving the place. Two forms share one fragment:
+
+```
+https://maps.also.dev/p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower
+alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower
+```
+
+The fragment is form-encoded. `lat` and `lon` (decimal degrees) are required; `r` (view half-width, meters), `h` (heading, degrees clockwise from north) and `name` are optional. Unknown keys are ignored, and links that don't parse or are out of range do nothing. `PlaceLink` parses both forms; the site's `/p` page, which serves the association file and the fallback, reads the same format.
+
+- **The `alsomaps` scheme** works in every build:
+  ```
+  xcrun simctl openurl booted 'alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower'
+  open 'alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower'
+  ```
+- **Universal links** need the associated domain `applinks:maps.also.dev`, which needs an explicit App ID on the maintainer's team, as App Attest does (see [Keys](#keys)). Release builds always have it. Debug and Optimized builds on visionOS and iOS have it with the App Attest opt-in (`Config/AppAttest.entitlements` holds both); the Mac's Debug build has it when `Config/Secrets.xcconfig` sets `DEBUG_MAC_CODE_SIGN_ENTITLEMENTS = SourcesMac/AlsoMapsMac.Debug.Links.entitlements`. Devices cache the site's association file through Apple's CDN. To fetch it straight from the site instead, for testing a changed file, enable Settings → Developer → Associated Domains Development on the device (on a Mac, `sudo swcutil developer-mode -e true`) and build with the domain as `applinks:maps.also.dev?mode=developer` in the entitlements (development-signed builds only).
+
 ## Keys
 
 Release builds contain no keys, except on tvOS. Where there's no key yet, the first launch asks how to load the map: with the app's shared key, which may be throttled, or with your own. Change it later in Keys (in Settings on every platform but tvOS). `Sources/Credentials/` holds this.
 
-- **The app's key** comes from the app's credentials API, which needs App Attest, so `AppKeyClient` proves the app is genuine, saves what it gets in the Keychain and refreshes it daily. Where `isSupported` is false, the app offers only your own key: macOS 26, and simulators. The Mac needs macOS 27 or later, where the API also requires Apple's key policy (full security mode and System Integrity Protection). Refreshes run only while a window is active. The app needs App Attest, from `Config/AppAttest.entitlements`, which needs an explicit App ID on the maintainer's team. Release builds always have it. Debug and Optimized builds have it only when `Config/Secrets.xcconfig` sets `DEBUG_CODE_SIGN_ENTITLEMENTS = Config/AppAttest.entitlements`, so anyone else's team can sign them with its wildcard profile.
+- **The app's key** comes from the app's credentials API, which needs App Attest, so `AppKeyClient` proves the app is genuine, saves what it gets in the Keychain and refreshes it daily. Where `isSupported` is false, the app offers only your own key: macOS 26, and simulators. The Mac needs macOS 27 or later, where the API also requires Apple's key policy (full security mode and System Integrity Protection). Refreshes run only while a window is active. The app needs App Attest, from `Config/AppAttest.entitlements`, which needs an explicit App ID on the maintainer's team. Release builds always have it. Debug and Optimized builds have it only when `Config/Secrets.xcconfig` sets `DEBUG_CODE_SIGN_ENTITLEMENTS = Config/AppAttest.entitlements`, so anyone else's team can sign them with its wildcard profile. The same file has the associated domain for universal [place links](#place-links).
 - **Your own key** is saved in the Keychain, and follows you between devices through iCloud Keychain. Saving one makes one request to check it, which for Google counts as a map session.
 - **Which wins**: a scheme's `GOOGLE_MAPS_API_KEY` or `CESIUM_ION_TOKEN`, then your own, then the app's, then one built in from `Config/Secrets.xcconfig` (Debug builds, and tvOS). `ALSOMAPS_CREDENTIALS_URL=<url>` points at another deployment of the API.
 - **Rotation**: streaming restarts whenever the key changes. When a service rejects the app's key, the app fetches a new one straight away, so an old key can be deleted at any time.
