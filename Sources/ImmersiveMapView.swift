@@ -45,6 +45,9 @@ struct ImmersiveMapView: View {
                     AttributionView()
                 }
                 .environment(model)
+                // Terrain can rise between the viewer and the attribution;
+                // draw it over the map anyway.
+                .breakthroughEffect(.prominent)
             }
         }
         .mapGestures(model)
