@@ -57,6 +57,7 @@ struct MacMapView: View {
             .focused($focused)
             .onKeyPress(phases: .all) { _ in .handled }
             .onAppear { focused = true }
+            .opensPlaceLinks { map.go(to: $0) }
             .onChange(of: settings) { _, settings in map.settings = settings }
             .overlay(alignment: .topTrailing) {
                 HStack {

@@ -23,6 +23,7 @@ struct AlsoMapsApp: App {
                 .credentialGate()
                 .appGate()
                 .keepsVolumeDepth()
+                .opensPlaceLinks { model.go(to: $0) }
         }
         .windowStyle(.volumetric)
         .defaultSize(width: MapModel.volumeSize.x,
@@ -48,6 +49,8 @@ struct AlsoMapsApp: App {
                 .appGate(presentsNotices: false)
         }
         .defaultSize(width: 760, height: 760)
+        // Place links go to the volume, never open this.
+        .handlesExternalEvents(matching: [])
         // A utility window: only opened on request, never restored at launch.
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
