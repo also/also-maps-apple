@@ -221,6 +221,10 @@ struct SettingsView: View {
             debugging
             #endif
 
+            if let build = BuildInfo.current {
+                BuildInfoSection(info: build)
+            }
+
             Section {
                 Button("Reset to Defaults") {
                     settings = defaults

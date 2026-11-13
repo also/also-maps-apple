@@ -133,6 +133,7 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 **Advanced**
 - **Parallel uploads, Simultaneous loads, Cache, Forbid holes**: trade-offs between fill speed, memory and gaps while refining. Forbid holes is on by default: a tile counts as loaded only once it's drawable, so parents stay until all their children can replace them.
 - **Reset to Defaults** returns everything but Show stats and keys to the hand-tuned baseline in `StreamingSettings.default`.
+- **Build** (Debug and Optimized builds) shows the branch, commit, count of modified and untracked files, checkout path and build time, to tell test builds and worktrees apart. `Scripts/write_build_info.sh` records them on every build, so they describe the checkout when the build ran. Release builds have none.
 
 `ALSOMAPS_OPEN_SETTINGS=1` opens the window at launch on visionOS.
 
