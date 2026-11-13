@@ -42,7 +42,10 @@ struct ImmersiveMapView: View {
                             openWindow(id: VolumeView.windowID)
                         }
                     }
+                    // Nothing here to operate, so a pinch while looking at it
+                    // goes through to the map behind and moves that.
                     AttributionView()
+                        .allowsHitTesting(false)
                 }
                 .environment(model)
                 // Terrain can rise between the viewer and the attribution;
