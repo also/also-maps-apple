@@ -9,6 +9,7 @@ This project has its own ways of doing several routine things, and some differ f
 - **Comparing runs, or anything touching tile requests:** [docs/tile-caching.md](docs/tile-caching.md). Decide whether each run starts with a cold or warm cache.
 - **Navigation, scale or placement:** [docs/fundamentals.md](docs/fundamentals.md), for the ideas and the terms to use. It describes options, not rules.
 - **Setup, keys, building and testing:** the README's "Setup", "Keys" and "Tests" sections. The Xcode project is generated, so a fresh checkout or worktree needs `xcodegen generate` first. Tools that read `.worktreeinclude` (Claude Code, Conductor and others) copy `Config/Secrets.xcconfig` into new worktrees. With plain `git worktree add`, copy it from the main checkout.
+- **Running or checking the visionOS app in the simulator:** [docs/visionos-simulator.md](docs/visionos-simulator.md). Agents can't tap, click or gesture in the simulator, so don't try: set state with [launch variables](docs/launch-variables.md), check it with screenshots, and ask the person to try interactions.
 - **App icons and artwork:** [docs/branding/README.md](docs/branding/README.md).
 - **The experimental Metal renderer:** [notes/metal-renderer.md](notes/metal-renderer.md), for how its culling, foveation and counters work, how to measure them, and what's been found.
 
