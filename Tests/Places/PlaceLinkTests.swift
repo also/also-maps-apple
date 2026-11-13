@@ -7,11 +7,11 @@ private func place(_ string: String) -> Place? {
 
 struct PlaceLinkTests {
     @Test(arguments: [
-        "https://maps.also.dev/p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower",
-        "alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower",
-        "alsomaps:///p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower",
-        "https://example.com/p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower",
-        "http://localhost:8080/p/#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower",
+        "https://maps.also.dev/p#lat=48.8584&lon=2.2945&r=400&h=120",
+        "alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120",
+        "alsomaps:///p#lat=48.8584&lon=2.2945&r=400&h=120",
+        "https://example.com/p#lat=48.8584&lon=2.2945&r=400&h=120",
+        "http://localhost:8080/p/#lat=48.8584&lon=2.2945&r=400&h=120",
     ])
     func readsEveryField(_ link: String) throws {
         let p = try #require(place(link))
@@ -19,7 +19,7 @@ struct PlaceLinkTests {
         #expect(p.longitude == 2.2945)
         #expect(p.radius == 400)
         #expect(p.heading == 120)
-        #expect(p.name == "Eiffel Tower")
+        #expect(p.name == "48.8584, 2.2945")
     }
 
     @Test func eachLinkGetsItsOwnId() throws {
@@ -36,10 +36,9 @@ struct PlaceLinkTests {
     }
 
     @Test func unusableOptionalFieldsDefault() throws {
-        let p = try #require(place("alsomaps://p#lat=1&lon=2&r=-5&h=north&name="))
+        let p = try #require(place("alsomaps://p#lat=1&lon=2&r=-5&h=north"))
         #expect(p.radius == PlaceLink.defaultRadius)
         #expect(p.heading == 0)
-        #expect(p.name == "1.0000, 2.0000")
         #expect(try #require(place("alsomaps://p#lat=1&lon=2&r=1e12")).radius == PlaceLink.defaultRadius)
     }
 
@@ -48,19 +47,26 @@ struct PlaceLinkTests {
         #expect(try #require(place("alsomaps://p#lat=1&lon=2&h=450")).heading == 90)
     }
 
-    @Test func decodesFormEncodedNames() throws {
-        #expect(try #require(place("alsomaps://p#lat=1&lon=2&name=Caf%C3%A9+de+Flore")).name == "Café de Flore")
-        // An encoded & and = stay in the name rather than splitting fields.
-        #expect(try #require(place("alsomaps://p#lat=1&lon=2&name=A%26B%3DC")).name == "A&B=C")
-        // A literal + is %2B.
-        #expect(try #require(place("alsomaps://p#lat=1&lon=2&name=1%2B1")).name == "1+1")
+    /// Links carry no text, so an old link's name doesn't reach the app.
+    @Test func ignoresNames() throws {
+        let p = try #require(place("alsomaps://p#lat=1&lon=2&name=Caf%C3%A9+de+Flore"))
+        #expect(p.name == "1.0000, 2.0000")
+    }
+
+    @Test func decodesFormEncodedValues() throws {
+        // An encoded key, a + sign and padding spaces.
+        let p = try #require(place("alsomaps://p#%6C%61%74=%2B1&lon=+2+&h=%2D90"))
+        #expect(p.latitude == 1)
+        #expect(p.longitude == 2)
+        #expect(p.heading == 270)
+        // An encoded & stays in the value rather than splitting fields.
+        #expect(place("alsomaps://p#lat=1%26lon%3D2") == nil)
     }
 
     @Test func ignoresUnknownKeysAndOrder() throws {
-        let p = try #require(place("alsomaps://p#utm=x&name=X&zoom=3&lon=2&lat=1&&flag"))
+        let p = try #require(place("alsomaps://p#utm=x&zoom=3&lon=2&lat=1&&flag"))
         #expect(p.latitude == 1)
         #expect(p.longitude == 2)
-        #expect(p.name == "X")
     }
 
     @Test func acceptsRangeEdges() {

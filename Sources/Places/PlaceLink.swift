@@ -2,18 +2,22 @@ import Foundation
 
 /// Links that open the app at a place, for "Open in Also Maps" buttons:
 ///
-///     https://maps.also.dev/p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower
-///     alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower
+///     https://maps.also.dev/p#lat=48.8584&lon=2.2945&r=400&h=120
+///     alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120
 ///
 /// The universal link and the custom scheme carry the same fragment, so one
 /// parser reads both. The site's `/p` fallback page reads the same format;
 /// keep the two in step.
 ///
 /// The fragment is form-encoded. `lat` and `lon` (decimal degrees) are
-/// required. `r` (view half-width, meters: `Place.radius`), `h` (degrees
-/// clockwise from north: `Place.heading`) and `name` are optional, and an
-/// unusable value counts as absent. Unknown keys are ignored. The scheme and
-/// host are ignored; the path must be `/p`.
+/// required. `r` (view half-width, meters: `Place.radius`) and `h` (degrees
+/// clockwise from north: `Place.heading`) are optional, and an unusable value
+/// counts as absent. Unknown keys are ignored. The scheme and host are
+/// ignored; the path must be `/p`.
+///
+/// Links carry no text: a crafted link mustn't control what the app shows.
+/// Older links had a `name`, which is ignored like any unknown key; the
+/// place is named by its coordinates.
 enum PlaceLink {
     /// View half-width when a link has no `r`, meters.
     static let defaultRadius = 500.0
@@ -36,9 +40,7 @@ enum PlaceLink {
         let radius = fields["r"].flatMap(number).flatMap { $0 > 0 && $0 <= maximumRadius ? $0 : nil }
             ?? defaultRadius
         let heading = fields["h"].flatMap(number).map(normalizedHeading) ?? 0
-        let name = fields["name"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return Place(id: "link-\(UUID().uuidString)",
-                     name: name.flatMap { $0.isEmpty ? nil : $0 } ?? defaultName(latitude, longitude),
+        return Place(id: "link-\(UUID().uuidString)", name: coordinateName(latitude, longitude),
                      latitude: latitude, longitude: longitude, radius: radius, heading: heading)
     }
 
@@ -78,7 +80,7 @@ enum PlaceLink {
         return h < 0 ? h + 360 : h
     }
 
-    private static func defaultName(_ latitude: Double, _ longitude: Double) -> String {
+    private static func coordinateName(_ latitude: Double, _ longitude: Double) -> String {
         String(format: "%.4f, %.4f", latitude, longitude)
     }
 }

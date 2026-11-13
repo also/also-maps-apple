@@ -100,16 +100,16 @@ The remote config can replace these defaults; see [docs/remote-config.md](docs/r
 A link opens the app at a place, for "Open in Also Maps" buttons on the web (visionOS, iOS and macOS; not tvOS). It goes to the place in the open map or volume, without opening a window or saving the place. Two forms share one fragment:
 
 ```
-https://maps.also.dev/p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower
-alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower
+https://maps.also.dev/p#lat=48.8584&lon=2.2945&r=400&h=120
+alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120
 ```
 
-The fragment is form-encoded. `lat` and `lon` (decimal degrees) are required; `r` (view half-width, meters), `h` (heading, degrees clockwise from north) and `name` are optional. Unknown keys are ignored, and links that don't parse or are out of range do nothing. `PlaceLink` parses both forms; the site's `/p` page, which serves the association file and the fallback, reads the same format.
+The fragment is form-encoded. `lat` and `lon` (decimal degrees) are required; `r` (view half-width, meters) and `h` (heading, degrees clockwise from north) are optional. Links carry no text, so a crafted link can't control what the app or site shows: older links' `name` is ignored like any unknown key. Links that don't parse or are out of range do nothing. `PlaceLink` parses both forms; the site's `/p` page, which serves the association file and the fallback, reads the same format.
 
 - **The `alsomaps` scheme** works in every build:
   ```
-  xcrun simctl openurl booted 'alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower'
-  open 'alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120&name=Eiffel%20Tower'
+  xcrun simctl openurl booted 'alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120'
+  open 'alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120'
   ```
 - **Universal links** need the associated domain `applinks:maps.also.dev`, which needs an explicit App ID on the maintainer's team, as App Attest does (see [Keys](#keys)). Release builds always have it. Debug and Optimized builds on visionOS and iOS have it with the App Attest opt-in (`Config/AppAttest.entitlements` holds both); the Mac's Debug build has it when `Config/Secrets.xcconfig` sets `DEBUG_MAC_CODE_SIGN_ENTITLEMENTS = SourcesMac/AlsoMapsMac.Debug.Links.entitlements`. Devices cache the site's association file through Apple's CDN. To fetch it straight from the site instead, for testing a changed file, enable Settings → Developer → Associated Domains Development on the device (on a Mac, `sudo swcutil developer-mode -e true`) and build with the domain as `applinks:maps.also.dev?mode=developer` in the entitlements (development-signed builds only).
 
