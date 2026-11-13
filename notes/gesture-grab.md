@@ -2,6 +2,18 @@
 
 Working notes for [also/also-maps-apple#61](https://github.com/also/also-maps-apple/issues/61): find the grab point by intersecting the gaze ray with the real surface, not from where gaze hits the flat gesture slab. Newest first.
 
+## 2026-11-13
+
+### Immersive grabs land behind where you look, by an amount that changes
+
+- **Observed (owner, headset, immersive):** around San Francisco, a few hundred meters up, looking at flat targets (a low pier building, a white spot on the water), the grab is sometimes where you look and sometimes noticeably behind it, never in front. Going to the same place, or restoring the same view, doesn't make it repeatable. The purple gaze-hit marker wasn't visible while it was off.
+- **Observed (RealityKit on macOS, probe):** `ShapeResource.generateConvex` of the cap's points doesn't keep them. Raycasting straight down onto the cooked hull of a horizon-sized cap (8 rings × 24 bearings, 65–122 km across, eye 232 or 458 m above the ground), its top sat **50–110 m below the true ground** in three of four sizes, and 3–90 m below (growing away from the center) in the fourth. The uncooked facets are at most 4.6 m below. The cooking drops points within a tolerance of the hull, and this cap is so wide and thin that most of the inner rings go.
+- **Inferred:** that explains all of it. Gaze hits the sunken hull far below the surface, along the ray, past what you see; the snap lifts the hit straight up, so the grab lands that far past the target. The purple marker (the unsnapped hit) was under the water, hidden by the tiles. How far below depends on the cap's size and on where in it you look. Both change with what you did before, since the cap is rebuilt only after drifting a tenth of its radius or zooming well past it, so the same view gives different grabs.
+- **Observed (probe):** a static triangle mesh through the same points (`ShapeResource.generateStaticMesh`) matches the uncooked facets exactly (within 0.1 m at every distance tried), and follows moves, scales and turns made after it joins the scene, with or without `isStatic`.
+- **Change:** the gesture target is that mesh (`GestureSurface.localMesh`, a fan to the first ring and two triangles per neighbor pair between rings, facing up). It's generated async; the old cap keeps taking gestures until the new one is ready, and the shape and the cap it's placed by change together. `GestureSurfaceTests.localMeshIsUnitSizedAndFacesUp` checks the mesh's shape; the core tests can't check RealityKit's cooking.
+- **Observed (owner, headset):** seems like an improvement.
+- **Left:** the facets themselves still sit up to R·Δ²/8 below the ground (about 5 m for a horizon cap from 458 m), which a grazing gaze stretches along the ground. Hills still put the grab behind the slope.
+
 ## 2026-11-12
 
 ### What the owner accepted, and what's left open

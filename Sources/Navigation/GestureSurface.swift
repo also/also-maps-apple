@@ -6,8 +6,8 @@ import simd
 /// ground as shown (#61). A flat slab drifts off the curved ground away from
 /// its center and stands up in front of the viewer when the map tilts.
 ///
-/// The cap is a convex hull of points on that surface. Gaze from above hits
-/// its curved top; a ray past its rim misses it. It's built in its center's
+/// The cap is a triangle mesh through points on that surface. Gaze from
+/// above hits its curved top; a ray past its rim misses it. It's built in its center's
 /// anchor frame (x east, y up, z south) in units of `unit` meters, so it
 /// keeps Float precision at any size, and is only rebuilt when the view has
 /// moved enough to need it (`needsRebuild`).
@@ -77,20 +77,42 @@ struct GestureSurface: Equatable {
         return points
     }
 
-    /// The hull's points in the center's anchor frame, in units: the cap,
-    /// plus one point just below its rim so a nearly flat cap still has
-    /// volume.
-    func localPoints() -> [SIMD3<Float>] {
+    /// The cap as a triangle mesh in the center's anchor frame, in units:
+    /// `ecefPoints()` joined by a fan from the center to the first ring, then
+    /// two triangles between each pair of neighbors on adjacent rings, each
+    /// facing up.
+    ///
+    /// A mesh, not a convex hull: RealityKit's hull cooking drops points
+    /// close to the hull, and this cap is so wide and thin that most are
+    /// dropped. The cooked hull's top then sat 50–110 m below the ground
+    /// across a horizon-sized cap, depending on its size, so the grab landed
+    /// that far below the ground and well past where you looked
+    /// (notes/gesture-grab.md).
+    func localMesh() -> (positions: [SIMD3<Float>], faceIndices: [UInt16]) {
         let origin = Geodesy.ecef(center, height: height)
         let toLocal = Geodesy.anchorFrameRotation(latitude: center.latitude, longitude: center.longitude).transpose
-        var points = ecefPoints().map { toLocal * ($0 - origin) / unit }
-        let rimDepth = points.map(\.y).min() ?? 0
-        points.append(SIMD3(0, rimDepth - 0.02, 0))
-        return points.map { SIMD3<Float>($0) }
+        let positions = ecefPoints().map { SIMD3<Float>(toLocal * ($0 - origin) / unit) }
+        // Bearings run clockwise seen from above, so (center, next, this)
+        // turns counterclockwise and faces up.
+        func index(ring: Int, step: Int) -> UInt16 {
+            UInt16(1 + (ring - 1) * Self.bearings + step % Self.bearings)
+        }
+        var faces: [UInt16] = []
+        for step in 0..<Self.bearings {
+            faces += [0, index(ring: 1, step: step + 1), index(ring: 1, step: step)]
+        }
+        for ring in 1..<Self.rings {
+            for step in 0..<Self.bearings {
+                let inner = index(ring: ring, step: step), innerNext = index(ring: ring, step: step + 1)
+                let outer = index(ring: ring + 1, step: step), outerNext = index(ring: ring + 1, step: step + 1)
+                faces += [inner, innerNext, outerNext, inner, outerNext, outer]
+            }
+        }
+        return (positions, faces)
     }
 
     /// `ecef` moved along the local vertical onto `height` meters above the
-    /// ellipsoid: a hit on the hull, which lies a little inside the curved
+    /// ellipsoid: a hit on the mesh, which lies a little inside the curved
     /// surface between its points, put on the surface.
     static func snap(_ ecef: SIMD3<Double>, toHeight height: Double) -> SIMD3<Double> {
         Geodesy.ecef(Geodesy.geodetic(ecef).coordinate, height: height)
