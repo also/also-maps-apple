@@ -12,7 +12,8 @@ private let volume: RoomGeometry = {
 }()
 private let immersive = RoomGeometry(designEye: SIMD3(0, 1.6, 0),
                                      placementLevel: SIMD3(0, 0.02, -5.6),
-                                     contentHalfWidth: 5)
+                                     contentHalfWidth: 5,
+                                     restingDip: 15 * .pi / 180)
 
 private func diagram(_ camera: CameraPose, _ presentation: CameraDiagram.Presentation,
                      terrain: Double = 0, ground: Double = 0, tiltWeight: Double? = nil) -> CameraDiagram {

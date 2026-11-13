@@ -21,9 +21,20 @@ import simd
 ///
 /// The returned framing's georeference point is the view center: what
 /// gestures grab and what the area of interest and ground sample center on.
-/// It's the ground along the line of sight `RoomGeometry.sightLine`: C₀
-/// while level, the ground below the navigation position at full tilt.
+/// It's the ground along the line of sight `RoomGeometry.sightLine`: ahead
+/// while level (C₀ in the volume, a fixed dip below level in the immersive
+/// space), the ground below the navigation position at full tilt. High up
+/// with little tilt, that line would pass over the globe, so it's kept
+/// `horizonMargin` below the horizon.
 enum EyeLevelModel {
+    /// The closest the view center's line of sight comes to the horizon,
+    /// radians. Where `RoomGeometry.sightLine` would come nearer (or pass
+    /// over the globe), the line dips this far below the horizon instead, so
+    /// climbing with no tilt the view center slides from ahead to below
+    /// without a jump, and never sits near the globe's edge, where it's
+    /// very sensitive.
+    static let horizonMargin = 5 * Double.pi / 180
+
     /// Where the tilt assist starts, meters above the ellipsoid.
     static let tiltStartAltitude = 50_000.0
 
@@ -73,11 +84,34 @@ enum EyeLevelModel {
         // The ground along the line of sight from the eye.
         let from = tilted.inverse.apply(eye)
         let through = tilted.inverse.apply(eye + room.sightLine(tiltWeight: w))
-        let georeferencePoint = ground(from: from, toward: through, fallback: camera, groundHeight: groundHeight)
+        let sight = clearOfHorizon(through - from, from: from, groundHeight: groundHeight)
+        let georeferencePoint = ground(from: from, toward: from + sight, fallback: camera,
+                                       groundHeight: groundHeight)
         return AdaptiveModel.Framing(georeference: Georeference(tilted),
                                      georeferencePoint: georeferencePoint,
                                      placementPoint: tilted.apply(georeferencePoint),
                                      range: simd_distance(georeferencePoint, camera.position))
+    }
+
+    /// `direction` (ECEF) from `origin`, dipped further if it has to be to
+    /// stay `horizonMargin` below the horizon of the ground at `groundHeight`
+    /// seen from `origin`. The dip is below `origin`'s level, and the
+    /// horizon is a sphere's through the ground below, which is within a
+    /// fraction of a degree of the ellipsoid's.
+    static func clearOfHorizon(_ direction: SIMD3<Double>, from origin: SIMD3<Double>,
+                               groundHeight: Double) -> SIMD3<Double> {
+        let distance = simd_length(origin), length = simd_length(direction)
+        guard distance > 0, length > 0 else { return direction }
+        let up = origin / distance
+        let unit = direction / length
+        let above = max(Geodesy.geodetic(origin).height - groundHeight, 0)
+        let horizonDip = acos(min(max((distance - above) / distance, 0), 1))
+        let least = min(horizonDip + horizonMargin, .pi / 2)
+        let dip = asin(min(max(-simd_dot(unit, up), -1), 1))
+        guard dip < least else { return direction }
+        let level = unit - simd_dot(unit, up) * up
+        guard simd_length(level) > 1e-12 else { return -up * length }
+        return (simd_normalize(level) * cos(least) - up * sin(least)) * length
     }
 
     /// Where the ray from `origin` through `point` (both ECEF) meets the
@@ -111,9 +145,10 @@ enum EyeLevelModel {
         let height = groundHeight + max(eye.y - base.y, 0.01) / scale
         let weight = tiltFollowsAltitude ? tiltWeight(altitude: height) : 0
         let target = Geodesy.ecef(center, height: groundHeight)
-        // Start with C₀ this far ahead of the eye on the base plane, in world
-        // meters.
-        let ahead = simd_length(SIMD2(base.x - eye.x, base.z - eye.z)) / scale
+        // Start with the level view center this far ahead of the eye on the
+        // base plane, in world meters.
+        let level = room.levelViewCenter
+        let ahead = simd_length(SIMD2(level.x - eye.x, level.z - eye.z)) / scale
         let start = GeoMath.destination(from: center, bearing: heading + .pi, distance: ahead)
         return standpoint(viewing: target, from: start, iterations: 6, frame: {
             framing(camera: $0, room: room, groundHeight: groundHeight, tiltWeight: weight)
