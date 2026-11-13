@@ -186,8 +186,6 @@ final class MapModel {
     /// Both scenes deliver frame updates; only the presented host's are used.
     private var updateSubscriptions: [MapPresentation.Host: EventSubscription] = [:]
     private var heldActions: Set<MapInput.Action> = []
-    /// The last place jumped to, for cycling.
-    private var currentPlaceID: String?
 
     init() {
         let settings = StreamingSettings.load()
@@ -336,7 +334,6 @@ final class MapModel {
         stopPlayback()
         endManipulation()
         placeAwaitsGround = true
-        currentPlaceID = place.id
         placementGround.reset(to: 0)
         cameraGround.reset(to: 0)
         framing = nil
@@ -615,16 +612,9 @@ final class MapModel {
     }
 
     private func perform(_ action: MapInput.Action) {
-        let places = PlaceLibrary.all
         switch action {
-        case .nextPlace where !places.isEmpty:
-            go(to: PlaceLibrary.place(in: places, stepping: 1, from: currentPlaceID))
-        case .previousPlace where !places.isEmpty:
-            go(to: PlaceLibrary.place(in: places, stepping: -1, from: currentPlaceID))
         case .faceNorth where !tracks.isPlaying:
             navigation = NavigationOperations.faceNorth(navigation)
-        case .toggleTileHold:
-            setTilesHeld(!tilesHeld)
         default:
             break
         }
