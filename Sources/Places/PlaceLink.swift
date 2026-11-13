@@ -16,8 +16,7 @@ import Foundation
 /// ignored; the path must be `/p`.
 ///
 /// Links carry no text: a crafted link mustn't control what the app shows.
-/// Older links had a `name`, which is ignored like any unknown key; the
-/// place is named by its coordinates.
+/// The place is named by its coordinates.
 enum PlaceLink {
     /// View half-width when a link has no `r`, meters.
     static let defaultRadius = 500.0

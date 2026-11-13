@@ -47,8 +47,9 @@ struct PlaceLinkTests {
         #expect(try #require(place("alsomaps://p#lat=1&lon=2&h=450")).heading == 90)
     }
 
-    /// Links carry no text, so an old link's name doesn't reach the app.
-    @Test func ignoresNames() throws {
+    /// Links carry no text: a text field is an unknown key, and doesn't
+    /// reach the app.
+    @Test func ignoresText() throws {
         let p = try #require(place("alsomaps://p#lat=1&lon=2&name=Caf%C3%A9+de+Flore"))
         #expect(p.name == "1.0000, 2.0000")
     }

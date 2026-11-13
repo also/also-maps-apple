@@ -104,7 +104,7 @@ https://maps.also.dev/p#lat=48.8584&lon=2.2945&r=400&h=120
 alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120
 ```
 
-The fragment is form-encoded. `lat` and `lon` (decimal degrees) are required; `r` (view half-width, meters) and `h` (heading, degrees clockwise from north) are optional. Links carry no text, so a crafted link can't control what the app or site shows: older links' `name` is ignored like any unknown key. Links that don't parse or are out of range do nothing. `PlaceLink` parses both forms; the site's `/p` page, which serves the association file and the fallback, reads the same format.
+The fragment is form-encoded. `lat` and `lon` (decimal degrees) are required; `r` (view half-width, meters) and `h` (heading, degrees clockwise from north) are optional. Links carry no text, so a crafted link can't control what the app or site shows; the app names the place by its coordinates. Links that don't parse or are out of range do nothing. `PlaceLink` parses both forms; the site's `/p` page, which serves the association file and the fallback, reads the same format.
 
 - **The `alsomaps` scheme** works in every build:
   ```
