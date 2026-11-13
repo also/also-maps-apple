@@ -377,6 +377,10 @@ schemes:
   # The visionOS app built Optimized, without Metal API validation or GPU
   # frame capture: for using it on a Vision Pro rather than debugging it.
   Also Maps visionOS (Optimized):
+    # First in the scheme list, so a fresh checkout (no xcuserdata) opens
+    # with it selected instead of the alphabetically first scheme.
+    management:
+      orderHint: 0
     build:
       targets:
         Also Maps visionOS: all
