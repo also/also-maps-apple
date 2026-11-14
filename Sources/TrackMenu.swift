@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Record, play, show and share a track, collapsed into one toolbar menu on
 /// visionOS and iPhone. A track follows the navigation position on visionOS
-/// and the camera on iPhone. The label turns red while recording,
-/// since the menu otherwise hides that the recorder is running.
+/// and the camera on iPhone. While recording, Stop Recording sits in red
+/// beside the menu, so the recorder can't run unnoticed.
 struct TrackMenu: View {
     let tracks: TrackSession
     /// Plays the latest track: the host's own start, which also resets its
@@ -12,30 +12,45 @@ struct TrackMenu: View {
     let stopPlayback: () -> Void
 
     var body: some View {
-        Menu {
-            Button(tracks.isRecording ? "Stop Recording" : "Record Track",
-                   systemImage: tracks.isRecording ? "stop.circle.fill" : "record.circle") {
-                tracks.isRecording ? tracks.stopRecording() : tracks.startRecording()
-            }
-            .disabled(tracks.isPlaying)
-            Button(tracks.isPlaying ? "Stop Playback" : "Play Track",
-                   systemImage: tracks.isPlaying ? "stop.fill" : "play.fill") {
-                tracks.isPlaying ? stopPlayback() : play()
-            }
-            .disabled(tracks.isRecording || tracks.latestTrack == nil)
-            Button(tracks.showsTrack ? "Hide Track" : "Show Track",
-                   systemImage: tracks.showsTrack ? "eye.slash" : "eye") {
-                tracks.showsTrack.toggle()
-            }
-            if let track = tracks.latestTrack {
-                ShareLink(item: track) {
-                    Label("Share Track", systemImage: "square.and.arrow.up")
+        Group {
+            if tracks.isRecording {
+                // The icon itself is red: visionOS toolbars ignore tint.
+                Button {
+                    tracks.stopRecording()
+                } label: {
+                    Label {
+                        Text("Stop Recording")
+                    } icon: {
+                        Image(systemName: "stop.circle.fill").foregroundStyle(.red)
+                    }
                 }
+                .help("Stop recording the track")
             }
-        } label: {
-            Label("Track", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+            Menu {
+                if !tracks.isRecording {
+                    Button("Record Track", systemImage: "record.circle") {
+                        tracks.startRecording()
+                    }
+                    .disabled(tracks.isPlaying)
+                }
+                Button(tracks.isPlaying ? "Stop Playback" : "Play Track",
+                       systemImage: tracks.isPlaying ? "stop.fill" : "play.fill") {
+                    tracks.isPlaying ? stopPlayback() : play()
+                }
+                .disabled(tracks.isRecording || tracks.latestTrack == nil)
+                Button(tracks.showsTrack ? "Hide Track" : "Show Track",
+                       systemImage: tracks.showsTrack ? "eye.slash" : "eye") {
+                    tracks.showsTrack.toggle()
+                }
+                if let track = tracks.latestTrack {
+                    ShareLink(item: track) {
+                        Label("Share Track", systemImage: "square.and.arrow.up")
+                    }
+                }
+            } label: {
+                Label("Track", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+            }
+            .help("Record, play, show or share the track")
         }
-        .tint(tracks.isRecording ? .red : nil)
-        .help("Record, play, show or share the track")
     }
 }
