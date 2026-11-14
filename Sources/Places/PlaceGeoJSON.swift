@@ -65,7 +65,7 @@ enum PlaceGeoJSON {
     /// well in a text editor.
     static func data(for places: [Place]) throws -> Data {
         let features: [[String: Any]] = places.map { place in
-            var coordinates = [rounded(place.longitude, 7), rounded(place.latitude, 7)]
+            var coordinates: [NSDecimalNumber] = [rounded(place.longitude, 7), rounded(place.latitude, 7)]
             if let altitude = place.altitude { coordinates.append(rounded(altitude, 2)) }
             return [
                 "type": "Feature",
@@ -74,7 +74,7 @@ enum PlaceGeoJSON {
                 "properties": [
                     "name": place.name,
                     "alsoMaps": ["radius": rounded(place.radius, 1),
-                                 "heading": normalizedHeading(rounded(place.heading, 2))],
+                                 "heading": rounded(normalizedHeading(roundedHeading(place.heading)), 2)],
                 ] as [String: Any],
             ]
         }
@@ -84,11 +84,14 @@ enum PlaceGeoJSON {
     }
 
     /// `value` to `places` decimal places, so files read cleanly: 7 for
-    /// degrees is about a centimeter.
-    private static func rounded(_ value: Double, _ places: Int) -> Double {
+    /// degrees is about a centimeter. A decimal number, since
+    /// JSONSerialization writes a Double's full binary value
+    /// (-37.020000000000003); Swift's shortest form doesn't (-37.02).
+    private static func rounded(_ value: Double, _ places: Int) -> NSDecimalNumber {
         let scale = pow(10, Double(places))
-        let result = (value * scale).rounded() / scale
-        return result == 0 ? 0 : result  // No "-0".
+        var result = (value * scale).rounded() / scale
+        if result == 0 { result = 0 }  // No "-0".
+        return NSDecimalNumber(string: "\(result)", locale: Locale(identifier: "en_US_POSIX"))
     }
 
     /// The place for a Point feature, with an empty id, or nil for anything
@@ -130,6 +133,11 @@ enum PlaceGeoJSON {
         guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
         let double = number.doubleValue
         return double.isFinite ? double : nil
+    }
+
+    /// To 0.01°, so a heading just under 360 becomes 360 and then wraps to 0.
+    private static func roundedHeading(_ degrees: Double) -> Double {
+        (degrees * 100).rounded() / 100
     }
 
     private static func normalizedHeading(_ degrees: Double) -> Double {

@@ -87,6 +87,8 @@ struct PlaceGeoJSONTests {
         #expect(text.contains("37.7956906"))
         #expect(text.contains("609"))
         #expect(!text.contains("359.99"))
+        #expect(text.contains("-37.02\n") || text.contains("-37.02 "))
+        #expect(!text.contains("00000"))
         let read = try #require(try PlaceGeoJSON.places(from: Data(text.utf8)).first)
         #expect(read.latitude == 37.7956906)
         #expect(read.radius == 609)
