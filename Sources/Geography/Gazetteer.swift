@@ -47,6 +47,7 @@ actor Gazetteer {
     private let url: URL?
     private var database: SQLiteDatabase?
     private var loadedPlaces: [Place]?
+    private var loadedPlaceNames: Set<String>?
     private var geometryCache: [Int: RegionGeometry] = [:]
 
     init(url: URL?) {
@@ -157,9 +158,11 @@ actor Gazetteer {
             let id = candidates.int(0)
             guard try geometry(id: id).contains(longitude: coordinate.longitude, latitude: coordinate.latitude) else { continue }
             let name = candidates.text(4) ?? "", displayName = candidates.text(5) ?? name
+            let countryCode = candidates.text(7)
             let region = PlaceContext.Region(
                 id: id, wikidata: candidates.text(3), name: displayName, localName: name == displayName ? nil : name,
-                kind: candidates.text(2), country: candidates.text(6), countryCode: candidates.text(7))
+                kind: candidates.text(2), country: candidates.text(6), countryCode: countryCode,
+                sharesNameWithPlace: try placeNames().contains(Self.nameKey(displayName, countryCode)))
             if candidates.text(1) == "admin1" {
                 state = state ?? region
             } else {
@@ -270,6 +273,18 @@ actor Gazetteer {
         }
         loadedPlaces = result
         return result
+    }
+
+    /// Every place's name with its country, for `sharesNameWithPlace`.
+    private func placeNames() throws -> Set<String> {
+        if let loadedPlaceNames { return loadedPlaceNames }
+        let names = Set(try places().map { Self.nameKey($0.displayName, $0.countryCode) })
+        loadedPlaceNames = names
+        return names
+    }
+
+    private static func nameKey(_ name: String, _ countryCode: String?) -> String {
+        "\(countryCode ?? "")|\(name.lowercased())"
     }
 
     private func geometry(id: Int) throws -> RegionGeometry {

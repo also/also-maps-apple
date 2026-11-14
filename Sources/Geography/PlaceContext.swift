@@ -80,6 +80,10 @@ struct PlaceContext: Codable, Equatable {
         var kind: String?
         var country: String?
         var countryCode: String?
+        /// Whether a populated place in the same country has the same name:
+        /// the province of Málaga and the city of Málaga, New York State and
+        /// New York City.
+        var sharesNameWithPlace = false
     }
 }
 

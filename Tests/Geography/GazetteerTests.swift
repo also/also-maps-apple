@@ -45,6 +45,18 @@ struct GazetteerTests {
         #expect(PlaceSuggestions.names(for: context).contains(city))
     }
 
+    @Test func statesNamedLikeACity() async throws {
+        let ronda = try await gazetteer.context(camera: camera(36.7418, -5.167, height: 500), viewCenter: nil)
+        #expect(ronda.below.state?.sharesNameWithPlace == true)
+        #expect(PlaceSuggestions.description(of: ronda) == "1,500 ft over Málaga region, Spain")
+
+        let midtown = try await gazetteer.context(camera: camera(40.7549, -73.984, height: 600), viewCenter: nil)
+        #expect(PlaceSuggestions.names(for: midtown).contains("New York State"))
+
+        let reno = try await gazetteer.surroundings(of: GeoCoordinate(latitude: 39.53, longitude: -119.82), height: feet30k)
+        #expect(reno.state?.sharesNameWithPlace == false)
+    }
+
     @Test func overWorcesterLookingTowardBoston() async throws {
         let context = try await gazetteer.context(camera: camera(worcester.latitude, worcester.longitude, heading: 80), viewCenter: boston)
         let names = PlaceSuggestions.names(for: context)
