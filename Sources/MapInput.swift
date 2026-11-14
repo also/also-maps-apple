@@ -1,5 +1,10 @@
 import GameController
 import simd
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// Game-style map controls from a hardware keyboard and a game controller,
 /// merged into one set of values.
@@ -35,7 +40,7 @@ struct MapInput {
 
     /// Keyboard and controller together, with the controller's sticks
     /// shaped by `controls`.
-    static func current(controls: ControlValues) -> MapInput {
+    @MainActor static func current(controls: ControlValues) -> MapInput {
         var input = keyboard()
         input.merge(gamepad(controls: controls))
         return input
@@ -64,9 +69,12 @@ struct MapInput {
 
     static var isKeyboardConnected: Bool { GCKeyboard.coalesced != nil }
 
-    /// The keys held right now, or no input if there's no keyboard.
-    static func keyboard() -> MapInput {
-        guard let keyboard = GCKeyboard.coalesced?.keyboardInput else { return MapInput() }
+    /// The keys held right now, or no input if there's no keyboard or the
+    /// keys are typing into a text field. The keyboard is read whatever has
+    /// focus, so without that check typing a search would fly the map.
+    @MainActor static func keyboard() -> MapInput {
+        guard !TextEntry.isActive,
+              let keyboard = GCKeyboard.coalesced?.keyboardInput else { return MapInput() }
         func held(_ codes: GCKeyCode...) -> Bool {
             codes.contains { keyboard.button(forKeyCode: $0)?.isPressed == true }
         }
@@ -121,4 +129,39 @@ struct MapInput {
         let value = Double(button.value)
         return value < 0.05 ? 0 : value
     }
+}
+
+/// Whether a text field in the app is taking typing.
+@MainActor
+enum TextEntry {
+    #if canImport(AppKit)
+    /// A text field edits through its window's field editor, a text view.
+    static var isActive: Bool { NSApp.keyWindow?.firstResponder is NSTextView }
+    #else
+    /// UIKit has no public way to ask for the first responder, so this
+    /// follows text fields and views beginning and ending editing.
+    static var isActive: Bool {
+        _ = observers
+        return !editing.isEmpty
+    }
+
+    private static var editing: Set<ObjectIdentifier> = []
+
+    private static let observers: [NSObjectProtocol] = {
+        let center = NotificationCenter.default
+        func observe(_ name: Notification.Name, _ update: @escaping @MainActor (ObjectIdentifier) -> Void) -> NSObjectProtocol {
+            center.addObserver(forName: name, object: nil, queue: .main) { note in
+                guard let object = note.object as AnyObject? else { return }
+                let id = ObjectIdentifier(object)
+                MainActor.assumeIsolated { update(id) }
+            }
+        }
+        return [
+            observe(UITextField.textDidBeginEditingNotification) { editing.insert($0) },
+            observe(UITextField.textDidEndEditingNotification) { editing.remove($0) },
+            observe(UITextView.textDidBeginEditingNotification) { editing.insert($0) },
+            observe(UITextView.textDidEndEditingNotification) { editing.remove($0) },
+        ]
+    }()
+    #endif
 }
