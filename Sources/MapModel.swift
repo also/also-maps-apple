@@ -361,14 +361,6 @@ final class MapModel {
                      heading: degrees < 0 ? degrees + 360 : degrees, altitude: center.height)
     }
 
-    /// Saves the current view to My Map, named by the first suggestion.
-    func saveCurrentView() async {
-        var place = currentPlace(id: UUID().uuidString, name: "")
-        let names = await PlaceNamer.suggestions(latitude: place.latitude, longitude: place.longitude)
-        place.name = names.first ?? PlaceLink.coordinateName(place.latitude, place.longitude)
-        PlaceStore.shared.add(place)
-    }
-
     // MARK: Gestures
 
     /// `start` and `current` are the drag's positions in the map frame

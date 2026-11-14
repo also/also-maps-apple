@@ -41,6 +41,10 @@ struct AlsoMapsApp: App {
             if blocked { model.flushTrack() }
         }
 
+        WindowGroup("My Map", id: MyMapEditor.windowID) {
+            MyMapEditor()
+        }
+        .defaultSize(width: 520, height: 640)
         WindowGroup(id: SettingsView.windowID) {
             @Bindable var model = model
             SettingsView(settings: $model.settings)

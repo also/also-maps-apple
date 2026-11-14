@@ -79,6 +79,21 @@ struct PlaceGeoJSONTests {
         #expect(try places(#"{"type": "FeatureCollection", "features": []}"#).isEmpty)
     }
 
+    /// Saved views carry float noise; files get readable numbers.
+    @Test func writesRoundedNumbers() throws {
+        let noisy = Place(id: "a", name: "Ferry Building", latitude: 37.795690562623399, longitude: -122.3937,
+                          radius: 608.95365511624937, heading: 359.99999999999562, altitude: -37.022024914622307)
+        let text = try #require(String(data: PlaceGeoJSON.data(for: [noisy]), encoding: .utf8))
+        #expect(text.contains("37.7956906"))
+        #expect(text.contains("609"))
+        #expect(!text.contains("359.99"))
+        let read = try #require(try PlaceGeoJSON.places(from: Data(text.utf8)).first)
+        #expect(read.latitude == 37.7956906)
+        #expect(read.radius == 609)
+        #expect(read.heading == 0)
+        #expect(read.altitude == -37.02)
+    }
+
     @Test func roundTrips() throws {
         let saved = [
             Place(id: "a", name: "Eiffel Tower", latitude: 48.8584, longitude: 2.2945, radius: 400,
@@ -160,5 +175,25 @@ struct PlaceStoreTests {
         store.removeImported()
         #expect(store.imported == nil)
         #expect(PlaceStore(directory: directory).imported == nil)
+    }
+}
+
+@MainActor
+struct PlaceStoreMoveTests {
+    @Test(arguments: [
+        (IndexSet([0]), 3, ["b", "c", "a"]),
+        (IndexSet([2]), 0, ["c", "a", "b"]),
+        (IndexSet([0, 2]), 2, ["b", "a", "c"]),
+    ])
+    func movesLikeAList(source: IndexSet, destination: Int, expected: [String]) {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "PlaceStoreMoveTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let store = PlaceStore(directory: directory)
+        for id in ["a", "b", "c"] {
+            store.add(Place(id: id, name: id, latitude: 0, longitude: 0, radius: 100))
+        }
+        store.move(fromOffsets: source, toOffset: destination)
+        #expect(store.myMap.map(\.id) == expected)
+        #expect(PlaceStore(directory: directory).myMap.map(\.id) == expected)
     }
 }

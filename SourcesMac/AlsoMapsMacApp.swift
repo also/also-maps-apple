@@ -22,6 +22,10 @@ struct AlsoMapsMacApp: App {
         }
         .defaultSize(width: view.viewportSize.width, height: view.viewportSize.height)
 
+        Window("My Map", id: MyMapEditor.windowID) {
+            MyMapEditor()
+        }
+        .defaultSize(width: 360, height: 420)
         Settings {
             SettingsView(settings: $settings)
                 .frame(width: 680, height: 520)
@@ -39,6 +43,8 @@ struct MacMapView: View {
     /// ALSOMAPS_DIAGRAM opens it at launch, for tools.
     @State private var showsDiagram = ProcessInfo.processInfo.environment["ALSOMAPS_DIAGRAM"] != nil
     @State private var showsPlaces = false
+    /// The view being saved to My Map, while its name is chosen.
+    @State private var savingPlace: Place?
     @FocusState private var focused: Bool
 
     init(start: StaticView, settings: StreamingSettings) {
@@ -70,12 +76,14 @@ struct MacMapView: View {
                     .help("Show how the camera is placed in each host (⌥⌘D)")
                     .keyboardShortcut("d", modifiers: [.command, .option])
                     Button("Save to My Map", systemImage: "star") {
-                        Task {
-                            if await map.saveCurrentView() { showsPlaces = true }
-                        }
+                        savingPlace = map.currentPlace(id: UUID().uuidString, name: "")
                     }
-                    .help("Save this view to My Map (⌘S)")
-                    .keyboardShortcut("s")
+                    // ⌘D, like adding a bookmark in Safari; ⌘S saves files.
+                    .help("Save this view to My Map (⌘D)")
+                    .keyboardShortcut("d")
+                    .popover(item: $savingPlace, arrowEdge: .bottom) { place in
+                        SavePlaceView(place: place) { savingPlace = nil }
+                    }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
                     }

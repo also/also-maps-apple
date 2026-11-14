@@ -65,21 +65,30 @@ enum PlaceGeoJSON {
     /// well in a text editor.
     static func data(for places: [Place]) throws -> Data {
         let features: [[String: Any]] = places.map { place in
-            var coordinates = [place.longitude, place.latitude]
-            if let altitude = place.altitude { coordinates.append(altitude) }
+            var coordinates = [rounded(place.longitude, 7), rounded(place.latitude, 7)]
+            if let altitude = place.altitude { coordinates.append(rounded(altitude, 2)) }
             return [
                 "type": "Feature",
                 "id": place.id,
                 "geometry": ["type": "Point", "coordinates": coordinates],
                 "properties": [
                     "name": place.name,
-                    "alsoMaps": ["radius": place.radius, "heading": place.heading],
+                    "alsoMaps": ["radius": rounded(place.radius, 1),
+                                 "heading": normalizedHeading(rounded(place.heading, 2))],
                 ] as [String: Any],
             ]
         }
         let collection: [String: Any] = ["type": "FeatureCollection", "features": features]
         return try JSONSerialization.data(withJSONObject: collection,
                                           options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+    }
+
+    /// `value` to `places` decimal places, so files read cleanly: 7 for
+    /// degrees is about a centimeter.
+    private static func rounded(_ value: Double, _ places: Int) -> Double {
+        let scale = pow(10, Double(places))
+        let result = (value * scale).rounded() / scale
+        return result == 0 ? 0 : result  // No "-0".
     }
 
     /// The place for a Point feature, with an empty id, or nil for anything

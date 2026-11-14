@@ -142,17 +142,6 @@ final class ScreenMap {
                      radius: view.radius, heading: degrees < 0 ? degrees + 360 : degrees, altitude: view.height)
     }
 
-    /// Saves the current view to My Map, named by the first suggestion.
-    /// False when there's no view to save.
-    @discardableResult
-    func saveCurrentView() async -> Bool {
-        guard var place = currentPlace(id: UUID().uuidString, name: "") else { return false }
-        let names = await PlaceNamer.suggestions(latitude: place.latitude, longitude: place.longitude)
-        place.name = names.first ?? PlaceLink.coordinateName(place.latitude, place.longitude)
-        PlaceStore.shared.add(place)
-        return true
-    }
-
     /// Samples the ground around `center` for the ground estimate. With
     /// `liftsCamera`, the camera rises by what it finds, so a place framed
     /// on the ellipsoid ends up framed on the ground.

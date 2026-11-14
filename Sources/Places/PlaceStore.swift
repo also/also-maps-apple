@@ -89,6 +89,15 @@ final class PlaceStore {
         writeMyMap()
     }
 
+    func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        // As SwiftUI's List reports it: `destination` counts the moved rows.
+        let moving = source.map { myMap[$0] }
+        let insertion = destination - source.count(in: 0..<destination)
+        for index in source.reversed() { myMap.remove(at: index) }
+        myMap.insert(contentsOf: moving, at: insertion)
+        writeMyMap()
+    }
+
     private func writeMyMap() {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

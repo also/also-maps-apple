@@ -10,18 +10,25 @@ struct PlacesList: View {
     var near: () -> GeoCoordinate?
     var selectedID: String?
     var go: (Place) -> Void
-    @State private var renaming: Place?
-    @State private var newName = ""
+    #if os(iOS)
+    @State private var editsMyMap = false
+    #else
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     var body: some View {
         content
-            .alert("Rename Place", isPresented: Binding(get: { renaming != nil },
-                                                       set: { if !$0 { renaming = nil } }),
-                   presenting: renaming) { place in
-                TextField("Name", text: $newName)
-                Button("Rename") { PlaceStore.shared.rename(place.id, to: newName) }
-                Button("Cancel", role: .cancel) {}
-            }
+            #if os(iOS)
+            .sheet(isPresented: $editsMyMap) { MyMapEditor() }
+            #endif
+    }
+
+    private func editMyMap() {
+        #if os(iOS)
+        editsMyMap = true
+        #else
+        openWindow(id: MyMapEditor.windowID)
+        #endif
     }
 
     @ViewBuilder private var content: some View {
@@ -69,19 +76,12 @@ struct PlacesList: View {
         } else {
             let store = PlaceStore.shared
             if !store.myMap.isEmpty {
-                section("My Map") {
-                    ForEach(store.myMap) { place in
-                        placeButton(place)
-                            .contextMenu {
-                                Button("Rename…", systemImage: "pencil") {
-                                    newName = place.name
-                                    renaming = place
-                                }
-                                Button("Delete", systemImage: "trash", role: .destructive) {
-                                    store.remove(place.id)
-                                }
-                            }
-                    }
+                section("My Map", accessory: {
+                    Button("Edit My Map…", action: editMyMap)
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                }) {
+                    ForEach(store.myMap) { placeButton($0) }
                 }
             }
             if let imported = store.imported {
@@ -106,23 +106,40 @@ struct PlacesList: View {
         }
     }
 
-    @ViewBuilder
     private func section<Content: View>(_ title: String?, @ViewBuilder content: () -> Content) -> some View {
+        section(title, accessory: { EmptyView() }, content: content)
+    }
+
+    @ViewBuilder
+    private func section<Accessory: View, Content: View>(
+        _ title: String?, @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content
+    ) -> some View {
         #if os(macOS)
         if let title {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
-                .padding(.bottom, 2)
+            HStack {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                accessory()
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
         }
         content()
         #else
         Section {
             content()
         } header: {
-            if let title { Text(title) }
+            if let title {
+                HStack {
+                    Text(title)
+                    Spacer()
+                    accessory()
+                        .textCase(nil)
+                }
+            }
         }
         #endif
     }
