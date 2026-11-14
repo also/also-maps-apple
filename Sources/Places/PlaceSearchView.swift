@@ -79,37 +79,56 @@ struct PlacesList: View {
     var go: (Place) -> Void
 
     var body: some View {
-        List {
-            if search.isSearching {
-                Section {
-                    if let problem = search.problem {
-                        Text(problem)
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(search.suggestions) { suggestion in
-                        Button {
-                            Task {
-                                if let place = await search.choose(suggestion) { go(place) }
-                            }
-                        } label: {
-                            row(suggestion.name, detail: suggestion.detail,
-                                isBusy: search.choosing == suggestion.id)
+        #if os(macOS)
+        // A Mac List draws each button as a filled row; rows like a menu's,
+        // highlighted under the pointer, suit a popover better.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) { rows }
+                .buttonStyle(MenuRowStyle())
+                .padding(6)
+        }
+        .task(id: search.query) { await search.suggest(near: near()) }
+        #else
+        List { rows }
+            .task(id: search.query) { await search.suggest(near: near()) }
+        #endif
+    }
+
+    @ViewBuilder private var rows: some View {
+        if search.isSearching {
+            Section {
+                if let problem = search.problem {
+                    Text(problem)
+                        .foregroundStyle(.secondary)
+                        #if os(macOS)
+                        .padding(8)
+                        #endif
+                }
+                ForEach(search.suggestions) { suggestion in
+                    Button {
+                        Task {
+                            if let place = await search.choose(suggestion) { go(place) }
                         }
-                    }
-                } footer: {
-                    if !search.suggestions.isEmpty {
-                        GoogleMapsAttribution()
+                    } label: {
+                        row(suggestion.name, detail: suggestion.detail,
+                            isBusy: search.choosing == suggestion.id)
                     }
                 }
-            } else {
-                ForEach(PlaceLibrary.all) { place in
-                    Button { go(place) } label: {
-                        row(place.name, isSelected: place.id == selectedID)
-                    }
+            } footer: {
+                if !search.suggestions.isEmpty {
+                    GoogleMapsAttribution()
+                        #if os(macOS)
+                        .padding(8)
+                        #endif
+                }
+            }
+        } else {
+            ForEach(PlaceLibrary.all) { place in
+                Button { go(place) } label: {
+                    row(place.name, isSelected: place.id == selectedID)
                 }
             }
         }
-        .task(id: search.query) { await search.suggest(near: near()) }
     }
 
     private func row(_ name: String, detail: String? = nil, isSelected: Bool = false,
@@ -132,9 +151,36 @@ struct PlacesList: View {
             }
         }
         .contentShape(Rectangle())
+        #if !os(macOS)
         .foregroundStyle(.primary)
+        #endif
     }
 }
+
+#if os(macOS)
+/// A row like a menu item's: full width, highlighted under the pointer.
+private struct MenuRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Row(configuration: configuration)
+    }
+
+    private struct Row: View {
+        let configuration: Configuration
+        @State private var isHovered = false
+
+        var body: some View {
+            let isHighlighted = isHovered || configuration.isPressed
+            configuration.label
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .foregroundStyle(isHighlighted ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                .background(isHighlighted ? Color.accentColor : .clear,
+                            in: RoundedRectangle(cornerRadius: 6))
+                .onHover { isHovered = $0 }
+        }
+    }
+}
+#endif
 
 /// Places search with its own field, for a popover from the Places button.
 struct PlacesPanel: View {
