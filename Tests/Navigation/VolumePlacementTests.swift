@@ -14,7 +14,8 @@ private let volume = RoomGeometry(designEye: SIMD3(0, 0.3, 0.85),
                                   fullTilt: RoomGeometry.tiltFacing(SIMD3(0, 0, 0), from: SIMD3(0, 0.3, 0.85)))
 private let immersive = RoomGeometry(designEye: SIMD3(0, 1.6, 0),
                                      placementLevel: SIMD3(0, 0.02, -5.6),
-                                     contentHalfWidth: 5)
+                                     contentHalfWidth: 5,
+                                     restingDip: 15 * .pi / 180)
 /// The volume's box: 1 × 0.6 × 1 m about its center.
 private let boxHalfSize = SIMD3(0.5, 0.3, 0.5)
 

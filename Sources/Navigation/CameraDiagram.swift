@@ -123,7 +123,8 @@ struct CameraDiagram {
     struct Room {
         /// E, the design eye point.
         var eye: SIMD2<Double>
-        /// C₀: where the view center goes while level.
+        /// Where the view center goes while level: C₀, or where the resting
+        /// line of sight meets the base plane.
         var levelPlacement: SIMD2<Double>
         /// The line of sight the view center is on (unit, from E, the design
         /// eye point).
@@ -320,7 +321,7 @@ struct CameraDiagram {
             let container = inputs.containerSize.map { size in
                 Bounds([SIMD2(-size.z / 2, -size.y / 2), SIMD2(size.z / 2, size.y / 2)])
             }
-            let level = Self.side(room.placementLevel)
+            let level = Self.side(room.levelViewCenter)
             let roomCamera = Self.side(framing.georeference.map(camera.position))
             var points = [eye, level, placement, roomCamera,
                           level - SIMD2(room.contentHalfWidth, 0), level + SIMD2(room.contentHalfWidth, 0)]

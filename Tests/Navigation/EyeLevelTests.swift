@@ -7,7 +7,8 @@ private let degrees = Double.pi / 180
 /// Immersive 10×, as MapPresentation defines it.
 private let immersive = RoomGeometry(designEye: SIMD3(0, 1.6, 0),
                                      placementLevel: SIMD3(0, 0.02, -5.6),
-                                     contentHalfWidth: 5)
+                                     contentHalfWidth: 5,
+                                     restingDip: 15 * .pi / 180)
 private let ronda = GeoCoordinate(latitude: 36.7377, longitude: -5.1728)
 private let context = NavigationContext(cameraGround: 565, minimumAltitude: 55, maximumAltitude: 20_000_000)
 
@@ -64,10 +65,11 @@ struct EyeLevelTests {
                                 heading: 0, pitch: -0.3)
         let f = framing(camera, weight: 1)
         // The ground beneath the navigation position is straight ahead, as
-        // far as C₀ is from the eye, and the local up there points back at
-        // the viewer.
+        // far as the level view center is from the eye, and the local up
+        // there points back at the viewer.
         let nadir = Geodesy.ecef(ronda, height: 565)
-        let reach = simd_distance(immersive.placementLevel, immersive.designEye)
+        let reach = immersive.levelReach
+        #expect(abs(reach - 1.58 / sin(15 * degrees)) < 1e-12)
         #expect(simd_distance(f.georeference.map(nadir), immersive.designEye - SIMD3(0, 0, reach)) < 1e-6)
         let up = Geodesy.enu(latitude: ronda.latitude, longitude: ronda.longitude).up
         #expect(simd_distance(simd_normalize(f.georeference.rotation.act(up)), SIMD3(0, 0, 1)) < 1e-9)
@@ -89,9 +91,9 @@ struct EyeLevelTests {
     }
 
     @Test(arguments: [0.0, 0.25, 0.5, 0.75, 1])
-    func theLineOfSightTurnsFromC0ToStraightAhead(weight: Double) {
+    func theLineOfSightTurnsFromTheRestingDipToStraightAhead(weight: Double) {
         let sight = immersive.sightLine(tiltWeight: weight)
-        let level = atan2(1.58, 5.6)
+        let level = 15 * degrees
         #expect(abs(asin(-sight.y) - level * (1 - weight)) < 1e-12)
         #expect(abs(sight.x) < 1e-12 && sight.z < 0)
     }
@@ -110,11 +112,12 @@ struct EyeLevelTests {
                                               room: immersive, groundHeight: 565)
         let f = framing(camera)
         let center = Geodesy.ecef(ronda, height: 565)
-        // On the view center: where the line of sight to C₀ meets the
-        // ground, a little past C₀ for the Earth's curve.
+        // On the view center: where the resting line of sight meets the
+        // ground, a little past where it meets the base plane for the
+        // Earth's curve.
         let landed = f.georeference.map(center)
         #expect(simd_distance(landed, f.placementPoint) < 1e-3)
-        #expect(simd_distance(landed, immersive.placementLevel) < 0.1)
+        #expect(simd_distance(landed, immersive.levelViewCenter) < 0.1)
         #expect(abs(f.shownRadius(immersive) / radius - 1) < 0.01)
     }
 
@@ -175,5 +178,99 @@ struct EyeLevelTests {
         let after = framing(pose)
         #expect(simd_distance(after.georeference.map(grab), p) < 1e-3)
         #expect(abs(after.georeference.scale / (before.georeference.scale * 2) - 1) < 1e-9)
+    }
+
+    // MARK: The resting dip and the horizon margin
+
+    /// The volume, as MapPresentation defines it: its line of sight is
+    /// toward C₀, about 33° below level.
+    private static let volume: RoomGeometry = {
+        let eye = SIMD3<Double>(0, 0.3, 0.85)
+        return RoomGeometry(designEye: eye, placementLevel: SIMD3(0, -0.25, 0), contentHalfWidth: 0.5,
+                            fullTilt: RoomGeometry.tiltFacing(.zero, from: eye))
+    }()
+
+    /// How far below the horizon, seen from the eye's place in the world,
+    /// the view center is, and how far around the globe from the navigation
+    /// position, radians.
+    private static func viewCenter(_ room: RoomGeometry, altitude: Double) -> (belowHorizon: Double, around: Double,
+                                                                              framing: AdaptiveModel.Framing) {
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: altitude + 565,
+                                heading: 0.5, pitch: -0.3)
+        let f = EyeLevelModel.framing(camera: camera, room: room, groundHeight: 565, tiltWeight: 0)
+        let eye = f.georeference.ecef(map: room.designEye)
+        let up = simd_normalize(eye)
+        let dip = asin(-simd_dot(simd_normalize(f.georeferencePoint - eye), up))
+        let horizon = acos((simd_length(eye) - altitude) / simd_length(eye))
+        let around = acos(min(simd_dot(simd_normalize(f.georeferencePoint), simd_normalize(camera.position)), 1))
+        return (dip - horizon, around, f)
+    }
+
+    @Test(arguments: [1.2, 1.6, 1.9])
+    func theRestingDipPutsTheViewCenterTheSameDistanceAheadForAnyEyeHeight(eyeHeight: Double) {
+        var room = immersive
+        room.designEye.y = eyeHeight
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 1_510,
+                                heading: 0.5, pitch: -0.3)
+        let f = EyeLevelModel.framing(camera: camera, room: room, groundHeight: 565, tiltWeight: 0)
+        let ahead = GeoMath.distance(from: ronda, to: Geodesy.geodetic(f.georeferencePoint).coordinate)
+        // 945 m up, 15° down: 945 / tan 15°, within the Earth's curve and
+        // the distance's spherical estimate. The same point as for the
+        // 1.6 m eye.
+        #expect(abs(ahead / (945 / tan(15 * degrees)) - 1) < 0.005)
+        #expect(simd_distance(f.georeferencePoint, framing(camera).georeferencePoint) < 1e-3)
+        #expect(abs(simd_distance(f.placementPoint, room.designEye) - room.levelReach) < 0.01)
+    }
+
+    @Test
+    func aHostWithoutARestingDipLooksAtC0() {
+        let room = Self.volume
+        #expect(abs(room.levelDip - atan2(0.55, 0.85)) < 1e-12)
+        #expect(room.levelViewCenter == room.placementLevel)
+        #expect(simd_distance(room.sightLine(tiltWeight: 0), simd_normalize(room.placementLevel - room.designEye)) < 1e-12)
+    }
+
+    @Test(arguments: [immersive, Self.volume])
+    func lowDownTheHorizonMarginChangesNothing(room: RoomGeometry) {
+        // The immersive space's 15° comes within 5° of the horizon at about
+        // 100 km; the volume's 33° at about 850 km.
+        for altitude in [1_000.0, 20_000, 80_000] {
+            let (belowHorizon, _, f) = Self.viewCenter(room, altitude: altitude)
+            #expect(belowHorizon > EyeLevelModel.horizonMargin)
+            let toPlaced = simd_normalize(f.placementPoint - room.designEye)
+            #expect(simd_distance(toPlaced, room.sightLine(tiltWeight: 0)) < 1e-9)
+        }
+    }
+
+    @Test(arguments: [immersive, Self.volume])
+    func withNoTiltTheViewCenterStaysOnTheGlobeAtAnyHeightWithoutAJump(room: RoomGeometry) {
+        var last: (around: Double, placed: SIMD3<Double>)?
+        var altitude = 1_000.0
+        while altitude < 11_000_000 {
+            let (belowHorizon, around, f) = Self.viewCenter(room, altitude: altitude)
+            // On the ground, ahead, and clear of the horizon.
+            #expect(abs(Geodesy.geodetic(f.georeferencePoint).height - 565) < 1e-2)
+            #expect(belowHorizon > EyeLevelModel.horizonMargin - 0.2 * degrees)
+            #expect(f.placementPoint.z < room.designEye.z)
+            #expect(around > 0)
+            if let last {
+                // 1% higher moves the view center a little: no jump, in the
+                // world or in the room.
+                #expect(abs(around - last.around) < 0.02 * max(around, last.around) + 1e-9)
+                let reach = simd_distance(f.placementPoint, room.designEye)
+                #expect(simd_distance(f.placementPoint, last.placed) < 0.02 * reach)
+            }
+            last = (around, f.placementPoint)
+            altitude *= 1.01
+        }
+    }
+
+    @Test
+    func highUpWithNoTiltTheLineFollowsTheHorizonDown() {
+        // 300 km: the horizon is 17° down, past the resting 15°. The line is
+        // 5° below it, not on the ground below the navigation position.
+        let (belowHorizon, around, _) = Self.viewCenter(immersive, altitude: 300_000)
+        #expect(abs(belowHorizon - EyeLevelModel.horizonMargin) < 0.2 * degrees)
+        #expect(around * GeoMath.earthRadius > 500_000)
     }
 }
