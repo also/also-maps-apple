@@ -1,0 +1,174 @@
+import Foundation
+
+/// Phrases built from a PlaceContext, in American English, with feet and
+/// miles: "30,000 ft over Worcester", "Over Worcester, looking toward
+/// Boston". The same input always gives the same output, on every platform.
+enum PlaceSuggestions {
+    /// Names to offer for a saved place, best first, without duplicates.
+    static func names(for context: PlaceContext) -> [String] {
+        let below = context.below
+        let here = shortName(below, nearbyWithin: 5_000)
+        let there = context.viewCenter.flatMap { shortName($0.surroundings, nearbyWithin: .infinity) }
+        let lookingElsewhere = there != nil && there != here
+
+        var names: [String] = []
+        if lookingElsewhere, let there {
+            names.append(here.map { "Over \($0), looking toward \(there)" } ?? "Looking toward \(there)")
+        }
+        names.append(description(of: context))
+        if lookingElsewhere, let center = context.viewCenter, let there, isPlace(center.surroundings) {
+            let fromCamera = (center.bearing + 180).truncatingRemainder(dividingBy: 360)
+            names.append("\(there) from the \(directionWord(fromCamera))")
+        }
+        if isPlace(below), let here { names.append(here) }
+        if below.urbanArea == nil, let near = below.nearby.first {
+            names.append(relativePhrase(near))
+        }
+        if let state = below.state {
+            names.append(stateName(state))
+        } else if let water = below.waters.first {
+            names.append("Over \(waterName(water))")
+        }
+
+        var seen = Set<String>()
+        return names.map(capitalizedFirst).filter { seen.insert($0.lowercased()).inserted }
+    }
+
+    /// Where the camera is: "30,000 ft over Worcester", "30,000 ft, 40 mi W
+    /// of Boston", "6 mi over the Gulf of Maine".
+    static func description(of context: PlaceContext) -> String {
+        let altitude = altitudePhrase(context.camera.height)
+        let location = locationPhrase(context.below)
+        return location.hasPrefix("over ") ? "\(altitude) \(location)" : "\(altitude), \(location)"
+    }
+
+    /// Where a point is, for the description: "over Worcester", "40 mi W of
+    /// Boston", "over Nevada", "over the Gulf of Maine", or coordinates. The
+    /// first of these that applies.
+    static func locationPhrase(_ s: PlaceContext.Surroundings) -> String {
+        if let urban = s.urbanArea { return "over \(urban.name)" }
+        if let near = s.nearby.first { return relativePhrase(near) }
+        if let state = s.state { return "over \(stateName(state))" }
+        if let water = s.waters.first { return "over \(waterName(water))" }
+        return "over \(coordinatePhrase(latitude: s.latitude, longitude: s.longitude))"
+    }
+
+    // MARK: Checking generated names
+
+    /// Whether `suggestion` (from PlaceNameModel) names at least one known
+    /// place and no unknown ones. Capitalized words after the first must
+    /// come from a known name or be ordinary words of direction and position.
+    static func usesOnlyKnownNames(_ suggestion: String, known: [String]) -> Bool {
+        let knownWords = Set(known.flatMap(words).map { $0.lowercased() })
+        let suggestionWords = words(suggestion)
+        guard suggestionWords.contains(where: { knownWords.contains($0.lowercased()) }) else { return false }
+        return suggestionWords.dropFirst().allSatisfy { word in
+            guard let first = word.first, first.isUppercase else { return true }
+            let lower = word.lowercased()
+            return knownWords.contains(lower) || genericWords.contains(lower)
+        }
+    }
+
+    private static func words(_ s: String) -> [String] {
+        s.split { !$0.isLetter && $0 != "'" && $0 != "’" }.map(String.init)
+    }
+
+    /// Words a suggestion may capitalize without naming a place.
+    private static let genericWords: Set<String> = [
+        "a", "above", "across", "an", "and", "at", "from", "in", "looking", "near", "of", "on", "over", "the", "to", "toward", "towards",
+        "north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest",
+        "northern", "southern", "eastern", "western", "central", "upper", "lower", "greater",
+        "view", "views", "skyline", "approach", "flight", "high", "low", "overhead", "aerial", "coast", "coastline", "shore",
+        "downtown", "city", "harbor", "bay", "sky", "morning", "evening", "night", "sunset", "sunrise", "ft", "mi",
+    ]
+
+    // MARK: Pieces
+
+    /// The shortest name for a point: its urban area, a place within
+    /// `nearbyWithin` meters, its state, or its water.
+    static func shortName(_ s: PlaceContext.Surroundings, nearbyWithin: Double) -> String? {
+        if let urban = s.urbanArea { return urban.name }
+        if let near = s.nearby.first, near.distance <= nearbyWithin { return near.place.name }
+        if let state = s.state { return state.name }
+        return s.waters.first.map(waterName)
+    }
+
+    private static func isPlace(_ s: PlaceContext.Surroundings) -> Bool {
+        s.urbanArea != nil || !s.nearby.isEmpty
+    }
+
+    /// "40 mi W of Boston", or "over Boston" within about a mile of it.
+    static func relativePhrase(_ near: PlaceContext.Nearby) -> String {
+        let miles = near.distance / metersPerMile
+        guard miles >= 1.5 else { return "over \(near.place.name)" }
+        return "\(roundedMiles(miles)) mi \(directionAbbreviation(near.bearingFromPlace)) of \(near.place.name)"
+    }
+
+    /// A state's name, with its country outside the United States: "Nevada",
+    /// "Entre Ríos, Argentina".
+    static func stateName(_ state: PlaceContext.Region) -> String {
+        guard let country = state.country, state.countryCode != "US" else { return state.name }
+        return "\(state.name), \(country)"
+    }
+
+    /// A water's name with "the" where English uses it: "the Gulf of Maine",
+    /// "the North Atlantic Ocean", "the Bosporus", but "Chesapeake Bay" and
+    /// "Long Island Sound".
+    static func waterName(_ water: PlaceContext.Region) -> String {
+        let name = water.name
+        if name.lowercased().hasPrefix("the ") { return name }
+        let takesArticle: Set<String> = ["ocean", "sea", "strait", "channel", "gulf", "reef", "passage"]
+        if name.contains(" of ") || takesArticle.contains(water.kind?.lowercased() ?? "") {
+            return "the \(name)"
+        }
+        return name
+    }
+
+    /// Rounded to a friendly figure: "800 ft", "4,500 ft", "30,000 ft",
+    /// then miles from about 11 miles up: "12 mi", "250 mi".
+    static func altitudePhrase(_ meters: Double) -> String {
+        let feet = max(meters, 0) / 0.3048
+        if feet < 1_000 { return "\(grouped(max(100, rounded(feet, to: 100)))) ft" }
+        if feet < 10_000 { return "\(grouped(rounded(feet, to: 500))) ft" }
+        if feet < 60_000 { return "\(grouped(rounded(feet, to: 1_000))) ft" }
+        let miles = meters / metersPerMile
+        return "\(grouped(miles < 100 ? Int(miles.rounded()) : roundedMiles(miles))) mi"
+    }
+
+    static func coordinatePhrase(latitude: Double, longitude: Double) -> String {
+        String(format: "%.2f° %@, %.2f° %@",
+               abs(latitude), latitude >= 0 ? "N" : "S", abs(longitude), longitude >= 0 ? "E" : "W")
+    }
+
+    private static let metersPerMile = 1_609.344
+
+    private static func roundedMiles(_ miles: Double) -> Int {
+        if miles < 10 { return max(1, Int(miles.rounded())) }
+        if miles < 100 { return rounded(miles, to: 5) }
+        if miles < 1_000 { return rounded(miles, to: 10) }
+        return rounded(miles, to: 50)
+    }
+
+    private static func rounded(_ value: Double, to step: Int) -> Int {
+        Int((value / Double(step)).rounded()) * step
+    }
+
+    private static func grouped(_ value: Int) -> String {
+        value.formatted(.number.locale(Locale(identifier: "en_US")))
+    }
+
+    private static let abbreviations = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    private static let words = ["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"]
+
+    private static func octant(_ degrees: Double) -> Int {
+        let d = degrees.truncatingRemainder(dividingBy: 360)
+        return Int(((d < 0 ? d + 360 : d) / 45).rounded()) % 8
+    }
+
+    static func directionAbbreviation(_ degrees: Double) -> String { abbreviations[octant(degrees)] }
+    static func directionWord(_ degrees: Double) -> String { words[octant(degrees)] }
+
+    private static func capitalizedFirst(_ s: String) -> String {
+        s.prefix(1).uppercased() + s.dropFirst()
+    }
+}
