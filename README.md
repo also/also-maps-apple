@@ -175,7 +175,7 @@ Only the sliders you've moved are saved. The rest follow the defaults in `Contro
 
 The debug panel also has the Controls sliders.
 
-At launch, `ALSOMAPS_STATE=<that JSON>` restores a state and `ALSOMAPS_MARKERS=1` shows the markers and `ALSOMAPS_TILE_BOUNDS=1` the tile bounds.
+At launch, `ALSOMAPS_STATE=<that JSON>` restores a state and `ALSOMAPS_MARKERS=1` shows the markers and `ALSOMAPS_TILE_BOUNDS=1` the tile bounds. `ALSOMAPS_TILE_STATS=1` logs tile counts, load progress, the slowest update and fetch counters once a second.
 
 ## Tests
 
