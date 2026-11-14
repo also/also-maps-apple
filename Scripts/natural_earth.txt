@@ -1,0 +1,20 @@
+# The Natural Earth files Geography.sqlite is built from (Scripts/build_geography.sh).
+#
+# Each file is fetched from the first base URL that serves it with its SHA-256.
+# static.also.dev holds unchanged copies of Natural Earth's CDN files, one folder
+# per Natural Earth release, never overwritten. naciscdn.org always serves the
+# latest release, so it only matches until Natural Earth publishes a new one.
+#
+# For a new release: upload the CDN's zips to a new static.also.dev folder,
+# point the first base there, and update the checksums.
+
+base https://static.also.dev/natural-earth/v5.1.2
+base https://naciscdn.org/naturalearth
+
+#    name   path                                               SHA-256
+file places 10m/cultural/ne_10m_populated_places.zip           cd149186f03d2603e0410da399b980a4357d0ac32d3a2305a49ed3dffcc41d7b
+file admin1 10m/cultural/ne_10m_admin_1_states_provinces.zip   efc59726337323058f9446210adc96673179cd344e053666ee3d28cb58ba2b05
+file marine 10m/physical/ne_10m_geography_marine_polys.zip     a2d3395904c41e718e02c3ec5bc988712164c524c236fad32d95d282ca303b2a
+
+# Polygon simplification, meters.
+tolerance 500
