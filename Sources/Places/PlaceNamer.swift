@@ -2,20 +2,18 @@
 #if !os(tvOS)
 import Foundation
 
-/// Names offered for a view being saved, from the gazetteer (Sources/Geography):
-/// what's below the camera and what it's looking at.
+/// Names offered for a place being saved, from the gazetteer
+/// (Sources/Geography): what's below the navigation position and what's at
+/// the center of what's shown.
 enum PlaceNamer {
     /// The fixed phrases (PlaceSuggestions), best first. The coordinates
     /// when the gazetteer can't load.
-    static func suggestions(for place: Place, camera: CameraPose) async -> [String] {
-        let names = (try? await Gazetteer.shared.context(camera: Self.camera(camera), viewCenter: place.coordinate))
+    static func suggestions(for place: Place, viewCenter: GeoCoordinate?) async -> [String] {
+        let camera = PlaceContext.Camera(latitude: place.latitude, longitude: place.longitude,
+                                         height: place.position?.height ?? 0, heading: place.heading)
+        let names = (try? await Gazetteer.shared.context(camera: camera, viewCenter: viewCenter))
             .map(PlaceSuggestions.names(for:)) ?? []
         return names.isEmpty ? [PlaceLink.coordinateName(place.latitude, place.longitude)] : names
-    }
-
-    private static func camera(_ pose: CameraPose) -> PlaceContext.Camera {
-        PlaceContext.Camera(latitude: pose.latitude, longitude: pose.longitude, height: pose.height,
-                            heading: pose.heading * 180 / .pi)
     }
 }
 #endif

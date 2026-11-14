@@ -1,26 +1,26 @@
 import Foundation
 
 /// Places as GeoJSON (RFC 7946), the format of `.alsomaps` and `.geojson`
-/// place files:
+/// place files. A place is a Point feature, in one of Place's two forms:
 ///
-///     {
-///       "type": "FeatureCollection",
-///       "features": [{
-///         "type": "Feature",
-///         "id": "…",
-///         "geometry": { "type": "Point", "coordinates": [2.2945, 48.8584, 35] },
-///         "properties": {
-///           "name": "Eiffel Tower",
-///           "alsoMaps": { "radius": 400, "heading": 120 }
-///         }
-///       }]
-///     }
+///     // Where you are: a navigation position, saved to My Map.
+///     { "type": "Feature", "id": "…",
+///       "geometry": { "type": "Point", "coordinates": [2.2945, 48.8584, 1200] },
+///       "properties": { "name": "Over Paris", "alsoMaps": { "heading": 120 } } }
 ///
-/// A place is a Point feature. Its coordinates are the view center,
-/// longitude first, with an optional height in meters above the WGS84
-/// ellipsoid. `alsoMaps.radius` is the view half-width in meters and
-/// `alsoMaps.heading` the direction the view faces, degrees clockwise from
-/// north; both are optional.
+///     // What you're looking at: a center and how much to show around it.
+///     { "type": "Feature",
+///       "geometry": { "type": "Point", "coordinates": [2.2945, 48.8584] },
+///       "properties": { "name": "Eiffel Tower", "alsoMaps": { "radius": 400, "heading": 120 } } }
+///
+/// Coordinates are longitude first. A navigation position has an
+/// `alsoMaps` object without `radius`, and its third coordinate is its
+/// height in meters above the WGS84 ellipsoid; `alsoMaps.pitch` (degrees)
+/// is there when it was saved on a flat screen. Anything else is what
+/// you're looking at: `alsoMaps.radius` is the view half-width in meters
+/// (a default without it), and a third coordinate is ignored, since other
+/// tools use it for the ground's elevation. `alsoMaps.heading` is degrees
+/// clockwise from north.
 ///
 /// Reading is tolerant, since files come from anywhere: other geometry,
 /// unusable points and unknown members are skipped, not errors.
@@ -53,9 +53,7 @@ enum PlaceGeoJSON {
             var id = featureID(feature["id"]) ?? "#\(index)"
             if seen.contains(id) { id = "#\(index)" }
             seen.insert(id)
-            place = Place(id: idPrefix + id, name: place.name, latitude: place.latitude,
-                          longitude: place.longitude, radius: place.radius, heading: place.heading,
-                          altitude: place.altitude)
+            place = Place(copying: place, id: idPrefix + id)
             places.append(place)
         }
         return places
@@ -66,16 +64,18 @@ enum PlaceGeoJSON {
     static func data(for places: [Place]) throws -> Data {
         let features: [[String: Any]] = places.map { place in
             var coordinates: [NSDecimalNumber] = [rounded(place.longitude, 7), rounded(place.latitude, 7)]
-            if let altitude = place.altitude { coordinates.append(rounded(altitude, 2)) }
+            var ours: [String: Any] = ["heading": rounded(normalizedHeading(roundedHeading(place.heading)), 2)]
+            if let position = place.position {
+                coordinates.append(rounded(position.height, 2))
+                if let pitch = position.pitch { ours["pitch"] = rounded(pitch, 2) }
+            } else {
+                ours["radius"] = rounded(place.radius, 1)
+            }
             return [
                 "type": "Feature",
                 "id": place.id,
                 "geometry": ["type": "Point", "coordinates": coordinates],
-                "properties": [
-                    "name": place.name,
-                    "alsoMaps": ["radius": rounded(place.radius, 1),
-                                 "heading": rounded(normalizedHeading(roundedHeading(place.heading)), 2)],
-                ] as [String: Any],
+                "properties": ["name": place.name, "alsoMaps": ours] as [String: Any],
             ]
         }
         let collection: [String: Any] = ["type": "FeatureCollection", "features": features]
@@ -104,17 +104,23 @@ enum PlaceGeoJSON {
               let longitude = number(coordinates[0]), (-180...180).contains(longitude),
               let latitude = number(coordinates[1]), (-90...90).contains(latitude)
         else { return nil }
-        let altitude = coordinates.count > 2 ? number(coordinates[2]) : nil
-
         let properties = feature["properties"] as? [String: Any] ?? [:]
-        let ours = properties["alsoMaps"] as? [String: Any] ?? [:]
-        let radius = ours["radius"].flatMap(number).flatMap { $0 > 0 && $0 <= PlaceLink.maximumRadius ? $0 : nil }
-            ?? defaultRadius
-        let heading = ours["heading"].flatMap(number).map(normalizedHeading) ?? 0
+        let ours = properties["alsoMaps"] as? [String: Any]
+        let heading = ours?["heading"].flatMap(number).map(normalizedHeading) ?? 0
         let name = (properties["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             ?? PlaceLink.coordinateName(latitude, longitude)
-        return Place(id: "", name: name, latitude: latitude, longitude: longitude,
-                     radius: radius, heading: heading, altitude: altitude)
+        var place = Place(id: "", name: name, latitude: latitude, longitude: longitude,
+                          radius: defaultRadius, heading: heading)
+
+        if let ours, ours["radius"] == nil, coordinates.count > 2, let height = number(coordinates[2]) {
+            // A navigation position. Without its height, it's taken as a
+            // center to look at instead.
+            let pitch = ours["pitch"].flatMap(number).flatMap { (-90...90).contains($0) ? $0 : nil }
+            place.position = Place.Position(height: height, pitch: pitch)
+        } else if let radius = ours?["radius"].flatMap(number), radius > 0, radius <= PlaceLink.maximumRadius {
+            place.radius = radius
+        }
+        return place
     }
 
     /// GeoJSON allows a string or a number.

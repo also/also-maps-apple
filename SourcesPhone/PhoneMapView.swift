@@ -77,8 +77,8 @@ struct PhoneMapView: View {
                         showsSettings = true
                     }
                     Button("Save to My Map", systemImage: "star") {
-                        savingPlace = map.currentPlace(id: UUID().uuidString, name: "")
-                            .map { PlaceToSave(place: $0, camera: map.navigation.camera) }
+                        savingPlace = PlaceToSave(place: map.currentPlace(id: UUID().uuidString, name: ""),
+                                                  viewCenter: map.viewCenter)
                     }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true

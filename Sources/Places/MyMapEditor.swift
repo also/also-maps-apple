@@ -93,7 +93,7 @@ struct MyMapEditor: View {
         } else {
             Button("Save to My Map", systemImage: "plus") {
                 savingPlace = PlaceToSave(place: model.currentPlace(id: UUID().uuidString, name: ""),
-                                          camera: model.navigation.camera)
+                                          viewCenter: model.viewCenter)
             }
             .help("Save this view to My Map")
             Menu("More", systemImage: "ellipsis") {

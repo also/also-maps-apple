@@ -65,8 +65,8 @@ final class ScreenMap {
     @ObservationIgnored private let startGround: (center: GeoCoordinate, radius: Double, lifts: Bool)
 
     convenience init(place: Place, settings: StreamingSettings) {
-        self.init(camera: ScreenView.framePlace(place, fieldOfView: Self.fieldOfView), settings: settings,
-                  startGround: (place.coordinate, place.radius, true))
+        self.init(camera: Self.camera(for: place), settings: settings,
+                  startGround: (place.coordinate, place.radius, place.position == nil))
     }
 
     init(camera: CameraPose, settings: StreamingSettings,
@@ -125,21 +125,28 @@ final class ScreenMap {
         touch = TouchState()
         tracks.stopPlayback()
         tracks.markJump()
-        let camera = ScreenView.framePlace(place, fieldOfView: Self.fieldOfView)
-        navigation = flight.activate(NavigationState(camera: camera))
+        navigation = flight.activate(NavigationState(camera: Self.camera(for: place)))
         cameraGround.reset(to: 0)
-        // Framed on the ellipsoid; lift it by the ground there once known.
-        sampleGround(around: place.coordinate, radius: place.radius, liftsCamera: true)
+        // A navigation position's height is above the ellipsoid; a framed
+        // place is framed on the ellipsoid, to be lifted by the ground there.
+        sampleGround(around: place.coordinate, radius: place.radius, liftsCamera: place.position == nil)
     }
 
-    /// The current view as a place (ScreenView.shownView), or nil when the
-    /// screen's center is off the ground.
-    func currentPlace(id: String, name: String) -> Place? {
-        guard let view = ScreenView.shownView(camera: navigation.camera, groundHeight: cameraGround.value,
-                                              fieldOfView: Self.fieldOfView) else { return nil }
-        let degrees = NavigationOperations.wrapped(view.heading) * 180 / .pi
-        return Place(id: id, name: name, latitude: view.center.latitude, longitude: view.center.longitude,
-                     radius: view.radius, heading: degrees < 0 ? degrees + 360 : degrees, altitude: view.height)
+    /// The navigation position for `place`: its own, looking down at the
+    /// usual angle unless it saved a pitch, or one framing it.
+    private static func camera(for place: Place) -> CameraPose {
+        place.pose(pitch: -ScreenView.placeElevation) ?? ScreenView.framePlace(place, fieldOfView: fieldOfView)
+    }
+
+    /// The navigation position as a place to save, with its pitch.
+    func currentPlace(id: String, name: String) -> Place {
+        Place(id: id, name: name, position: navigation.camera, savesPitch: true)
+    }
+
+    /// The ground at the screen's center, or nil when it's off the ground.
+    var viewCenter: GeoCoordinate? {
+        ScreenView.shownView(camera: navigation.camera, groundHeight: cameraGround.value,
+                             fieldOfView: Self.fieldOfView)?.center
     }
 
     /// Samples the ground around `center` for the ground estimate. With

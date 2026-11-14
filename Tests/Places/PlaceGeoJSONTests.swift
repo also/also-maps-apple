@@ -14,8 +14,33 @@ struct PlaceGeoJSONTests {
               "properties": {"name": "Eiffel Tower", "alsoMaps": {"radius": 400, "heading": 120}}
             }]}
             """).first)
+        // With a radius it's a center to look at; the third coordinate is
+        // ignored.
         #expect(p == Place(id: "eiffel", name: "Eiffel Tower", latitude: 48.8584, longitude: 2.2945,
-                           radius: 400, heading: 120, altitude: 35))
+                           radius: 400, heading: 120))
+    }
+
+    @Test func readsANavigationPosition() throws {
+        let p = try #require(try places("""
+            {"type": "Feature", "id": "over",
+             "geometry": {"type": "Point", "coordinates": [2.2945, 48.8584, 1200]},
+             "properties": {"name": "Over Paris", "alsoMaps": {"heading": 120, "pitch": -20}}}
+            """).first)
+        #expect(p.position == Place.Position(height: 1200, pitch: -20))
+        #expect(p.latitude == 48.8584)
+        #expect(p.heading == 120)
+    }
+
+    /// Other tools' third coordinate is the ground's elevation, and a
+    /// navigation position needs a height.
+    @Test(arguments: [
+        #"{"type": "Feature", "geometry": {"type": "Point", "coordinates": [1, 2, 300]}, "properties": {}}"#,
+        #"{"type": "Feature", "geometry": {"type": "Point", "coordinates": [1, 2]}, "properties": {"alsoMaps": {"heading": 10}}}"#,
+    ])
+    func onlyOurPointsWithAHeightArePositions(_ json: String) throws {
+        let p = try #require(try places(json).first)
+        #expect(p.position == nil)
+        #expect(p.radius == PlaceGeoJSON.defaultRadius)
     }
 
     @Test func plainPointsGetDefaults() throws {
@@ -26,7 +51,7 @@ struct PlaceGeoJSONTests {
         #expect(p.name == "42.3555, -71.0605")
         #expect(p.radius == PlaceGeoJSON.defaultRadius)
         #expect(p.heading == 0)
-        #expect(p.altitude == nil)
+        #expect(p.position == nil)
         #expect(p.id == "#0")
     }
 
@@ -79,28 +104,31 @@ struct PlaceGeoJSONTests {
         #expect(try places(#"{"type": "FeatureCollection", "features": []}"#).isEmpty)
     }
 
-    /// Saved views carry float noise; files get readable numbers.
+    /// Saved positions carry float noise; files get readable numbers.
     @Test func writesRoundedNumbers() throws {
-        let noisy = Place(id: "a", name: "Ferry Building", latitude: 37.795690562623399, longitude: -122.3937,
-                          radius: 608.95365511624937, heading: 359.99999999999562, altitude: -37.022024914622307)
+        var noisy = Place(id: "a", name: "Ferry Building", latitude: 37.795690562623399, longitude: -122.3937,
+                          radius: 500, heading: 359.99999999999562)
+        noisy.position = Place.Position(height: 602.962846475653, pitch: -12.000000000000002)
         let text = try #require(String(data: PlaceGeoJSON.data(for: [noisy]), encoding: .utf8))
         #expect(text.contains("37.7956906"))
-        #expect(text.contains("609"))
+        #expect(text.contains("602.96"))
         #expect(!text.contains("359.99"))
-        #expect(text.contains("-37.02\n") || text.contains("-37.02 "))
         #expect(!text.contains("00000"))
+        #expect(!text.contains("radius"))
         let read = try #require(try PlaceGeoJSON.places(from: Data(text.utf8)).first)
         #expect(read.latitude == 37.7956906)
-        #expect(read.radius == 609)
         #expect(read.heading == 0)
-        #expect(read.altitude == -37.02)
+        #expect(read.position == Place.Position(height: 602.96, pitch: -12))
     }
 
     @Test func roundTrips() throws {
+        var position = Place(id: "c", name: "Over Paris", latitude: 48.8584, longitude: 2.2945, radius: 500,
+                             heading: 120)
+        position.position = Place.Position(height: 1200.5)
         let saved = [
-            Place(id: "a", name: "Eiffel Tower", latitude: 48.8584, longitude: 2.2945, radius: 400,
-                  heading: 120, altitude: 35.5),
+            Place(id: "a", name: "Eiffel Tower", latitude: 48.8584, longitude: 2.2945, radius: 400, heading: 120),
             Place(id: "b", name: "Somewhere / else", latitude: -33.8568, longitude: 151.2153, radius: 900),
+            position,
         ]
         #expect(try PlaceGeoJSON.places(from: PlaceGeoJSON.data(for: saved)) == saved)
     }
@@ -204,5 +232,26 @@ struct PlaceStoreMoveTests {
         store.move(fromOffsets: source, toOffset: destination)
         #expect(store.myMap.map(\.id) == expected)
         #expect(PlaceStore(directory: directory).myMap.map(\.id) == expected)
+    }
+}
+
+struct PlacePositionTests {
+    /// Saving a navigation position and going back gives the same one.
+    @Test(arguments: [true, false])
+    func roundTrips(savesPitch: Bool) throws {
+        let pose = CameraPose(latitude: 64.1, longitude: -120.5, height: 563_000,
+                              heading: -0.4, pitch: -0.3)
+        let place = Place(id: "p", name: "Here", position: pose, savesPitch: savesPitch)
+        let read = try #require(try PlaceGeoJSON.places(from: PlaceGeoJSON.data(for: [place])).first)
+        let back = try #require(read.pose(pitch: -1))
+        #expect(abs(back.latitude - pose.latitude) < 1e-7)
+        #expect(abs(back.longitude - pose.longitude) < 1e-7)
+        #expect(abs(back.height - pose.height) < 0.01)
+        #expect(abs(NavigationOperations.wrapped(back.heading - pose.heading)) < 1e-3)
+        #expect(abs(back.pitch - (savesPitch ? pose.pitch : -1)) < 1e-3)
+    }
+
+    @Test func aPlaceToLookAtHasNoPose() {
+        #expect(Place(id: "a", name: "A", latitude: 1, longitude: 2, radius: 300).pose(pitch: 0) == nil)
     }
 }

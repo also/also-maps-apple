@@ -80,7 +80,7 @@ struct VolumeView: View {
                 }
                 Button("Save to My Map", systemImage: "star") {
                     savingPlace = PlaceToSave(place: model.currentPlace(id: UUID().uuidString, name: ""),
-                                          camera: model.navigation.camera)
+                                          viewCenter: model.viewCenter)
                 }
                 .labelStyle(.iconOnly)
                 .help("Save this view to My Map")

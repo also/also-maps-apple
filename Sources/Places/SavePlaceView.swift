@@ -1,11 +1,11 @@
 #if !os(tvOS)
 import SwiftUI
 
-/// A view to save to My Map: the place, and the camera it was seen from,
-/// which the name suggestions describe.
+/// A navigation position to save to My Map, and the center of what was
+/// shown from it, which the name suggestions also describe.
 struct PlaceToSave: Identifiable {
     var place: Place
-    var camera: CameraPose
+    var viewCenter: GeoCoordinate?
     var id: Place.ID { place.id }
 }
 
@@ -53,7 +53,7 @@ struct SavePlaceView: View {
         .padding()
         .frame(width: 340)
         .task {
-            suggestions = await PlaceNamer.suggestions(for: saving.place, camera: saving.camera)
+            suggestions = await PlaceNamer.suggestions(for: saving.place, viewCenter: saving.viewCenter)
             // Unless the user has started typing.
             if name.isEmpty, let first = suggestions.first { name = first }
             nameFocused = true

@@ -76,8 +76,8 @@ struct MacMapView: View {
                     .help("Show how the camera is placed in each host (⌥⌘D)")
                     .keyboardShortcut("d", modifiers: [.command, .option])
                     Button("Save to My Map", systemImage: "star") {
-                        savingPlace = map.currentPlace(id: UUID().uuidString, name: "")
-                            .map { PlaceToSave(place: $0, camera: map.navigation.camera) }
+                        savingPlace = PlaceToSave(place: map.currentPlace(id: UUID().uuidString, name: ""),
+                                                  viewCenter: map.viewCenter)
                     }
                     // ⌘D, like adding a bookmark in Safari; ⌘S saves files.
                     .help("Save this view to My Map (⌘D)")
