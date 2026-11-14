@@ -146,6 +146,13 @@ struct PlaceStoreTests {
         #expect(relaunched.imported?.places.first?.id.hasPrefix(PlaceStore.importedIDPrefix) == true)
     }
 
+    @Test func anImportedMyMapIsMarked() throws {
+        let store = PlaceStore(directory: directory)
+        try store.importFile(file("My Map.alsomaps", point))
+        #expect(store.imported?.name == "My Map (Imported)")
+        #expect(PlaceStore(directory: directory).imported?.name == "My Map (Imported)")
+    }
+
     @Test func importingAnotherReplacesIt() throws {
         let store = PlaceStore(directory: directory)
         try store.importFile(file("First.geojson", point))

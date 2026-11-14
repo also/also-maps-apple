@@ -66,7 +66,7 @@ final class PlaceStore {
             .first(where: { !$0.lastPathComponent.hasPrefix(".") }),
            let data = try? Data(contentsOf: file),
            let places = try? PlaceGeoJSON.places(from: data, idPrefix: Self.importedIDPrefix) {
-            imported = ImportedSet(name: file.deletingPathExtension().lastPathComponent, places: places)
+            imported = ImportedSet(name: Self.importedName(file), places: places)
         }
     }
 
@@ -124,7 +124,7 @@ final class PlaceStore {
         }
         guard !places.isEmpty else { throw .noPlaces }
 
-        let set = ImportedSet(name: url.deletingPathExtension().lastPathComponent, places: places)
+        let set = ImportedSet(name: Self.importedName(url), places: places)
         do {
             try? FileManager.default.removeItem(at: importedDirectory)
             try FileManager.default.createDirectory(at: importedDirectory, withIntermediateDirectories: true)
@@ -135,6 +135,13 @@ final class PlaceStore {
         }
         imported = set
         return set
+    }
+
+    /// The file's name without its extension, marked when it would read
+    /// as the user's own My Map (an exported My Map opened again).
+    static func importedName(_ file: URL) -> String {
+        let name = file.deletingPathExtension().lastPathComponent
+        return name.localizedCaseInsensitiveCompare("My Map") == .orderedSame ? "\(name) (Imported)" : name
     }
 
     func removeImported() {
