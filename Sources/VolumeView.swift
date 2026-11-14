@@ -13,6 +13,7 @@ struct VolumeView: View {
     @Environment(\.openWindow) private var openWindow
     @AppStorage(ViewPreferences.showsDebugControlsKey) private var showsDebugControls = false
     @State private var showsDebugPanel = false
+    @State private var showsPlaces = false
 
     var body: some View {
         RealityView { content in
@@ -74,13 +75,17 @@ struct VolumeView: View {
                     .labelStyle(.iconOnly)
                     .help("Share \(track.deletingPathExtension().lastPathComponent)")
                 }
-                Menu("Places", systemImage: "mappin.and.ellipse") {
-                    ForEach(PlaceLibrary.all) { place in
-                        Button(place.name) { model.go(to: place) }
-                    }
+                Button("Places", systemImage: "mappin.and.ellipse") {
+                    showsPlaces = true
                 }
                 .labelStyle(.iconOnly)
                 .help("Go to a place")
+                .popover(isPresented: $showsPlaces) {
+                    PlacesPanel(near: { [model] in model.navigation.camera.coordinate }) { place in
+                        model.go(to: place)
+                        showsPlaces = false
+                    }
+                }
                 Button("Settings", systemImage: "gearshape") {
                     openWindow(id: SettingsView.windowID)
                 }

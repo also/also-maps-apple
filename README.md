@@ -95,6 +95,8 @@ The pin button next to the mode picker jumps to a saved place: its position, zoo
 
 The remote config can replace these defaults; see [docs/remote-config.md](docs/remote-config.md).
 
+The same button searches Google for a place, on every platform but tvOS. `Sources/Places/PlacesClient.swift` uses Places API (New) over REST with the Google Maps key: Autocomplete as you type, biased to 50 km around the camera, then Place Details for the place you pick, in one session token, so the Autocomplete requests are free. Details asks only for `location` and `viewport` (Essentials, 10,000 free a month). The name comes from the suggestion, because `displayName` would make the request Pro. The view is framed on the viewport, between 250 m and 2,000 km across half its larger side. The key needs Places API (New) enabled and allowed in its API restrictions. Saving a key doesn't check that; a search with a key that can't use it says so. The results show the Google Maps attribution, since they're off the map.
+
 ### Place links
 
 A link opens the app at a place, for "Open in Also Maps" buttons on the web (visionOS, iOS and macOS; not tvOS). It goes to the place in the open map or volume rather than a new window. Two forms share one fragment:

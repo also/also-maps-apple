@@ -258,6 +258,7 @@ targets:
       - path: Tests/Metal
       - path: Sources/Places/Place.swift
       - path: Sources/Places/PlaceLink.swift
+      - path: Sources/Places/PlacesClient.swift
       - path: Tests/Places
       - path: Sources/Config/AppConfig.swift
       - path: Sources/Config/AppConfigStore.swift
