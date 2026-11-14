@@ -80,6 +80,7 @@ enum PlaceSuggestions {
         "northern", "southern", "eastern", "western", "central", "upper", "lower", "greater",
         "view", "views", "skyline", "approach", "flight", "high", "low", "overhead", "aerial", "coast", "coastline", "shore",
         "downtown", "city", "harbor", "bay", "sky", "morning", "evening", "night", "sunset", "sunrise", "ft", "mi",
+        "state", "province", "county", "prefecture", "region", "district",
     ]
 
     // MARK: Pieces
@@ -89,7 +90,7 @@ enum PlaceSuggestions {
     static func shortName(_ s: PlaceContext.Surroundings, nearbyWithin: Double) -> String? {
         if let urban = s.urbanArea { return urban.name }
         if let near = s.nearby.first, near.distance <= nearbyWithin { return near.place.name }
-        if let state = s.state { return state.name }
+        if let state = s.state { return stateName(state) }
         return s.waters.first.map(waterName)
     }
 
@@ -107,9 +108,44 @@ enum PlaceSuggestions {
     /// A state's name, with its country outside the United States: "Nevada",
     /// "Entre Ríos, Argentina".
     static func stateName(_ state: PlaceContext.Region) -> String {
-        guard let country = state.country, state.countryCode != "US" else { return state.name }
-        return "\(state.name), \(country)"
+        let name = qualifiedStateName(state)
+        guard let country = state.country, state.countryCode != "US" else { return name }
+        return "\(name), \(country)"
     }
+
+    /// A state's name, qualified when a city in the same country has the same
+    /// name: "New York State", "Osaka Prefecture", "Málaga region".
+    /// Otherwise just the name.
+    ///
+    /// About a quarter of Natural Earth's states and provinces share a name
+    /// with a city, and without a qualifier "over Málaga" reads as the city.
+    /// Tradeoffs of this approach:
+    /// - Natural Earth's type is used only when it's one of
+    ///   `qualifyingTypes`, all single English words. It's unreliable
+    ///   elsewhere: Spain's provinces are all labeled "Autonomous Community"
+    ///   (the level above), Leicestershire's type is "Kingdom", and some are
+    ///   compound ("Municipality|Governarate"). Those get "region", which is
+    ///   vague but never wrong.
+    /// - A trusted type is wrong where Natural Earth mislabels a state with
+    ///   one; this hasn't been checked country by country.
+    /// - Units that are themselves cities (types containing "City") keep the
+    ///   bare name: the unit and the city are the same place.
+    /// - It's always "<name> <Type>", idiomatic for "Osaka Prefecture" and
+    ///   "New York State", passable where English says "Province of Málaga"
+    ///   or "County Durham".
+    /// - It applies whether or not the city is nearby, so a name doesn't
+    ///   change as the camera moves.
+    static func qualifiedStateName(_ state: PlaceContext.Region) -> String {
+        guard state.sharesNameWithPlace else { return state.name }
+        let kind = state.kind ?? ""
+        if kind.contains("City") { return state.name }
+        return qualifyingTypes.contains(kind) ? "\(state.name) \(kind)" : "\(state.name) region"
+    }
+
+    private static let qualifyingTypes: Set<String> = [
+        "Province", "Region", "District", "Department", "County", "Prefecture", "Governorate",
+        "State", "Canton", "Division", "Oblast", "Krai", "Emirate", "Voivodeship",
+    ]
 
     /// A water's name with "the" where English uses it: "the Gulf of Maine",
     /// "the North Atlantic Ocean", "the Bosporus", but "Chesapeake Bay" and

@@ -47,6 +47,7 @@ actor Gazetteer {
     private let url: URL?
     private var database: SQLiteDatabase?
     private var loadedPlaces: [Place]?
+    private var loadedPlaceNames: Set<String>?
     private var geometryCache: [Int: RegionGeometry] = [:]
 
     init(url: URL?) {
@@ -102,9 +103,15 @@ actor Gazetteer {
     func surroundings(of coordinate: GeoCoordinate, height: Double) throws -> PlaceContext.Surroundings {
         let zoom = Self.significanceZoom(height: height)
         let significant = try places().filter { $0.minZoom <= zoom }
+        // Urban boxes overlap (Newark's covers Midtown Manhattan), so among
+        // the boxes containing the point, the most relevant place wins, by
+        // the same measure as `nearby`.
         let urban = significant
             .filter { $0.urbanArea?.contains(coordinate) == true }
-            .min { $0.urbanArea!.area < $1.urbanArea!.area }
+            .min {
+                Self.relevance($0, distance: GeoMath.distance(from: $0.coordinate, to: coordinate))
+                    < Self.relevance($1, distance: GeoMath.distance(from: $1.coordinate, to: coordinate))
+            }
         let nearby = Self.nearby(coordinate, in: significant, within: Self.nearbyRadius(height: height), limit: 5)
             .filter { $0.place.id != urban?.id }
         let regions = try regions(containing: coordinate)
@@ -151,9 +158,11 @@ actor Gazetteer {
             let id = candidates.int(0)
             guard try geometry(id: id).contains(longitude: coordinate.longitude, latitude: coordinate.latitude) else { continue }
             let name = candidates.text(4) ?? "", displayName = candidates.text(5) ?? name
+            let countryCode = candidates.text(7)
             let region = PlaceContext.Region(
                 id: id, wikidata: candidates.text(3), name: displayName, localName: name == displayName ? nil : name,
-                kind: candidates.text(2), country: candidates.text(6), countryCode: candidates.text(7))
+                kind: candidates.text(2), country: candidates.text(6), countryCode: countryCode,
+                sharesNameWithPlace: try placeNames().contains(Self.nameKey(displayName, countryCode)))
             if candidates.text(1) == "admin1" {
                 state = state ?? region
             } else {
@@ -195,17 +204,21 @@ actor Gazetteer {
     }
 
     static func nearby(_ coordinate: GeoCoordinate, in places: [Place], within radius: Double, limit: Int) -> [PlaceContext.Nearby] {
-        // Relevance: distance weighted by scale rank, so Boston 60 km away
-        // (rank 2) beats a rank-8 town 25 km away.
         var candidates: [(place: Place, distance: Double, score: Double)] = []
         for place in places {
             let distance = GeoMath.distance(from: place.coordinate, to: coordinate)
             if distance <= radius {
-                candidates.append((place, distance, distance * Double(1 + place.scaleRank)))
+                candidates.append((place, distance, relevance(place, distance: distance)))
             }
         }
         candidates.sort { $0.score < $1.score }
         return candidates.prefix(limit).map { nearbyEntry($0.place, distance: $0.distance, to: coordinate) }
+    }
+
+    /// Lower is more relevant: distance weighted by scale rank, so Boston
+    /// 60 km away (rank 2) beats a rank-8 town 25 km away.
+    static func relevance(_ place: Place, distance: Double) -> Double {
+        distance * Double(1 + place.scaleRank)
     }
 
     private static func nearbyEntry(_ place: Place, distance: Double, to coordinate: GeoCoordinate) -> PlaceContext.Nearby {
@@ -262,6 +275,18 @@ actor Gazetteer {
         return result
     }
 
+    /// Every place's name with its country, for `sharesNameWithPlace`.
+    private func placeNames() throws -> Set<String> {
+        if let loadedPlaceNames { return loadedPlaceNames }
+        let names = Set(try places().map { Self.nameKey($0.displayName, $0.countryCode) })
+        loadedPlaceNames = names
+        return names
+    }
+
+    private static func nameKey(_ name: String, _ countryCode: String?) -> String {
+        "\(countryCode ?? "")|\(name.lowercased())"
+    }
+
     private func geometry(id: Int) throws -> RegionGeometry {
         if let cached = geometryCache[id] { return cached }
         let statement = try open().prepare("SELECT geometry FROM regions WHERE id = ?").bind(id)
@@ -289,10 +314,5 @@ struct GeoBounds: Codable, Equatable {
         return west <= east
             ? (west...east).contains(c.longitude)
             : c.longitude >= west || c.longitude <= east
-    }
-
-    /// Square degrees, for comparing boxes' sizes.
-    var area: Double {
-        (north - south) * (west <= east ? east - west : east - west + 360)
     }
 }

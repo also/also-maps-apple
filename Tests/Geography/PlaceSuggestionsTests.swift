@@ -6,8 +6,10 @@ private func feature(_ name: String, rank: Int = 5) -> PlaceContext.Feature {
                          state: nil, country: nil, countryCode: "US", population: nil, rank: rank)
 }
 
-private func region(_ name: String, kind: String?, country: String? = nil, code: String? = nil) -> PlaceContext.Region {
-    PlaceContext.Region(id: name.hashValue, wikidata: nil, name: name, localName: nil, kind: kind, country: country, countryCode: code)
+private func region(_ name: String, kind: String?, country: String? = nil, code: String? = nil,
+                    sharesName: Bool = false) -> PlaceContext.Region {
+    PlaceContext.Region(id: name.hashValue, wikidata: nil, name: name, localName: nil, kind: kind, country: country,
+                        countryCode: code, sharesNameWithPlace: sharesName)
 }
 
 private func surroundings(urban: String? = nil, nearby: [PlaceContext.Nearby] = [], state: PlaceContext.Region? = nil,
@@ -47,6 +49,30 @@ struct PlaceSuggestionsTests {
     @Test func statesOutsideTheUSIncludeTheirCountry() {
         #expect(PlaceSuggestions.stateName(region("Nevada", kind: "State", country: "United States of America", code: "US")) == "Nevada")
         #expect(PlaceSuggestions.stateName(region("Entre Ríos", kind: "Province", country: "Argentina", code: "AR")) == "Entre Ríos, Argentina")
+    }
+
+    /// Over Ronda at 30,000 ft: the nearest place that counts is too far to
+    /// name the point, so it's named by its province, with the country.
+    @Test func shortNamesKeepTheCountry() {
+        let marbella = PlaceContext.Nearby(place: feature("Marbella"), distance: 34_000, bearingFromPlace: 315)
+        let malaga = region("Málaga", kind: "Autonomous Community", country: "Spain", code: "ES", sharesName: true)
+        let names = PlaceSuggestions.names(for: context(below: surroundings(nearby: [marbella], state: malaga)))
+        #expect(names.contains("Málaga region, Spain"))
+        #expect(!names.contains("Málaga"))
+    }
+
+    @Test func statesNamedLikeACityAreQualified() {
+        // Trusted types.
+        #expect(PlaceSuggestions.stateName(region("New York", kind: "State", country: "United States of America", code: "US", sharesName: true)) == "New York State")
+        #expect(PlaceSuggestions.stateName(region("Ankara", kind: "Province", country: "Turkey", code: "TR", sharesName: true)) == "Ankara Province, Turkey")
+        #expect(PlaceSuggestions.stateName(region("Osaka", kind: "Prefecture", country: "Japan", code: "JP", sharesName: true)) == "Osaka Prefecture, Japan")
+        // Untrusted types: Spain's provinces are labeled "Autonomous Community".
+        #expect(PlaceSuggestions.stateName(region("Málaga", kind: "Autonomous Community", country: "Spain", code: "ES", sharesName: true)) == "Málaga region, Spain")
+        #expect(PlaceSuggestions.stateName(region("Leicestershire", kind: "Kingdom", country: "United Kingdom", code: "GB", sharesName: true)) == "Leicestershire region, United Kingdom")
+        // A unit that is itself the city.
+        #expect(PlaceSuggestions.stateName(region("Pasay", kind: "Highly Urbanized City", country: "Philippines", code: "PH", sharesName: true)) == "Pasay, Philippines")
+        // Not named like a city.
+        #expect(PlaceSuggestions.stateName(region("Nevada", kind: "State", country: "United States of America", code: "US")) == "Nevada")
     }
 
     @Test(arguments: [
