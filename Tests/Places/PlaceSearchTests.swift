@@ -71,4 +71,27 @@ struct PlaceSearchTests {
         #expect(went == ["paris"])
         #expect(places.paths.filter { $0.hasPrefix("/v1/places/") } == ["/v1/places/paris"])
     }
+
+    @Test func switchingToAnotherSourceDropsTheSearch() async throws {
+        let places = SlowPlaces()
+        let search = PlaceSearch(client: { places.client })
+        var went: [String] = []
+        search.query = "boston"
+        await search.suggest(near: nil)
+        search.choose(PlaceSuggestion(id: "slow", name: "Slow", detail: nil)) { went.append($0.name) }
+
+        search.searchesGoogle = false
+        #expect(search.query.isEmpty)
+        #expect(search.suggestions.isEmpty)
+        #expect(!search.isSearching)
+
+        // Nothing goes to Google while it's off, even if a query comes in.
+        search.query = "paris"
+        await search.suggest(near: nil)
+        search.choose(PlaceSuggestion(id: "fast", name: "Fast", detail: nil)) { went.append($0.name) }
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(went.isEmpty)
+        #expect(search.suggestions.isEmpty)
+        #expect(places.paths == ["/v1/places:autocomplete", "/v1/places/slow"])
+    }
 }

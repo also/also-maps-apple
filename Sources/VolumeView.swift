@@ -81,7 +81,8 @@ struct VolumeView: View {
                 .labelStyle(.iconOnly)
                 .help("Go to a place")
                 .popover(isPresented: $showsPlaces) {
-                    PlacesPanel(near: { [model] in model.navigation.camera.coordinate }) { place in
+                    PlacesPanel(searchesGoogle: model.settings.tileSource.showsGoogleTiles,
+                                near: { [model] in model.navigation.camera.coordinate }) { place in
                         model.go(to: place)
                         showsPlaces = false
                     }

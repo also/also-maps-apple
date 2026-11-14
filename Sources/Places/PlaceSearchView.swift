@@ -116,22 +116,27 @@ private struct MenuRowStyle: ButtonStyle {
 #endif
 
 /// Places search with its own field, for a popover from the Places button.
+/// The field is there only while the map shows Google's tiles.
 struct PlacesPanel: View {
     @State private var search = PlaceSearch()
+    var searchesGoogle: Bool
     var near: () -> GeoCoordinate?
     var selectedID: String? = nil
     var go: (Place) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            TextField("Search Places", text: $search.query)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-                .onSubmit { search.chooseFirst(then: go) }
-                .padding()
+            if searchesGoogle {
+                TextField("Search Places", text: $search.query)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .onSubmit { search.chooseFirst(then: go) }
+                    .padding()
+            }
             PlacesList(search: search, near: near, selectedID: selectedID, go: go)
         }
         .frame(width: 360, height: 440)
+        .onChange(of: searchesGoogle, initial: true) { search.searchesGoogle = $1 }
         .onDisappear { search.cancelChoice() }
     }
 }

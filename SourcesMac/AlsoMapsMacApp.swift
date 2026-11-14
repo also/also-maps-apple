@@ -75,7 +75,8 @@ struct MacMapView: View {
                     .help("Go to a place (⌘F)")
                     .keyboardShortcut("f")
                     .popover(isPresented: $showsPlaces, arrowEdge: .bottom) {
-                        PlacesPanel(near: { [map] in map.navigation.camera.coordinate }) { place in
+                        PlacesPanel(searchesGoogle: settings.tileSource.showsGoogleTiles,
+                                    near: { [map] in map.navigation.camera.coordinate }) { place in
                             map.go(to: place)
                             showsPlaces = false
                         }

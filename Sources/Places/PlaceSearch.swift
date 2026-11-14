@@ -20,10 +20,24 @@ final class PlaceSearch {
     /// after the user has gone somewhere else.
     @ObservationIgnored private var lookup: Task<Void, Never>?
 
+    /// Whether Google search is allowed: only while the map shows Google's
+    /// tiles. Turning it off drops the query, its suggestions and any
+    /// lookup in progress.
+    var searchesGoogle = true {
+        didSet {
+            guard !searchesGoogle, oldValue else { return }
+            cancelChoice()
+            query = ""
+            suggestions = []
+            suggestionsQuery = nil
+            problem = nil
+        }
+    }
+
     /// Pause after a keystroke before asking for suggestions.
     private static let typingPause = Duration.milliseconds(250)
 
-    var isSearching: Bool { !trimmedQuery.isEmpty }
+    var isSearching: Bool { searchesGoogle && !trimmedQuery.isEmpty }
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     /// The client for the key in use now, or nil without one.
@@ -40,14 +54,14 @@ final class PlaceSearch {
     /// one cancels it.
     func suggest(near: GeoCoordinate?) async {
         let input = trimmedQuery
-        guard !input.isEmpty else {
+        guard searchesGoogle, !input.isEmpty else {
             suggestions = []
             suggestionsQuery = nil
             problem = nil
             return
         }
         try? await Task.sleep(for: Self.typingPause)
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, searchesGoogle else { return }
         guard let client else {
             suggestions = []
             problem = "Searching needs a Google Maps key. Add one in Keys."
@@ -55,12 +69,12 @@ final class PlaceSearch {
         }
         do {
             let found = try await client.autocomplete(input, near: near, session: session)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, searchesGoogle else { return }
             suggestions = found
             suggestionsQuery = input
             problem = found.isEmpty ? "No places found." : nil
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, searchesGoogle else { return }
             suggestions = []
             suggestionsQuery = nil
             problem = error.localizedDescription
@@ -71,7 +85,7 @@ final class PlaceSearch {
     /// something else is chosen first. Ends the session.
     func choose(_ suggestion: PlaceSuggestion, then go: @escaping (Place) -> Void) {
         cancelChoice()
-        guard let client else { return }
+        guard searchesGoogle, let client else { return }
         let session = session
         self.session = UUID().uuidString
         choosing = suggestion.id

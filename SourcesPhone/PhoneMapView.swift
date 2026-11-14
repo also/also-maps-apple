@@ -94,9 +94,10 @@ struct PhoneMapView: View {
                         map.go(to: place)
                         showsPlaces = false
                     }
-                    .searchable(text: $search.query, placement: .navigationBarDrawer(displayMode: .always),
-                                prompt: "Search Places")
-                    .autocorrectionDisabled()
+                    .placeSearchable($search.query, if: map.settings.tileSource.showsGoogleTiles)
+                    .onChange(of: map.settings.tileSource.showsGoogleTiles, initial: true) {
+                        search.searchesGoogle = $1
+                    }
                     .navigationTitle("Places")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -150,6 +151,19 @@ struct PhoneMapView: View {
                 .background(.black.opacity(0.5), in: .capsule)
                 .foregroundStyle(.white)
                 .padding(.top, 4)
+        }
+    }
+}
+
+private extension View {
+    /// The search field, only while the map shows Google's tiles; Google's
+    /// terms don't allow its places over another provider's map.
+    @ViewBuilder func placeSearchable(_ query: Binding<String>, if enabled: Bool) -> some View {
+        if enabled {
+            searchable(text: query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search Places")
+                .autocorrectionDisabled()
+        } else {
+            self
         }
     }
 }
