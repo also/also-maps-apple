@@ -35,7 +35,7 @@ struct ControlSettingsRows: View {
         slider("Turn speed", \.turnRate, \.turnRate, in: 15...120, step: 5, scale: 180 / .pi,
                format: { "\(Int($0.rounded()))°/s" },
                hint: "Turning with Q E, the right stick or the turn stick.")
-        slider("Move speed", \.moveRate, \.moveRate, in: 0.2...1.5, step: 0.05,
+        slider("Move speed", \.moveRate, \.moveRate, in: 0.2...3, step: 0.05,
                format: { "\(Int(($0 * 100).rounded()))% of height/s" },
                hint: "Moving with WASD, the arrows or the left stick, as a share of your height above the ground each second.")
         slider("Climb speed", \.climbRate, \.climbRate, in: 0.25...2, step: 0.05, format: perSecond,
