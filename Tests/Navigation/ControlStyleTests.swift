@@ -170,3 +170,109 @@ struct ControlStyleTests {
         #expect(abs(simd_distance(state.camera.position, orbit.pivot) - before * exp(-0.5)) < 1e-3)
     }
 }
+
+struct ControlValuesTests {
+    @Test func defaultsMatchTheShippedStickResponse() {
+        let controls = ControlValues()
+        #expect(controls.stick(SIMD2(0.1, 0)) == .zero)
+        #expect(abs(controls.stick(SIMD2(1, 0)).x - 1) < 1e-12)
+        let half = controls.stick(SIMD2(0, 0.575))
+        #expect(abs(half.y - 0.25) < 1e-12)
+    }
+
+    @Test func responseCurveAndDeadZoneShapeTheStick() {
+        var controls = ControlValues()
+        controls.deadZone = 0
+        controls.responseCurve = 1
+        #expect(abs(controls.stick(SIMD2(0.3, 0.4)).x - 0.3) < 1e-12)
+        controls.responseCurve = 3
+        #expect(abs(simd_length(controls.stick(SIMD2(0, 0.5))) - 0.125) < 1e-12)
+        // Past full deflection is clamped.
+        #expect(abs(simd_length(controls.stick(SIMD2(1, 1))) - 1) < 1e-12)
+    }
+
+    @Test func axisLockKeepsTheLargerAxisNearIt() {
+        var controls = ControlValues()
+        #expect(controls.lockingAxes(SIMD2(0.8, 0.2)) == SIMD2(0.8, 0.2))
+        controls.axisLock = 20
+        #expect(controls.lockingAxes(SIMD2(0.8, 0.2)) == SIMD2(0.8, 0))   // ~14°
+        #expect(controls.lockingAxes(SIMD2(-0.2, -0.8)) == SIMD2(0, -0.8))
+        #expect(controls.lockingAxes(SIMD2(0.6, 0.5)) == SIMD2(0.6, 0.5))  // ~40°
+        controls.axisLock = 45
+        #expect(controls.lockingAxes(SIMD2(0.6, 0.5)) == SIMD2(0.6, 0))
+    }
+
+    @Test func rampIsInstantByDefault() {
+        let controls = ControlValues()
+        #expect(controls.ramp(0, toward: 1, deltaTime: 0.01) == 1)
+        #expect(controls.ramp(1, toward: -1, deltaTime: 0.01) == -1)
+    }
+
+    @Test func rampAcceleratesAndDecelerates() {
+        var controls = ControlValues()
+        controls.acceleration = 0.5
+        controls.deceleration = 0.25
+        #expect(abs(controls.ramp(0, toward: 1, deltaTime: 0.1) - 0.2) < 1e-12)
+        #expect(controls.ramp(0.9, toward: 1, deltaTime: 0.1) == 1)
+        #expect(abs(controls.ramp(1, toward: 0, deltaTime: 0.1) - 0.6) < 1e-12)
+        #expect(abs(controls.ramp(-0.5, toward: 0, deltaTime: 0.1) + 0.1) < 1e-12)
+        // A reversal slows to rest (0.05 s), then speeds up for the rest (0.05 s).
+        #expect(abs(controls.ramp(0.2, toward: -1, deltaTime: 0.1) + 0.1) < 1e-12)
+    }
+
+    @Test func rampingAnInputKeepsBoost() {
+        var controls = ControlValues()
+        controls.acceleration = 1
+        let ramped = controls.ramp(ControlInput(), toward: ControlInput(move: SIMD2(0, 1), turn: -1, fast: true),
+                                   deltaTime: 0.25)
+        #expect(ramped.move == SIMD2(0, 0.25))
+        #expect(ramped.turn == -0.25)
+        #expect(ramped.fast)
+        #expect(ramped.isMoving)
+    }
+
+    @Test func ratesComeFromTheControlValues() {
+        var flight = ModelFlightStyle()
+        let state = flight.activate(NavigationState(camera: start))
+        flight.controls.turnRate = .pi / 6
+        let turned = flight.step(state, input: ControlInput(turn: 1), deltaTime: 0.5, context: context)
+        #expect(angleDifference(turned.camera.heading, start.heading + .pi / 12) < 1e-9)
+
+        flight.controls.climbRate = 2
+        flight.controls.boost = 1.5
+        let climbed = flight.step(state, input: ControlInput(climb: 1, fast: true), deltaTime: 0.5, context: context)
+        #expect(abs(climbed.camera.height - 900 * exp(1.5)) < 1e-6)
+    }
+}
+
+/// Saved control settings: only what was set, the rest following the
+/// defaults.
+struct ControlSettingsTests {
+    @Test func unsetValuesFollowTheDefaults() {
+        var settings = ControlSettings()
+        #expect(settings.isDefault)
+        #expect(settings.values == .default)
+        settings.turnRate = 1
+        #expect(!settings.isDefault)
+        #expect(settings.values.turnRate == 1)
+        #expect(settings.values.boost == ControlValues.default.boost)
+    }
+
+    @Test func onlySetValuesAreSaved() throws {
+        var settings = ControlSettings()
+        settings.boost = 2
+        let json = try #require(String(data: JSONEncoder().encode(settings), encoding: .utf8))
+        #expect(json == #"{"boost":2}"#)
+    }
+
+    @Test func savedSettingsWithoutControlsKeepTheDefaults() throws {
+        let old = try JSONDecoder().decode(StreamingSettings.self, from: Data(#"{"detail": 8}"#.utf8))
+        #expect(old.detail == 8)
+        #expect(old.controls.isDefault)
+        let partial = try JSONDecoder().decode(StreamingSettings.self,
+                                               from: Data(#"{"controls": {"turnRate": 0.5}}"#.utf8))
+        #expect(partial.controls.turnRate == 0.5)
+        #expect(partial.controls.boost == nil)
+        #expect(partial.controls.values.boost == ControlValues.default.boost)
+    }
+}

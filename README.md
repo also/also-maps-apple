@@ -68,8 +68,8 @@ Immersive doesn't clip the map's edges the way the volume does, so whole tiles s
 - **Pan:** look at the map, pinch and drag. The point you looked at moves as far as your hand does. Zoomed out to a globe, dragging rolls it: keep moving and it keeps turning, past the edge and around the back. Gestures are indirect only (look and pinch), so open hands over the map do nothing.
 - **Zoom:** pinch with both hands and move them apart or together. The view's half-width ranges from 50 m to 10,000 km, about a hemisphere. Below 50 km the ground is placed by sampling terrain. Above 50 km it's placed by the Earth's curve, so sea level at the view's edges meets the base plane, with no sampling. At hemisphere scale, tiles on the far side of the Earth are skipped.
 - **Turn:** pinch with both hands and twist about the ground's up where you pinched: the vertical while the map is level, toward you when it tilts to face you. The map turns around that point and can turn while zooming.
-- **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F descend and climb (which is zoom), `=` and `-` zoom, and holding Shift goes three times faster. The ornament shows these hints while a keyboard is connected.
-- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. Y faces north. The ornament shows these hints while a controller is connected. Keyboard and controller input combine.
+- **Hardware keyboard:** WASD or the arrow keys move relative to where you're facing, Q and E turn, R and F descend and climb (which is zoom), `=` and `-` zoom, and holding Shift goes faster (three times by default). The ornament shows these hints while a keyboard is connected.
+- **Game controller** (Xbox-style): the left stick moves. The right stick turns (left/right) and changes altitude (up climbs, which zooms out; down descends). Both sticks are analog with a dead zone and a response curve. RT and LT also zoom in and out. Hold LB, or click the left stick, to go faster. Y faces north. The ornament shows these hints while a controller is connected. Keyboard and controller input combine. Speeds and stick response are adjustable in Settings → Controls.
 
 On a Mac, the map also takes the usual mouse and trackpad controls:
 
@@ -141,6 +141,15 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 - **Draw with Metal** draws the map with the app's own experimental Metal renderer instead of RealityKit. On visionOS it applies to Immersive, always in full immersion, from the next time it opens; pinching the map isn't available there. Tracks and tile bounds aren't drawn with it. See [notes/metal-renderer.md](notes/metal-renderer.md).
 - **Terms** links the app's [Terms of Use](https://maps.also.dev/terms/), the Google Maps/Google Earth Additional Terms of Service and the Google Privacy Policy. See [Google Maps Platform terms](#google-maps-platform-terms).
 
+**Controls**: speeds and stick response for the keyboard, game controller and on-screen sticks.
+- **Turn speed** in degrees per second, **Move speed** as a share of your height above the ground per second, and **Climb** and **Zoom speed** as how much height or distance multiplies by each second.
+- **Boost** is the speed multiple while LB, the left stick button or Shift is held.
+- **Stick dead zone** and **Stick response** (the curve's exponent; 1 is linear) apply to the controller's sticks and the on-screen ones.
+- **Acceleration** and **Deceleration** are the seconds to ramp up to full speed and back down to rest. Instant (0) is the default.
+- **Turn and climb lock**: within this angle of either axis, the right stick only turns or only climbs. Off by default.
+
+Only the sliders you've moved are saved. The rest follow the defaults in `ControlValues`, so a change to a default reaches them without changing a value anyone chose. Reset Controls, or Reset to Defaults, goes back to all defaults. The same sliders are in the debug panel on visionOS, to change while flying.
+
 **Immersion** (visionOS): **Full immersion**, **Human scale (test)**, and
 - **Limit reach** (Immersive only): by default Immersive streams everything you could see, all around you out to the horizon (plus ~200 km for mountains beyond it), measured from where your eye is in the world, so a tilted globe shows its whole visible face. Turn this on to stream only **Reach** around you instead: 5× to 100× your height above the ground (the same multiple of your eye height above the floor).
 
@@ -161,6 +170,8 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 - **Tile bounds** draws each drawn tile's box, cyan inside the LOD camera's view and orange outside, with the area of interest in yellow and the LOD camera's view in pink.
 - **Copy View State** copies the whole view as JSON (position, zoom, heading, presentation, held tiles and settings) and prints it to the console.
 - **Restore from Clipboard** brings a copied state back.
+
+The debug panel also has the Controls sliders.
 
 At launch, `ALSOMAPS_STATE=<that JSON>` restores a state and `ALSOMAPS_MARKERS=1` shows the markers and `ALSOMAPS_TILE_BOUNDS=1` the tile bounds.
 

@@ -28,6 +28,10 @@ struct StreamingSettings: Codable, Equatable {
     /// Where the tiles come from.
     var tileSource = TileSource.googlePhotorealistic
 
+    /// Speeds and stick response for the keyboard, game controller and
+    /// on-screen sticks: only the ones changed from the defaults.
+    var controls = ControlSettings()
+
     static let `default` = StreamingSettings()
 
     init() {}
@@ -46,6 +50,7 @@ struct StreamingSettings: Codable, Equatable {
         cacheMegabytes = try c.decodeIfPresent(Double.self, forKey: .cacheMegabytes) ?? d.cacheMegabytes
         forbidHoles = try c.decodeIfPresent(Bool.self, forKey: .forbidHoles) ?? d.forbidHoles
         tileSource = (try? c.decodeIfPresent(TileSource.self, forKey: .tileSource)) ?? d.tileSource
+        controls = (try? c.decodeIfPresent(ControlSettings.self, forKey: .controls)) ?? d.controls
     }
 
     private static let defaultsKey = "StreamingSettings"

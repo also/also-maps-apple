@@ -28,17 +28,16 @@ struct MapInput {
     enum Action: Hashable { case faceNorth }
     var held: Set<Action> = []
 
-    var isMoving: Bool { move != .zero || turn != 0 || zoom != 0 || altitude != 0 || pitch != 0 }
-
     /// The same values as rates for the control styles.
     var controlInput: ControlInput {
         ControlInput(move: move, turn: turn, climb: altitude, dolly: zoom, pitch: pitch, fast: fast)
     }
 
-    /// Keyboard and controller together.
-    static func current() -> MapInput {
+    /// Keyboard and controller together, with the controller's sticks
+    /// shaped by `controls`.
+    static func current(controls: ControlValues) -> MapInput {
         var input = keyboard()
-        input.merge(gamepad())
+        input.merge(gamepad(controls: controls))
         return input
     }
 
@@ -99,11 +98,11 @@ struct MapInput {
 
     /// Sticks, triggers and buttons right now, or no input if there's no
     /// controller. Laid out for an Xbox-style extended gamepad.
-    static func gamepad() -> MapInput {
+    static func gamepad(controls: ControlValues) -> MapInput {
         guard let pad = controller?.extendedGamepad else { return MapInput() }
         var input = MapInput()
-        input.move = stick(pad.leftThumbstick)
-        let right = stick(pad.rightThumbstick)
+        input.move = controls.stick(stick(pad.leftThumbstick))
+        let right = controls.lockingAxes(controls.stick(stick(pad.rightThumbstick)))
         input.turn = right.x
         // Right stick up climbs, down descends, as on a drone.
         input.altitude = right.y
@@ -113,15 +112,9 @@ struct MapInput {
         return input
     }
 
-    /// Radial dead zone, then a squared response so small deflections give
-    /// fine control and a full push still reaches full speed.
+    /// The stick's raw position; `ControlValues.stick` shapes it.
     private static func stick(_ pad: GCControllerDirectionPad) -> SIMD2<Double> {
-        let raw = SIMD2(Double(pad.xAxis.value), Double(pad.yAxis.value))
-        let deadZone = 0.15
-        let magnitude = min(simd_length(raw), 1)
-        guard magnitude > deadZone else { return .zero }
-        let scaled = (magnitude - deadZone) / (1 - deadZone)
-        return raw / simd_length(raw) * scaled * scaled
+        SIMD2(Double(pad.xAxis.value), Double(pad.yAxis.value))
     }
 
     private static func trigger(_ button: GCControllerButtonInput) -> Double {

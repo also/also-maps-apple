@@ -31,6 +31,7 @@ struct SettingsView: View {
 
     enum Category: String, CaseIterable, Identifiable {
         case general
+        case controls
         #if os(visionOS)
         case immersion
         case detail
@@ -43,6 +44,7 @@ struct SettingsView: View {
         var title: String {
             switch self {
             case .general: "General"
+            case .controls: "Controls"
             #if os(visionOS)
             case .immersion: "Immersion"
             case .detail: "Detail"
@@ -55,6 +57,7 @@ struct SettingsView: View {
         var systemImage: String {
             switch self {
             case .general: "gearshape"
+            case .controls: "gamecontroller"
             #if os(visionOS)
             case .immersion: "visionpro"
             case .detail: "square.grid.3x3"
@@ -94,6 +97,7 @@ struct SettingsView: View {
     @ViewBuilder private func page(for category: Category) -> some View {
         switch category {
         case .general: general
+        case .controls: controls
         #if os(visionOS)
         case .immersion: immersion
         case .detail: detailSettings
@@ -151,6 +155,24 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("General")
+    }
+
+    private var controls: some View {
+        Form {
+            Section {
+                ControlSettingsRows(controls: $settings.controls)
+            } footer: {
+                Text("For the keyboard, a game controller and the on-screen sticks. A slider you haven't moved follows the app's default.")
+            }
+            Section {
+                Button("Reset Controls") {
+                    settings.controls = ControlSettings()
+                }
+                .disabled(settings.controls.isDefault)
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Controls")
     }
 
     #if os(visionOS)
@@ -270,12 +292,6 @@ struct SettingsView: View {
                          step: Double,
                          format: @escaping (Double) -> String,
                          hint: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(title, value: format(value.wrappedValue))
-            Slider(value: value, in: range, step: step)
-            Text(hint)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
+        SettingSlider(title: title, value: value, range: range, step: step, format: format, hint: hint)
     }
 }
