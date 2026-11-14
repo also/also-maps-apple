@@ -23,6 +23,12 @@ struct PlacesList: View {
             #endif
     }
 
+    #if os(visionOS)
+    private let myMapWindowTitle = "Open in Window"
+    #else
+    private let myMapWindowTitle = "Edit My Map…"
+    #endif
+
     private func editMyMap() {
         #if os(iOS)
         editsMyMap = true
@@ -77,7 +83,7 @@ struct PlacesList: View {
             let store = PlaceStore.shared
             if !store.myMap.isEmpty {
                 section("My Map", accessory: {
-                    Button("Edit My Map…", action: editMyMap)
+                    Button(myMapWindowTitle, action: editMyMap)
                         .buttonStyle(.borderless)
                         .font(.caption)
                 }) {
@@ -265,12 +271,15 @@ extension PlacesPanel {
                             if case let .failure(error) = result { fileProblem = error.localizedDescription }
                         }
                     #endif
+                    // On visionOS, sharing is in the My Map window.
+                    #if !os(visionOS)
                     ShareLink(item: store.myMapFile) {
                         Label("Share My Map", systemImage: "square.and.arrow.up")
                     }
                     #if os(macOS)
                     .labelStyle(.iconOnly)
                     .help("Share My Map")
+                    #endif
                     #endif
                 }
                 Spacer()

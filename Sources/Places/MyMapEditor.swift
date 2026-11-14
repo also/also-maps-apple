@@ -1,15 +1,18 @@
 #if !os(tvOS)
 import SwiftUI
 
-/// Renaming, deleting and reordering My Map's places, the way each platform
+/// My Map's places, to rename, delete and reorder the way each platform
 /// edits a list. Its own window on visionOS and the Mac, a sheet on iPhone.
 ///
+/// - visionOS: the My Map window, usable on its own (in an immersive space
+///   with the volume's controls closed, say). Tapping a place goes there;
+///   + saves the current view; the … menu has Edit and Share My Map.
 /// - Mac: a selectable list. Return or double-click renames the selected
 ///   place in its row; Delete (or Edit > Delete) and the − button delete
 ///   the selection; rows drag to reorder.
-/// - iPhone, visionOS: tapping a place renames it. Edit puts the list in
-///   edit mode, with the system's delete and reorder controls; rows also
-///   swipe to delete or rename.
+/// - iPhone: tapping a place renames it.
+/// - iPhone, visionOS: Edit puts the list in edit mode, with the system's
+///   delete and reorder controls; rows also swipe to delete or rename.
 /// - Everywhere: a place's context menu renames or deletes it.
 struct MyMapEditor: View {
     static let windowID = "my-map"
@@ -21,8 +24,14 @@ struct MyMapEditor: View {
     @State private var renaming: Place.ID?
     @State private var newName = ""
     @FocusState private var renameFocused: Bool
-    #if !os(macOS)
+    #if os(iOS)
     @Environment(\.dismiss) private var dismiss
+    #endif
+    #if os(visionOS)
+    @Environment(MapModel.self) private var model
+    @State private var editMode: EditMode = .inactive
+    /// The view being saved with +, while its name is chosen.
+    @State private var savingPlace: PlaceToSave?
     #endif
 
     var body: some View {
@@ -50,13 +59,21 @@ struct MyMapEditor: View {
                 .navigationBarTitleDisplayMode(.inline)
                 #endif
                 .toolbar {
+                    #if os(visionOS)
+                    ToolbarItemGroup(placement: .primaryAction) { windowActions }
+                    #else
                     ToolbarItem(placement: .primaryAction) { EditButton() }
-                    #if os(iOS)
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Done") { dismiss() }
                     }
                     #endif
                 }
+                #if os(visionOS)
+                .environment(\.editMode, $editMode)
+                .sheet(item: $savingPlace) { saving in
+                    SavePlaceView(saving: saving) { savingPlace = nil }
+                }
+                #endif
                 .alert("Rename Place", isPresented: Binding(get: { renaming != nil },
                                                            set: { if !$0 { renaming = nil } })) {
                     TextField("Name", text: $newName)
@@ -66,6 +83,31 @@ struct MyMapEditor: View {
         }
         #endif
     }
+
+    #if os(visionOS)
+    /// + to save the current view, and … for Edit and Share My Map; Done
+    /// while editing.
+    @ViewBuilder private var windowActions: some View {
+        if editMode.isEditing {
+            Button("Done") { editMode = .inactive }
+        } else {
+            Button("Save to My Map", systemImage: "plus") {
+                savingPlace = PlaceToSave(place: model.currentPlace(id: UUID().uuidString, name: ""),
+                                          camera: model.navigation.camera)
+            }
+            .help("Save this view to My Map")
+            Menu("More", systemImage: "ellipsis") {
+                Button("Edit", systemImage: "pencil") { editMode = .active }
+                if !store.myMap.isEmpty {
+                    ShareLink(item: store.myMapFile) {
+                        Label("Share My Map", systemImage: "square.and.arrow.up")
+                    }
+                }
+            }
+            .disabled(store.myMap.isEmpty)
+        }
+    }
+    #endif
 
     private var list: some View {
         // A selection would turn iPhone and visionOS edit mode into
@@ -125,6 +167,9 @@ struct MyMapEditor: View {
             Text(place.name)
                 .onTapGesture(count: 2) { beginRename(place) }
         }
+        #elseif os(visionOS)
+        Button(place.name) { model.go(to: place) }
+            .tint(.primary)
         #else
         Button {
             beginRename(place)

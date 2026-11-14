@@ -43,6 +43,7 @@ struct AlsoMapsApp: App {
 
         WindowGroup("My Map", id: MyMapEditor.windowID) {
             MyMapEditor()
+                .environment(model)
         }
         .defaultSize(width: 520, height: 640)
         // A utility window, like Settings: place links and files go to the
