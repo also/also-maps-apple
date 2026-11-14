@@ -45,6 +45,11 @@ struct AlsoMapsApp: App {
             MyMapEditor()
         }
         .defaultSize(width: 520, height: 640)
+        // A utility window, like Settings: place links and files go to the
+        // volume, and reopening the app brings back the volume, not this.
+        .handlesExternalEvents(matching: [])
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
         WindowGroup(id: SettingsView.windowID) {
             @Bindable var model = model
             SettingsView(settings: $model.settings)
