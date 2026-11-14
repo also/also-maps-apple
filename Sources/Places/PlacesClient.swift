@@ -10,10 +10,16 @@ struct PlaceSuggestion: Identifiable, Hashable {
 
 /// Place search with Places API (New), over REST so it works on every
 /// platform. Autocomplete runs as the user types and Place Details runs for
-/// the pick, in one session: a session that ends in Place Details makes its
-/// Autocomplete requests free. Details asks only for `location` and
+/// the pick, in one session. Details asks only for `location` and
 /// `viewport`, which are Essentials; the name comes from the suggestion,
 /// since `displayName` would make the request Pro.
+///
+/// A session that ends in Place Details Essentials is billed for that
+/// request and for its first 12 Autocomplete requests (the Autocomplete
+/// Requests SKU); any after those are free. Ending in a Pro field would
+/// make every Autocomplete request free, but bills the Details request as
+/// Enterprise + Atmosphere, which costs more than it saves. The typing
+/// pause in `PlaceSearch` keeps a session to a few requests.
 struct PlacesClient {
     enum Failure: LocalizedError, Equatable {
         /// The key was refused, or doesn't have Places API (New).
