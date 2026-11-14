@@ -27,6 +27,11 @@ struct PlaceContext: Codable, Equatable {
         var distance: Double
         /// Degrees clockwise from north, from the point below the camera.
         var bearing: Double
+        /// The place the camera looks toward, measured from the view center:
+        /// ahead of the camera and not far beyond the view center. Nil when
+        /// no significant place is, and the view center's state or water
+        /// names it instead.
+        var ahead: Nearby?
     }
 
     struct Surroundings: Codable, Equatable {

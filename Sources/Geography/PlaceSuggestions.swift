@@ -8,7 +8,7 @@ enum PlaceSuggestions {
     static func names(for context: PlaceContext) -> [String] {
         let below = context.below
         let here = shortName(below, nearbyWithin: 5_000)
-        let there = context.viewCenter.flatMap { shortName($0.surroundings, nearbyWithin: .infinity) }
+        let there = context.viewCenter.flatMap(aheadName)
         let lookingElsewhere = there != nil && there != here
 
         var names: [String] = []
@@ -16,7 +16,7 @@ enum PlaceSuggestions {
             names.append(here.map { "Over \($0), looking toward \(there)" } ?? "Looking toward \(there)")
         }
         names.append(description(of: context))
-        if lookingElsewhere, let center = context.viewCenter, let there, isPlace(center.surroundings) {
+        if lookingElsewhere, let center = context.viewCenter, let there, center.ahead != nil {
             let fromCamera = (center.bearing + 180).truncatingRemainder(dividingBy: 360)
             names.append("\(there) from the \(directionWord(fromCamera))")
         }
@@ -92,6 +92,14 @@ enum PlaceSuggestions {
         if let near = s.nearby.first, near.distance <= nearbyWithin { return near.place.name }
         if let state = s.state { return stateName(state) }
         return s.waters.first.map(waterName)
+    }
+
+    /// What the camera looks toward: the place ahead, or else the view
+    /// center's state or water.
+    static func aheadName(_ center: PlaceContext.ViewCenter) -> String? {
+        if let ahead = center.ahead { return ahead.place.name }
+        if let state = center.surroundings.state { return stateName(state) }
+        return center.surroundings.waters.first.map(waterName)
     }
 
     private static func isPlace(_ s: PlaceContext.Surroundings) -> Bool {

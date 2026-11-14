@@ -90,13 +90,55 @@ actor Gazetteer {
         if let viewCenter {
             let distance = GeoMath.distance(from: below, to: viewCenter)
             if distance >= 500 {
+                // What counts at the view center depends on how far away it
+                // is from the camera, not on the camera's height.
+                let range = (distance * distance + camera.height * camera.height).squareRoot()
+                let surroundings = try surroundings(of: viewCenter, height: range)
+                let bearing = Self.degrees(GeoMath.bearing(from: below, to: viewCenter))
                 center = PlaceContext.ViewCenter(
-                    surroundings: try surroundings(of: viewCenter, height: camera.height),
-                    distance: distance,
-                    bearing: Self.degrees(GeoMath.bearing(from: below, to: viewCenter)))
+                    surroundings: surroundings, distance: distance, bearing: bearing,
+                    ahead: try ahead(of: below, toward: viewCenter, distance: distance, bearing: bearing,
+                                     range: range, urbanArea: surroundings.urbanArea))
             }
         }
         return PlaceContext(camera: camera, below: try surroundings(of: below, height: camera.height), viewCenter: center)
+    }
+
+    /// How far a place may be off the line from the point below to the view
+    /// center, in degrees, and still be the place the camera looks toward.
+    static let aheadAngle = 30.0
+    /// How much farther than the view center a place may be, as a multiple
+    /// of the distance to the view center.
+    static let aheadReach = 1.5
+
+    /// The place the camera looks toward: the urban area containing the view
+    /// center, or else the most relevant significant place that is within
+    /// `aheadAngle` of the line of sight and no more than `aheadReach` times
+    /// as far as the view center. Nil when there's none, and the view center
+    /// is named by its state or water instead.
+    ///
+    /// Both conditions are needed. Ranked by distance from the view center
+    /// alone, the nearest big city can be behind the camera (Los Angeles,
+    /// looking north into Oregon from over Mendocino). By direction alone,
+    /// the cone reaches past the horizon from high up (Vancouver, 1,100 km
+    /// away, from the same pose).
+    private func ahead(of below: GeoCoordinate, toward viewCenter: GeoCoordinate, distance: Double, bearing: Double,
+                       range: Double, urbanArea: PlaceContext.Feature?) throws -> PlaceContext.Nearby? {
+        let zoom = Self.significanceZoom(height: range)
+        var best: (place: Place, distance: Double, score: Double)?
+        for place in try places() where place.minZoom <= zoom {
+            let isUrbanArea = place.id == urbanArea?.id
+            if !isUrbanArea {
+                guard GeoMath.distance(from: below, to: place.coordinate) <= distance * Self.aheadReach else { continue }
+                let off = Self.degrees(GeoMath.bearing(from: below, to: place.coordinate)) - bearing
+                guard abs(off - 360 * (off / 360).rounded()) <= Self.aheadAngle else { continue }
+            }
+            let fromCenter = GeoMath.distance(from: place.coordinate, to: viewCenter)
+            // The urban area containing the view center always wins.
+            let score = isUrbanArea ? -1 : Self.relevance(place, distance: fromCenter)
+            if best.map({ score < $0.score }) ?? true { best = (place, fromCenter, score) }
+        }
+        return best.map { Self.nearbyEntry($0.place, distance: $0.distance, to: viewCenter) }
     }
 
     /// What's at `coordinate`, as seen from `height` meters up.
