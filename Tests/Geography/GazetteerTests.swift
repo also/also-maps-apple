@@ -31,6 +31,20 @@ struct GazetteerTests {
         #expect(PlaceSuggestions.description(of: context) == "30,000 ft over Boston")
     }
 
+    /// Where urban boxes overlap, the big city wins over a neighbor whose
+    /// smaller box also covers the point (Newark's covers Midtown, Berkeley's
+    /// the Ferry Building).
+    @Test(arguments: [
+        (40.7549, -73.984, 600.0, "New York", "2,000 ft over New York"),
+        (37.7955, -122.3937, 300.0, "San Francisco", "1,000 ft over San Francisco"),
+    ])
+    func overlappingUrbanAreas(latitude: Double, longitude: Double, height: Double, city: String, description: String) async throws {
+        let context = try await gazetteer.context(camera: camera(latitude, longitude, height: height), viewCenter: nil)
+        #expect(context.below.urbanArea?.name == city)
+        #expect(PlaceSuggestions.description(of: context) == description)
+        #expect(PlaceSuggestions.names(for: context).contains(city))
+    }
+
     @Test func overWorcesterLookingTowardBoston() async throws {
         let context = try await gazetteer.context(camera: camera(worcester.latitude, worcester.longitude, heading: 80), viewCenter: boston)
         let names = PlaceSuggestions.names(for: context)
