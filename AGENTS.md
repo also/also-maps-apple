@@ -1,5 +1,9 @@
 # Agent notes
 
+## No backwards compatibility code
+
+The app has a handful of users. Don't write code to stay compatible with an earlier version of the app unless the task says so explicitly. When a file format, file name, setting, URL or stored value changes, change it and drop the old one: no migrations, no reading the old format alongside the new one, no fallbacks or aliases, and no renaming of existing files. Don't propose these either; if old data stops working, say so in the summary and move on.
+
 ## Read the project's docs before the task
 
 This project has its own ways of doing several routine things, and some differ from the usual approach. Before starting one of these, read the doc it names and follow it:
