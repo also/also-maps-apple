@@ -74,13 +74,7 @@ struct MyMapEditor: View {
             #if os(macOS)
             List(selection: $selection) { rows }
             #else
-            List {
-                Section {
-                    rows
-                } footer: {
-                    if !store.myMap.isEmpty { Text("Tap a place to rename it.") }
-                }
-            }
+            List { rows }
             #endif
         }
         .overlay {
@@ -144,8 +138,7 @@ struct MyMapEditor: View {
             }
             .contentShape(Rectangle())
         }
-        // Names in the text color, like other list rows; the pencil says
-        // what a tap does.
+        // Names in the text color, like other list rows.
         .tint(.primary)
         .accessibilityHint("Renames the place")
         #endif
