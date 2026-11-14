@@ -7,8 +7,9 @@ import SwiftUI
 /// - Mac: a selectable list. Return or double-click renames the selected
 ///   place in its row; Delete (or Edit > Delete) and the − button delete
 ///   the selection; rows drag to reorder.
-/// - iPhone, visionOS: Edit puts the list in edit mode, for deleting and
-///   reordering; rows swipe to delete or rename.
+/// - iPhone, visionOS: tapping a place renames it. Edit puts the list in
+///   edit mode, with the system's delete and reorder controls; rows also
+///   swipe to delete or rename.
 /// - Everywhere: a place's context menu renames or deletes it.
 struct MyMapEditor: View {
     static let windowID = "my-map"
@@ -67,22 +68,20 @@ struct MyMapEditor: View {
     }
 
     private var list: some View {
-        List(selection: $selection) {
-            ForEach(store.myMap) { place in
-                row(place)
-                    .contextMenu {
-                        Button("Rename…", systemImage: "pencil") { beginRename(place) }
-                        Button("Delete", systemImage: "trash", role: .destructive) { delete([place.id]) }
-                    }
-                    #if !os(macOS)
-                    .swipeActions {
-                        Button("Delete", systemImage: "trash", role: .destructive) { delete([place.id]) }
-                        Button("Rename", systemImage: "pencil") { beginRename(place) }
-                    }
-                    #endif
+        // A selection would turn iPhone and visionOS edit mode into
+        // multiple selection, without the delete controls.
+        Group {
+            #if os(macOS)
+            List(selection: $selection) { rows }
+            #else
+            List {
+                Section {
+                    rows
+                } footer: {
+                    if !store.myMap.isEmpty { Text("Tap a place to rename it.") }
+                }
             }
-            .onDelete { offsets in delete(Set(offsets.map { store.myMap[$0].id })) }
-            .onMove { store.move(fromOffsets: $0, toOffset: $1) }
+            #endif
         }
         .overlay {
             if store.myMap.isEmpty {
@@ -101,6 +100,24 @@ struct MyMapEditor: View {
         #endif
     }
 
+    private var rows: some View {
+        ForEach(store.myMap) { place in
+            row(place)
+                .contextMenu {
+                    Button("Rename…", systemImage: "pencil") { beginRename(place) }
+                    Button("Delete", systemImage: "trash", role: .destructive) { delete([place.id]) }
+                }
+                #if !os(macOS)
+                .swipeActions {
+                    Button("Delete", systemImage: "trash", role: .destructive) { delete([place.id]) }
+                    Button("Rename", systemImage: "pencil") { beginRename(place) }
+                }
+                #endif
+        }
+        .onDelete { offsets in delete(Set(offsets.map { store.myMap[$0].id })) }
+        .onMove { store.move(fromOffsets: $0, toOffset: $1) }
+    }
+
     @ViewBuilder
     private func row(_ place: Place) -> some View {
         #if os(macOS)
@@ -115,7 +132,22 @@ struct MyMapEditor: View {
                 .onTapGesture(count: 2) { beginRename(place) }
         }
         #else
-        Text(place.name)
+        Button {
+            beginRename(place)
+        } label: {
+            HStack {
+                Text(place.name)
+                Spacer()
+                Image(systemName: "pencil")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        // Names in the text color, like other list rows; the pencil says
+        // what a tap does.
+        .tint(.primary)
+        .accessibilityHint("Renames the place")
         #endif
     }
 
