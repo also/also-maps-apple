@@ -4,8 +4,8 @@ import UniformTypeIdentifiers
 import os
 
 extension UTType {
-    /// `.alsomaps`: places as GeoJSON (PlaceGeoJSON).
-    static let alsoMapsPlaces = UTType(exportedAs: "dev.also.maps.places", conformingTo: .geoJSON)
+    /// `.alsomaps`: Also Maps data as GeoJSON. Places for now (PlaceGeoJSON).
+    static let alsoMaps = UTType(exportedAs: "dev.also.maps.document", conformingTo: .geoJSON)
 }
 
 /// The user's places: My Map, which they save places to, and the one file

@@ -111,19 +111,19 @@ targets:
         CFBundleURLTypes: &placeLinkURLTypes
           - CFBundleURLName: dev.also.maps.place
             CFBundleURLSchemes: [alsomaps]
-        # Opens place files (Sources/Places/PlaceStore.swift): .alsomaps is
-        # ours, GeoJSON underneath; plain .geojson opens too.
-        UTExportedTypeDeclarations: &placeFileTypes
-          - UTTypeIdentifier: dev.also.maps.places
-            UTTypeDescription: Also Maps Places
+        # Opens files (Sources/Places/PlaceStore.swift): .alsomaps is ours,
+        # GeoJSON underneath; plain .geojson opens too.
+        UTExportedTypeDeclarations: &fileTypes
+          - UTTypeIdentifier: dev.also.maps.document
+            UTTypeDescription: Also Maps Document
             UTTypeConformsTo: [public.geojson]
             UTTypeTagSpecification:
               public.filename-extension: [alsomaps]
-        CFBundleDocumentTypes: &placeDocumentTypes
-          - CFBundleTypeName: Also Maps Places
+        CFBundleDocumentTypes: &documentTypes
+          - CFBundleTypeName: Also Maps Document
             CFBundleTypeRole: Viewer
             LSHandlerRank: Owner
-            LSItemContentTypes: [dev.also.maps.places]
+            LSItemContentTypes: [dev.also.maps.document]
           - CFBundleTypeName: GeoJSON
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
@@ -238,8 +238,8 @@ targets:
         LSApplicationCategoryType: public.app-category.navigation
         # Place links, as for the visionOS app.
         CFBundleURLTypes: *placeLinkURLTypes
-        UTExportedTypeDeclarations: *placeFileTypes
-        CFBundleDocumentTypes: *placeDocumentTypes
+        UTExportedTypeDeclarations: *fileTypes
+        CFBundleDocumentTypes: *documentTypes
     postBuildScripts:
       # Place names, as for the visionOS app.
       - *geographyScript
@@ -418,8 +418,8 @@ targets:
         UILaunchScreen: {}
         # Place links, as for the visionOS app.
         CFBundleURLTypes: *placeLinkURLTypes
-        UTExportedTypeDeclarations: *placeFileTypes
-        CFBundleDocumentTypes: *placeDocumentTypes
+        UTExportedTypeDeclarations: *fileTypes
+        CFBundleDocumentTypes: *documentTypes
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

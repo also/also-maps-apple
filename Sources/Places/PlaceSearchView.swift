@@ -203,7 +203,7 @@ private struct MenuRowStyle: ButtonStyle {
 
 /// Places search with its own field, for a popover from the Places button.
 /// The field is there only while the map shows Google's tiles. Below the
-/// list, place files: importing one, exporting (Mac) or sharing My Map.
+/// list, files: importing one, exporting (Mac) or sharing My Map.
 struct PlacesPanel: View {
     @State private var search = PlaceSearch()
     @State private var importing = false
@@ -235,7 +235,7 @@ struct PlacesPanel: View {
 #if os(macOS)
 /// My Map as a document, for saving with the export panel.
 private struct PlacesFile: FileDocument {
-    static let readableContentTypes: [UTType] = [.alsoMapsPlaces]
+    static let readableContentTypes: [UTType] = [.alsoMaps]
     var places: [Place]
 
     init(places: [Place]) { self.places = places }
@@ -267,7 +267,7 @@ extension PlacesPanel {
                     // On the Mac, saving a file somewhere is the usual way out.
                     Button("Export My Map…", systemImage: "square.and.arrow.up") { exporting = true }
                         .fileExporter(isPresented: $exporting, document: PlacesFile(places: store.myMap),
-                                      contentType: .alsoMapsPlaces, defaultFilename: "My Map") { result in
+                                      contentType: .alsoMaps, defaultFilename: "My Map") { result in
                             if case let .failure(error) = result { fileProblem = error.localizedDescription }
                         }
                     #endif
@@ -293,7 +293,7 @@ extension PlacesPanel {
             }
         }
         .padding()
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.alsoMapsPlaces, .geoJSON]) { result in
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.alsoMaps, .geoJSON]) { result in
             do {
                 try store.importFile(result.get())
                 fileProblem = nil

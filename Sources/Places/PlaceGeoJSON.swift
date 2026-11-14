@@ -1,7 +1,7 @@
 import Foundation
 
-/// Places as GeoJSON (RFC 7946), the format of `.alsomaps` and `.geojson`
-/// place files. A place is a Point feature, in one of Place's two forms:
+/// Places as GeoJSON (RFC 7946), in `.alsomaps` and `.geojson` files. A
+/// place is a Point feature, in one of Place's two forms:
 ///
 ///     // Where you are: a navigation position, saved to My Map.
 ///     { "type": "Feature", "id": "…",
