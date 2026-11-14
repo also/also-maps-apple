@@ -1,74 +1,6 @@
 #if !os(tvOS)
 import SwiftUI
 
-/// Searching Google for a place, as the user types, and fetching the one
-/// they pick. See `PlacesClient` for how requests are billed.
-@MainActor
-@Observable
-final class PlaceSearch {
-    var query = ""
-    private(set) var suggestions: [PlaceSuggestion] = []
-    private(set) var problem: String?
-    /// The suggestion whose place is being fetched.
-    private(set) var choosing: PlaceSuggestion.ID?
-    @ObservationIgnored private var session = UUID().uuidString
-
-    /// Pause after a keystroke before asking for suggestions.
-    private static let typingPause = Duration.milliseconds(250)
-
-    var isSearching: Bool { !trimmedQuery.isEmpty }
-    private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    private var client: PlacesClient? {
-        CredentialStore.shared.key(for: .googleMaps).map { PlacesClient(key: $0) }
-    }
-
-    /// Suggestions for the query, near `near`. Run per query, so a newer
-    /// one cancels it.
-    func suggest(near: GeoCoordinate?) async {
-        let input = trimmedQuery
-        guard !input.isEmpty else {
-            suggestions = []
-            problem = nil
-            return
-        }
-        try? await Task.sleep(for: Self.typingPause)
-        guard !Task.isCancelled else { return }
-        guard let client else {
-            suggestions = []
-            problem = "Searching needs a Google Maps key. Add one in Keys."
-            return
-        }
-        do {
-            let found = try await client.autocomplete(input, near: near, session: session)
-            guard !Task.isCancelled else { return }
-            suggestions = found
-            problem = found.isEmpty ? "No places found." : nil
-        } catch {
-            guard !Task.isCancelled else { return }
-            suggestions = []
-            problem = error.localizedDescription
-        }
-    }
-
-    /// The suggestion's place, or nil (with `problem` set) if it couldn't
-    /// be fetched. Ends the session either way.
-    func choose(_ suggestion: PlaceSuggestion) async -> Place? {
-        guard choosing == nil, let client else { return nil }
-        choosing = suggestion.id
-        defer {
-            choosing = nil
-            session = UUID().uuidString
-        }
-        do {
-            return try await client.place(for: suggestion, session: session)
-        } catch {
-            problem = error.localizedDescription
-            return nil
-        }
-    }
-}
-
 /// The saved places, or with a query, Google's suggestions for it.
 struct PlacesList: View {
     var search: PlaceSearch
@@ -106,9 +38,7 @@ struct PlacesList: View {
                 }
                 ForEach(search.suggestions) { suggestion in
                     Button {
-                        Task {
-                            if let place = await search.choose(suggestion) { go(place) }
-                        }
+                        search.choose(suggestion, then: go)
                     } label: {
                         row(suggestion.name, detail: suggestion.detail,
                             isBusy: search.choosing == suggestion.id)
@@ -124,7 +54,10 @@ struct PlacesList: View {
             }
         } else {
             ForEach(PlaceLibrary.all) { place in
-                Button { go(place) } label: {
+                Button {
+                    search.cancelChoice()
+                    go(place)
+                } label: {
                     row(place.name, isSelected: place.id == selectedID)
                 }
             }
@@ -194,19 +127,12 @@ struct PlacesPanel: View {
             TextField("Search Places", text: $search.query)
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled()
-                .onSubmit(chooseFirst)
+                .onSubmit { search.chooseFirst(then: go) }
                 .padding()
             PlacesList(search: search, near: near, selectedID: selectedID, go: go)
         }
         .frame(width: 360, height: 440)
-    }
-
-    /// Return takes the first suggestion.
-    private func chooseFirst() {
-        guard let first = search.suggestions.first else { return }
-        Task {
-            if let place = await search.choose(first) { go(place) }
-        }
+        .onDisappear { search.cancelChoice() }
     }
 }
 

@@ -83,7 +83,10 @@ struct PhoneMapView: View {
                 @Bindable var map = map
                 SettingsView(settings: $map.settings) { showsSettings = false }
             }
-            .sheet(isPresented: $showsPlaces, onDismiss: { search = PlaceSearch() }) {
+            .sheet(isPresented: $showsPlaces, onDismiss: {
+                search.cancelChoice()
+                search = PlaceSearch()
+            }) {
                 NavigationStack {
                     PlacesList(search: search, near: { [map] in map.navigation.camera.coordinate },
                                selectedID: selection?.id) { place in
