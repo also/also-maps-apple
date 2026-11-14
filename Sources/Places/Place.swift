@@ -10,18 +10,23 @@ struct Place: Codable, Identifiable, Hashable {
     var radius: Double
     /// Direction the volume's front faces, degrees clockwise from north.
     var heading: Double = 0
+    /// Height of the view center, meters above the WGS84 ellipsoid, when
+    /// known: kept in place files, not used for framing.
+    var altitude: Double? = nil
 
     var coordinate: GeoCoordinate { GeoCoordinate(latitude: latitude, longitude: longitude) }
 
-    private enum CodingKeys: String, CodingKey { case id, name, latitude, longitude, radius, heading }
+    private enum CodingKeys: String, CodingKey { case id, name, latitude, longitude, radius, heading, altitude }
 
-    init(id: String, name: String, latitude: Double, longitude: Double, radius: Double, heading: Double = 0) {
+    init(id: String, name: String, latitude: Double, longitude: Double, radius: Double, heading: Double = 0,
+         altitude: Double? = nil) {
         self.id = id
         self.name = name
         self.latitude = latitude
         self.longitude = longitude
         self.radius = radius
         self.heading = heading
+        self.altitude = altitude
     }
 
     init(from decoder: Decoder) throws {
@@ -32,12 +37,12 @@ struct Place: Codable, Identifiable, Hashable {
         longitude = try c.decode(Double.self, forKey: .longitude)
         radius = try c.decode(Double.self, forKey: .radius)
         heading = try c.decodeIfPresent(Double.self, forKey: .heading) ?? 0
+        altitude = try c.decodeIfPresent(Double.self, forKey: .altitude)
     }
 }
 
-/// The places offered in the app: the remote config's, or the defaults bundled
-/// in Places.json without one. User-added places (stored locally or in iCloud)
-/// would be a further source merged in here.
+/// The suggested places: the remote config's, or the defaults bundled in
+/// Places.json without one. The user's own places are in PlaceStore.
 enum PlaceLibrary {
     static let defaults: [Place] = {
         guard let url = Bundle.main.url(forResource: "Places", withExtension: "json"),

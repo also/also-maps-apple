@@ -111,6 +111,23 @@ targets:
         CFBundleURLTypes: &placeLinkURLTypes
           - CFBundleURLName: dev.also.maps.place
             CFBundleURLSchemes: [alsomaps]
+        # Opens place files (Sources/Places/PlaceStore.swift): .alsomaps is
+        # ours, GeoJSON underneath; plain .geojson opens too.
+        UTExportedTypeDeclarations: &placeFileTypes
+          - UTTypeIdentifier: dev.also.maps.places
+            UTTypeDescription: Also Maps Places
+            UTTypeConformsTo: [public.geojson]
+            UTTypeTagSpecification:
+              public.filename-extension: [alsomaps]
+        CFBundleDocumentTypes: &placeDocumentTypes
+          - CFBundleTypeName: Also Maps Places
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Owner
+            LSItemContentTypes: [dev.also.maps.places]
+          - CFBundleTypeName: GeoJSON
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.geojson]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
           UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleVolumetricApplication
@@ -212,6 +229,8 @@ targets:
         LSApplicationCategoryType: public.app-category.navigation
         # Place links, as for the visionOS app.
         CFBundleURLTypes: *placeLinkURLTypes
+        UTExportedTypeDeclarations: *placeFileTypes
+        CFBundleDocumentTypes: *placeDocumentTypes
     postBuildScripts:
       # Which checkout, branch and commit the build came from, for Settings >
       # Advanced. Every build, since none of that is a declared input.
@@ -258,6 +277,8 @@ targets:
       - path: Tests/Metal
       - path: Sources/Places/Place.swift
       - path: Sources/Places/PlaceLink.swift
+      - path: Sources/Places/PlaceGeoJSON.swift
+      - path: Sources/Places/PlaceStore.swift
       - path: Sources/Places/PlacesClient.swift
       - path: Sources/Places/PlaceSearch.swift
       - path: Tests/Places
@@ -373,6 +394,8 @@ targets:
         UILaunchScreen: {}
         # Place links, as for the visionOS app.
         CFBundleURLTypes: *placeLinkURLTypes
+        UTExportedTypeDeclarations: *placeFileTypes
+        CFBundleDocumentTypes: *placeDocumentTypes
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

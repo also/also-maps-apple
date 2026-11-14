@@ -23,7 +23,6 @@ struct AlsoMapsApp: App {
                 .credentialGate()
                 .appGate()
                 .keepsVolumeDepth()
-                .opensPlaceLinks { model.go(to: $0) }
         }
         .windowStyle(.volumetric)
         .defaultSize(width: MapModel.volumeSize.x,

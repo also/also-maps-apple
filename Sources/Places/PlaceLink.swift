@@ -79,7 +79,7 @@ enum PlaceLink {
         return h < 0 ? h + 360 : h
     }
 
-    private static func coordinateName(_ latitude: Double, _ longitude: Double) -> String {
+    static func coordinateName(_ latitude: Double, _ longitude: Double) -> String {
         String(format: "%.4f, %.4f", latitude, longitude)
     }
 }

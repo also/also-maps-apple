@@ -61,11 +61,11 @@ struct PhoneMapView: View {
                 if phase != .active { map.tracks.flush() }
             }
             .onDisappear { map.tracks.flush() }
-            .opensPlaceLinks { place in
+            .opensPlaces(go: { place in
                 selection = place
                 map.go(to: place)
                 showsPlaces = false
-            }
+            }, imported: { showsPlaces = true })
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
                     trackControls

@@ -347,6 +347,28 @@ final class MapModel {
         requestGroundSample()
     }
 
+    /// The current view as a place: the view center, the half-width shown
+    /// and the way the view faces, the inverse of `framing(_:in:…)`.
+    func currentPlace(id: String, name: String) -> Place {
+        let camera = navigation.camera
+        let framing = framing ?? frame(camera)
+        let center = Geodesy.geodetic(framing.georeferencePoint)
+        let heading = NavigationOperations.wrapped(
+            camera.heading - GeoMath.bearingChange(from: center.coordinate, to: camera.coordinate))
+        let degrees = heading * 180 / .pi
+        return Place(id: id, name: name, latitude: center.coordinate.latitude,
+                     longitude: center.coordinate.longitude, radius: framing.shownRadius(room),
+                     heading: degrees < 0 ? degrees + 360 : degrees, altitude: center.height)
+    }
+
+    /// Saves the current view to My Map, named by the first suggestion.
+    func saveCurrentView() async {
+        var place = currentPlace(id: UUID().uuidString, name: "")
+        let names = await PlaceNamer.suggestions(latitude: place.latitude, longitude: place.longitude)
+        place.name = names.first ?? PlaceLink.coordinateName(place.latitude, place.longitude)
+        PlaceStore.shared.add(place)
+    }
+
     // MARK: Gestures
 
     /// `start` and `current` are the drag's positions in the map frame
