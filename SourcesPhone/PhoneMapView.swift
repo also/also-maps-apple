@@ -74,6 +74,11 @@ struct PhoneMapView: View {
                     Button("Settings", systemImage: "gearshape") {
                         showsSettings = true
                     }
+                    Button("Save to My Map", systemImage: "star") {
+                        Task {
+                            if await map.saveCurrentView() { showsPlaces = true }
+                        }
+                    }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
                     }

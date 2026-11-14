@@ -58,7 +58,7 @@ struct MacMapView: View {
             .focused($focused)
             .onKeyPress(phases: .all) { _ in .handled }
             .onAppear { focused = true }
-            .opensPlaces(go: { map.go(to: $0) })
+            .opensPlaces(go: { map.go(to: $0) }, imported: { showsPlaces = true })
             .onChange(of: settings) { _, settings in map.settings = settings }
             .overlay(alignment: .topTrailing) {
                 HStack {
@@ -69,6 +69,13 @@ struct MacMapView: View {
                     }
                     .help("Show how the camera is placed in each host (⌥⌘D)")
                     .keyboardShortcut("d", modifiers: [.command, .option])
+                    Button("Save to My Map", systemImage: "star") {
+                        Task {
+                            if await map.saveCurrentView() { showsPlaces = true }
+                        }
+                    }
+                    .help("Save this view to My Map (⌘S)")
+                    .keyboardShortcut("s")
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
                     }

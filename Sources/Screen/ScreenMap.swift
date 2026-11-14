@@ -132,6 +132,27 @@ final class ScreenMap {
         sampleGround(around: place.coordinate, radius: place.radius, liftsCamera: true)
     }
 
+    /// The current view as a place (ScreenView.shownView), or nil when the
+    /// screen's center is off the ground.
+    func currentPlace(id: String, name: String) -> Place? {
+        guard let view = ScreenView.shownView(camera: navigation.camera, groundHeight: cameraGround.value,
+                                              fieldOfView: Self.fieldOfView) else { return nil }
+        let degrees = NavigationOperations.wrapped(view.heading) * 180 / .pi
+        return Place(id: id, name: name, latitude: view.center.latitude, longitude: view.center.longitude,
+                     radius: view.radius, heading: degrees < 0 ? degrees + 360 : degrees, altitude: view.height)
+    }
+
+    /// Saves the current view to My Map, named by the first suggestion.
+    /// False when there's no view to save.
+    @discardableResult
+    func saveCurrentView() async -> Bool {
+        guard var place = currentPlace(id: UUID().uuidString, name: "") else { return false }
+        let names = await PlaceNamer.suggestions(latitude: place.latitude, longitude: place.longitude)
+        place.name = names.first ?? PlaceLink.coordinateName(place.latitude, place.longitude)
+        PlaceStore.shared.add(place)
+        return true
+    }
+
     /// Samples the ground around `center` for the ground estimate. With
     /// `liftsCamera`, the camera rises by what it finds, so a place framed
     /// on the ellipsoid ends up framed on the ground.
