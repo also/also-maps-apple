@@ -44,7 +44,7 @@ struct MacMapView: View {
     @State private var showsDiagram = ProcessInfo.processInfo.environment["ALSOMAPS_DIAGRAM"] != nil
     @State private var showsPlaces = false
     /// The view being saved to My Map, while its name is chosen.
-    @State private var savingPlace: Place?
+    @State private var savingPlace: PlaceToSave?
     @FocusState private var focused: Bool
 
     init(start: StaticView, settings: StreamingSettings) {
@@ -77,12 +77,13 @@ struct MacMapView: View {
                     .keyboardShortcut("d", modifiers: [.command, .option])
                     Button("Save to My Map", systemImage: "star") {
                         savingPlace = map.currentPlace(id: UUID().uuidString, name: "")
+                            .map { PlaceToSave(place: $0, camera: map.navigation.camera) }
                     }
                     // ⌘D, like adding a bookmark in Safari; ⌘S saves files.
                     .help("Save this view to My Map (⌘D)")
                     .keyboardShortcut("d")
-                    .popover(item: $savingPlace, arrowEdge: .bottom) { place in
-                        SavePlaceView(place: place) { savingPlace = nil }
+                    .popover(item: $savingPlace, arrowEdge: .bottom) { saving in
+                        SavePlaceView(saving: saving) { savingPlace = nil }
                     }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true

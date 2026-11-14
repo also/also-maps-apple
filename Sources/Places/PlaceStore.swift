@@ -142,11 +142,3 @@ final class PlaceStore {
         imported = nil
     }
 }
-
-/// Names offered for a place being saved. A stub until the gazetteer
-/// (https://github.com/also/also-maps-apple/issues/96): the coordinates.
-enum PlaceNamer {
-    static func suggestions(latitude: Double, longitude: Double) async -> [String] {
-        [PlaceLink.coordinateName(latitude, longitude)]
-    }
-}

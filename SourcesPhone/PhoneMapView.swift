@@ -8,7 +8,7 @@ struct PhoneMapView: View {
     @State private var selection = initialPlace
     @State private var showsPlaces = false
     /// The view being saved to My Map, while its name is chosen.
-    @State private var savingPlace: Place?
+    @State private var savingPlace: PlaceToSave?
     @State private var search = PlaceSearch()
     @State private var showsSettings = false
     @Environment(\.scenePhase) private var scenePhase
@@ -78,6 +78,7 @@ struct PhoneMapView: View {
                     }
                     Button("Save to My Map", systemImage: "star") {
                         savingPlace = map.currentPlace(id: UUID().uuidString, name: "")
+                            .map { PlaceToSave(place: $0, camera: map.navigation.camera) }
                     }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
@@ -88,8 +89,8 @@ struct PhoneMapView: View {
                 @Bindable var map = map
                 SettingsView(settings: $map.settings) { showsSettings = false }
             }
-            .sheet(item: $savingPlace) { place in
-                SavePlaceView(place: place) { savingPlace = nil }
+            .sheet(item: $savingPlace) { saving in
+                SavePlaceView(saving: saving) { savingPlace = nil }
                     .frame(maxWidth: .infinity)
                     .presentationDetents([.medium])
             }

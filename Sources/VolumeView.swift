@@ -15,7 +15,7 @@ struct VolumeView: View {
     @State private var showsDebugPanel = false
     @State private var showsPlaces = false
     /// The view being saved to My Map, while its name is chosen.
-    @State private var savingPlace: Place?
+    @State private var savingPlace: PlaceToSave?
 
     var body: some View {
         RealityView { content in
@@ -79,12 +79,13 @@ struct VolumeView: View {
                     .help("Share \(track.deletingPathExtension().lastPathComponent)")
                 }
                 Button("Save to My Map", systemImage: "star") {
-                    savingPlace = model.currentPlace(id: UUID().uuidString, name: "")
+                    savingPlace = PlaceToSave(place: model.currentPlace(id: UUID().uuidString, name: ""),
+                                          camera: model.navigation.camera)
                 }
                 .labelStyle(.iconOnly)
                 .help("Save this view to My Map")
-                .popover(item: $savingPlace) { place in
-                    SavePlaceView(place: place) { savingPlace = nil }
+                .popover(item: $savingPlace) { saving in
+                    SavePlaceView(saving: saving) { savingPlace = nil }
                 }
                 Button("Places", systemImage: "mappin.and.ellipse") {
                     showsPlaces = true
