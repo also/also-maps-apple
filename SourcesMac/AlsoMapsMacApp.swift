@@ -38,6 +38,7 @@ struct MacMapView: View {
     @State private var map: ScreenMap
     /// ALSOMAPS_DIAGRAM opens it at launch, for tools.
     @State private var showsDiagram = ProcessInfo.processInfo.environment["ALSOMAPS_DIAGRAM"] != nil
+    @State private var showsPlaces = false
     @FocusState private var focused: Bool
 
     init(start: StaticView, settings: StreamingSettings) {
@@ -68,12 +69,17 @@ struct MacMapView: View {
                     }
                     .help("Show how the camera is placed in each host (⌥⌘D)")
                     .keyboardShortcut("d", modifiers: [.command, .option])
-                    Menu("Places", systemImage: "mappin.and.ellipse") {
-                        ForEach(PlaceLibrary.all) { place in
-                            Button(place.name) { map.go(to: place) }
+                    Button("Places", systemImage: "mappin.and.ellipse") {
+                        showsPlaces = true
+                    }
+                    .help("Go to a place (⌘F)")
+                    .keyboardShortcut("f")
+                    .popover(isPresented: $showsPlaces, arrowEdge: .bottom) {
+                        PlacesPanel(near: { [map] in map.navigation.camera.coordinate }) { place in
+                            map.go(to: place)
+                            showsPlaces = false
                         }
                     }
-                    .menuStyle(.button)
                 }
                 .fixedSize()
                 .padding(8)
