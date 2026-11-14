@@ -197,11 +197,12 @@ private struct MenuRowStyle: ButtonStyle {
 
 /// Places search with its own field, for a popover from the Places button.
 /// The field is there only while the map shows Google's tiles. Below the
-/// list, place files: importing one, sharing My Map.
+/// list, place files: importing one, exporting (Mac) or sharing My Map.
 struct PlacesPanel: View {
     @State private var search = PlaceSearch()
     @State private var importing = false
-    @State private var importProblem: String?
+    @State private var exporting = false
+    @State private var fileProblem: String?
     var searchesGoogle: Bool
     var near: () -> GeoCoordinate?
     var selectedID: String? = nil
@@ -225,21 +226,52 @@ struct PlacesPanel: View {
     }
 }
 
+#if os(macOS)
+/// My Map as a document, for saving with the export panel.
+private struct PlacesFile: FileDocument {
+    static let readableContentTypes: [UTType] = [.alsoMapsPlaces]
+    var places: [Place]
+
+    init(places: [Place]) { self.places = places }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents else { throw CocoaError(.fileReadCorruptFile) }
+        places = try PlaceGeoJSON.places(from: data)
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: try PlaceGeoJSON.data(for: places))
+    }
+}
+#endif
+
 extension PlacesPanel {
     @ViewBuilder fileprivate var fileActions: some View {
         let store = PlaceStore.shared
         VStack(alignment: .leading, spacing: 8) {
-            if let importProblem {
-                Text(importProblem)
+            if let fileProblem {
+                Text(fileProblem)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             HStack {
                 Button("Import…", systemImage: "square.and.arrow.down") { importing = true }
                 if !store.myMap.isEmpty {
+                    #if os(macOS)
+                    // On the Mac, saving a file somewhere is the usual way out.
+                    Button("Export My Map…", systemImage: "square.and.arrow.up") { exporting = true }
+                        .fileExporter(isPresented: $exporting, document: PlacesFile(places: store.myMap),
+                                      contentType: .alsoMapsPlaces, defaultFilename: "My Map") { result in
+                            if case let .failure(error) = result { fileProblem = error.localizedDescription }
+                        }
+                    #endif
                     ShareLink(item: store.myMapFile) {
                         Label("Share My Map", systemImage: "square.and.arrow.up")
                     }
+                    #if os(macOS)
+                    .labelStyle(.iconOnly)
+                    .help("Share My Map")
+                    #endif
                 }
                 Spacer()
                 if let imported = store.imported {
@@ -255,9 +287,9 @@ extension PlacesPanel {
         .fileImporter(isPresented: $importing, allowedContentTypes: [.alsoMapsPlaces, .geoJSON]) { result in
             do {
                 try store.importFile(result.get())
-                importProblem = nil
+                fileProblem = nil
             } catch {
-                importProblem = error.localizedDescription
+                fileProblem = error.localizedDescription
             }
         }
     }
