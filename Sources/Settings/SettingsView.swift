@@ -158,9 +158,18 @@ struct SettingsView: View {
         @Bindable var model = model
         return Form {
             Section {
-                Toggle("Full immersion", isOn: $model.fullImmersion)
+                Picker("Immersion", selection: $model.immersion) {
+                    ForEach(Immersion.allCases) { Text($0.title).tag($0) }
+                }
             } footer: {
-                Text("Immersive modes show only the map, with no passthrough or environment.")
+                switch model.immersion {
+                case .mixed:
+                    Text("Immersive modes keep passthrough and any system environment around the map.")
+                case .progressive:
+                    Text("Immersive modes show the map in a portal. Turn the Digital Crown to widen or narrow it.")
+                case .full:
+                    Text("Immersive modes show only the map, with no passthrough or environment.")
+                }
             }
 
             Section {

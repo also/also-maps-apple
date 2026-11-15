@@ -11,8 +11,19 @@ struct AlsoMapsApp: App {
     /// Read straight from the model, so a space opened right after the
     /// setting changes opens in the new style.
     private var immersionStyle: Binding<any ImmersionStyle> {
-        Binding(get: { model.fullImmersion ? .full : .mixed },
-                set: { model.fullImmersion = $0 is FullImmersionStyle })
+        Binding(get: {
+            switch model.immersion {
+            case .mixed: .mixed
+            case .progressive: .progressive
+            case .full: .full
+            }
+        }, set: { style in
+            switch style {
+            case is FullImmersionStyle: model.immersion = .full
+            case is ProgressiveImmersionStyle: model.immersion = .progressive
+            default: model.immersion = .mixed
+            }
+        })
     }
 
     var body: some Scene {
@@ -57,7 +68,7 @@ struct AlsoMapsApp: App {
                 .environment(model)
                 .appGate(presentsNotices: false)
         }
-        .immersionStyle(selection: immersionStyle, in: .mixed, .full)
+        .immersionStyle(selection: immersionStyle, in: .mixed, .progressive, .full)
         // In mixed immersion, keep the user's system environment (Mount Hood,
         // the Moon, …) around the immersive map instead of hiding it.
         .immersiveEnvironmentBehavior(.coexist)
