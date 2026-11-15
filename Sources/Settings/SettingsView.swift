@@ -187,7 +187,7 @@ struct SettingsView: View {
             Section {
                 Toggle("Draw with Metal", isOn: $drawsWithMetal)
             } footer: {
-                Text("An experimental way of drawing Immersive. Progressive opens as Full. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
+                Text("An experimental way of drawing Immersive, typically with better performance but some limitations. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
             }
 
             Section {
