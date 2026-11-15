@@ -168,12 +168,12 @@ struct PlaceStoreTests {
         ]}
         """
 
-    @Test func myMapLastsAcrossLaunches() {
+    @Test func myMapLastsAcrossLaunches() throws {
         let store = PlaceStore(directory: directory)
-        store.add(Place(id: "x", name: "Here", latitude: 1, longitude: 2, radius: 300, heading: 45))
-        store.add(Place(id: "y", name: "There", latitude: 3, longitude: 4, radius: 300))
-        store.rename("x", to: "  Home  ")
-        store.remove("y")
+        try store.add(Place(id: "x", name: "Here", latitude: 1, longitude: 2, radius: 300, heading: 45))
+        try store.add(Place(id: "y", name: "There", latitude: 3, longitude: 4, radius: 300))
+        try store.rename("x", to: "  Home  ")
+        try store.remove(["y"])
 
         let relaunched = PlaceStore(directory: directory)
         #expect(contents(relaunched.myMap) == [Place(id: "", name: "Home", latitude: 1, longitude: 2, radius: 300, heading: 45)])
@@ -186,6 +186,63 @@ struct PlaceStoreTests {
         let relaunched = PlaceStore(directory: directory)
         #expect(relaunched.imported?.name == "Trip Ideas")
         #expect(relaunched.imported?.places.map(\.name) == ["One"])
+    }
+
+    /// A place that can't be written isn't shown, so it can't vanish at the
+    /// next launch.
+    @Test func aFailedSaveChangesNothing() throws {
+        // A file where the directory should be.
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let blocked = directory.appending(path: "blocked")
+        try Data().write(to: blocked)
+        let store = PlaceStore(directory: blocked)
+        #expect(throws: PlaceStore.SaveError.self) {
+            try store.add(Place(id: "x", name: "Here", latitude: 1, longitude: 2, radius: 300))
+        }
+        #expect(store.myMap.isEmpty)
+        #expect(PlaceStore(directory: blocked).myMap.isEmpty)
+    }
+
+    @Test func failedEditsKeepMyMapAsItWas() throws {
+        let store = PlaceStore(directory: directory)
+        try store.add(Place(id: "x", name: "Here", latitude: 1, longitude: 2, radius: 300))
+        try store.add(Place(id: "y", name: "There", latitude: 3, longitude: 4, radius: 300))
+        try readOnly(directory) {
+            #expect(throws: PlaceStore.SaveError.self) { try store.rename("x", to: "Home") }
+            #expect(throws: PlaceStore.SaveError.self) { try store.remove(["y"]) }
+            #expect(throws: PlaceStore.SaveError.self) { try store.move(fromOffsets: [0], toOffset: 2) }
+        }
+        #expect(store.myMap.map(\.name) == ["Here", "There"])
+        #expect(PlaceStore(directory: directory).myMap.map(\.name) == ["Here", "There"])
+    }
+
+    @Test func anotherImportReplacesTheKeptFile() throws {
+        let store = PlaceStore(directory: directory)
+        try store.importFile(file("First.geojson", point))
+        try store.importFile(file("Second.geojson", point))
+        #expect(PlaceStore(directory: directory).imported?.name == "Second")
+        let kept = try FileManager.default.contentsOfDirectory(atPath: directory.appending(path: "Imported").path)
+        #expect(kept == ["Second.geojson"])
+        #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "Importing").path))
+    }
+
+    @Test func anImportThatCantBeKeptLeavesTheSetAlone() throws {
+        let store = PlaceStore(directory: directory)
+        try store.importFile(file("First.geojson", point))
+        let second = try file("Second.geojson", point)
+        try readOnly(directory) {
+            #expect(throws: PlaceStore.ImportError.self) { try store.importFile(second) }
+        }
+        #expect(store.imported?.name == "First")
+        #expect(PlaceStore(directory: directory).imported?.name == "First")
+    }
+
+    /// Runs `body` with `directory` unwritable.
+    private func readOnly(_ directory: URL, _ body: () throws -> Void) throws {
+        let files = FileManager.default
+        try files.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+        defer { try? files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path) }
+        try body()
     }
 
     @Test func anImportedMyMapIsMarked() throws {
@@ -236,14 +293,14 @@ struct PlaceStoreMoveTests {
         (IndexSet([2]), 0, ["c", "a", "b"]),
         (IndexSet([0, 2]), 2, ["b", "a", "c"]),
     ])
-    func movesLikeAList(source: IndexSet, destination: Int, expected: [String]) {
+    func movesLikeAList(source: IndexSet, destination: Int, expected: [String]) throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: "PlaceStoreMoveTests-\(UUID().uuidString)", directoryHint: .isDirectory)
         let store = PlaceStore(directory: directory)
         for id in ["a", "b", "c"] {
-            store.add(Place(id: id, name: id, latitude: 0, longitude: 0, radius: 100))
+            try store.add(Place(id: id, name: id, latitude: 0, longitude: 0, radius: 100))
         }
-        store.move(fromOffsets: source, toOffset: destination)
+        try store.move(fromOffsets: source, toOffset: destination)
         #expect(store.myMap.map(\.name) == expected)
         #expect(PlaceStore(directory: directory).myMap.map(\.name) == expected)
     }

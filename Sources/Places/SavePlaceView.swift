@@ -17,6 +17,8 @@ struct SavePlaceView: View {
     var done: () -> Void
     @State private var name = ""
     @State private var suggestions: [String] = []
+    /// Why the last Save failed; the dialog stays open to try again.
+    @State private var problem: String?
     @FocusState private var nameFocused: Bool
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -29,6 +31,12 @@ struct SavePlaceView: View {
                 .textFieldStyle(.roundedBorder)
                 .focused($nameFocused)
                 .onSubmit(save)
+            if let problem {
+                Text(problem)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             let others = suggestions.filter { $0 != trimmedName }
             if !others.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
@@ -64,8 +72,12 @@ struct SavePlaceView: View {
         guard !trimmedName.isEmpty else { return }
         var saved = saving.place
         saved.name = trimmedName
-        PlaceStore.shared.add(saved)
-        done()
+        do {
+            try PlaceStore.shared.add(saved)
+            done()
+        } catch {
+            problem = error.localizedDescription
+        }
     }
 }
 #endif

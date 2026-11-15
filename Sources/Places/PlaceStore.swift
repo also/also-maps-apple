@@ -34,14 +34,23 @@ final class PlaceStore {
         case unreadable
         case notGeoJSON
         case noPlaces
+        /// Read, but the copy to keep couldn't be written.
+        case notKept(String)
 
         var errorDescription: String? {
             switch self {
             case .unreadable: "The file couldn't be read."
             case .notGeoJSON: "The file isn't GeoJSON."
             case .noPlaces: "The file has no points to show as places."
+            case .notKept(let reason): "The file couldn't be kept. \(reason)"
             }
         }
+    }
+
+    /// My Map's file couldn't be written. My Map is left as it was.
+    struct SaveError: LocalizedError, Equatable {
+        var reason: String
+        var errorDescription: String? { "My Map couldn't be saved. \(reason)" }
     }
 
     private(set) var myMap: [Place] = []
@@ -68,45 +77,53 @@ final class PlaceStore {
 
     // MARK: My Map
 
-    func add(_ place: Place) {
-        myMap.append(place)
-        writeMyMap()
+    // Each change is written before it's shown, so My Map never shows what
+    // won't be there next launch.
+
+    func add(_ place: Place) throws(SaveError) {
+        try save(myMap + [place])
     }
 
-    func rename(_ id: Place.ID, to name: String) {
+    /// An empty name is ignored, keeping the old one.
+    func rename(_ id: Place.ID, to name: String) throws(SaveError) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, let index = myMap.firstIndex(where: { $0.id == id }) else { return }
-        myMap[index].name = name
-        writeMyMap()
+        var places = myMap
+        places[index].name = name
+        try save(places)
     }
 
-    func remove(_ id: Place.ID) {
-        myMap.removeAll { $0.id == id }
-        writeMyMap()
+    func remove(_ ids: Set<Place.ID>) throws(SaveError) {
+        try save(myMap.filter { !ids.contains($0.id) })
     }
 
-    func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+    func move(fromOffsets source: IndexSet, toOffset destination: Int) throws(SaveError) {
         // As SwiftUI's List reports it: `destination` counts the moved rows.
-        let moving = source.map { myMap[$0] }
+        var places = myMap
+        let moving = source.map { places[$0] }
         let insertion = destination - source.count(in: 0..<destination)
-        for index in source.reversed() { myMap.remove(at: index) }
-        myMap.insert(contentsOf: moving, at: insertion)
-        writeMyMap()
+        for index in source.reversed() { places.remove(at: index) }
+        places.insert(contentsOf: moving, at: insertion)
+        try save(places)
     }
 
-    private func writeMyMap() {
+    /// Writes `places` as My Map, then shows them.
+    private func save(_ places: [Place]) throws(SaveError) {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try PlaceGeoJSON.data(for: myMap).write(to: myMapFile, options: .atomic)
+            try PlaceGeoJSON.data(for: places).write(to: myMapFile, options: .atomic)
         } catch {
             log.error("Couldn't write My Map: \(error)")
+            throw SaveError(reason: error.localizedDescription)
         }
+        myMap = places
     }
 
     // MARK: Imported
 
     /// Reads the places in a GeoJSON file and keeps a copy of it, replacing
-    /// the imported set. A file that fails leaves the current set alone.
+    /// the imported set. A file that fails, or can't be kept, leaves the
+    /// current set alone.
     @discardableResult
     func importFile(_ url: URL) throws(ImportError) -> ImportedSet {
         let accessing = url.startAccessingSecurityScopedResource()
@@ -121,13 +138,22 @@ final class PlaceStore {
         guard !places.isEmpty else { throw .noPlaces }
 
         let set = ImportedSet(name: Self.importedName(url), places: places)
+        // Written beside the kept copy first, so a failure leaves it there.
+        let staging = directory.appending(path: "Importing", directoryHint: .isDirectory)
+        let files = FileManager.default
         do {
-            try? FileManager.default.removeItem(at: importedDirectory)
-            try FileManager.default.createDirectory(at: importedDirectory, withIntermediateDirectories: true)
-            try data.write(to: importedDirectory.appending(path: url.lastPathComponent), options: .atomic)
+            try? files.removeItem(at: staging)
+            try files.createDirectory(at: staging, withIntermediateDirectories: true)
+            try data.write(to: staging.appending(path: url.lastPathComponent))
+            if files.fileExists(atPath: importedDirectory.path) {
+                _ = try files.replaceItemAt(importedDirectory, withItemAt: staging)
+            } else {
+                try files.moveItem(at: staging, to: importedDirectory)
+            }
         } catch {
-            // Still shown; it just won't be there next launch.
+            try? files.removeItem(at: staging)
             log.error("Couldn't keep the imported file: \(error)")
+            throw .notKept(error.localizedDescription)
         }
         imported = set
         return set

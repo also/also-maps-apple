@@ -23,6 +23,8 @@ struct MyMapEditor: View {
     /// an alert), and the name so far.
     @State private var renaming: Place.ID?
     @State private var newName = ""
+    /// Why the last change couldn't be saved, for an alert.
+    @State private var saveProblem: String?
     @FocusState private var renameFocused: Bool
     #if os(iOS)
     @Environment(\.dismiss) private var dismiss
@@ -119,6 +121,12 @@ struct MyMapEditor: View {
             List { rows }
             #endif
         }
+        .alert("Couldn't Save My Map", isPresented: Binding(get: { saveProblem != nil },
+                                                           set: { if !$0 { saveProblem = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(saveProblem ?? "")
+        }
         .overlay {
             if store.myMap.isEmpty {
                 ContentUnavailableView("No Places", systemImage: "star",
@@ -151,7 +159,7 @@ struct MyMapEditor: View {
                 #endif
         }
         .onDelete { offsets in delete(Set(offsets.map { store.myMap[$0].id })) }
-        .onMove { store.move(fromOffsets: $0, toOffset: $1) }
+        .onMove { source, destination in saving { try store.move(fromOffsets: source, toOffset: destination) } }
     }
 
     @ViewBuilder
@@ -202,13 +210,18 @@ struct MyMapEditor: View {
     private func commitRename() {
         guard let id = renaming else { return }
         renaming = nil
-        store.rename(id, to: newName)
+        saving { try store.rename(id, to: newName) }
     }
 
     private func delete(_ ids: Set<Place.ID>) {
-        for id in ids { store.remove(id) }
-        selection.subtract(ids)
-        if let renaming, ids.contains(renaming) { self.renaming = nil }
+        saving { try store.remove(ids) }
+        selection = selection.filter { id in store.myMap.contains { $0.id == id } }
+        if let renaming, !store.myMap.contains(where: { $0.id == renaming }) { self.renaming = nil }
+    }
+
+    /// Runs a change to My Map, showing why if it couldn't be saved.
+    private func saving(_ change: () throws -> Void) {
+        do { try change() } catch { saveProblem = error.localizedDescription }
     }
 }
 #endif
