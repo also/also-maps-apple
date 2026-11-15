@@ -1,0 +1,328 @@
+import Foundation
+import Testing
+
+private func places(_ json: String) throws -> [Place] {
+    try PlaceGeoJSON.places(from: Data(json.utf8))
+}
+
+/// Places as files keep them: everything but the id, which is new each read.
+private func contents(_ places: [Place]) -> [Place] {
+    places.map { p in
+        var copy = Place(id: "", name: p.name, latitude: p.latitude, longitude: p.longitude,
+                         radius: p.radius, heading: p.heading)
+        copy.position = p.position
+        return copy
+    }
+}
+
+struct PlaceGeoJSONTests {
+    @Test func readsEveryField() throws {
+        let p = try #require(contents(try places("""
+            {"type": "FeatureCollection", "features": [{
+              "type": "Feature",
+              "geometry": {"type": "Point", "coordinates": [2.2945, 48.8584, 35]},
+              "properties": {"name": "Eiffel Tower", "alsoMaps": {"radius": 400, "heading": 120}}
+            }]}
+            """)).first)
+        // With a radius it's a center to look at; the third coordinate is
+        // ignored.
+        #expect(p == Place(id: "", name: "Eiffel Tower", latitude: 48.8584, longitude: 2.2945,
+                           radius: 400, heading: 120))
+    }
+
+    @Test func readsANavigationPosition() throws {
+        let p = try #require(try places("""
+            {"type": "Feature",
+             "geometry": {"type": "Point", "coordinates": [2.2945, 48.8584, 1200]},
+             "properties": {"name": "Over Paris", "alsoMaps": {"heading": 120, "pitch": -20}}}
+            """).first)
+        #expect(p.position == Place.Position(height: 1200, pitch: -20))
+        #expect(p.latitude == 48.8584)
+        #expect(p.heading == 120)
+    }
+
+    /// Other tools' third coordinate is the ground's elevation, and a
+    /// navigation position needs a height.
+    @Test(arguments: [
+        #"{"type": "Feature", "geometry": {"type": "Point", "coordinates": [1, 2, 300]}, "properties": {}}"#,
+        #"{"type": "Feature", "geometry": {"type": "Point", "coordinates": [1, 2]}, "properties": {"alsoMaps": {"heading": 10}}}"#,
+    ])
+    func onlyOurPointsWithAHeightArePositions(_ json: String) throws {
+        let p = try #require(try places(json).first)
+        #expect(p.position == nil)
+        #expect(p.radius == PlaceGeoJSON.defaultRadius)
+    }
+
+    @Test func plainPointsGetDefaults() throws {
+        let p = try #require(try places("""
+            {"type": "Feature", "geometry": {"type": "Point", "coordinates": [-71.0605, 42.3555]},
+             "properties": null}
+            """).first)
+        #expect(p.name == "42.3555, -71.0605")
+        #expect(p.radius == PlaceGeoJSON.defaultRadius)
+        #expect(p.heading == 0)
+        #expect(p.position == nil)
+    }
+
+    /// Other geometry, bad points and unknown members are skipped.
+    @Test func skipsWhatItCantUse() throws {
+        let result = try places("""
+            {"type": "FeatureCollection", "bbox": [0, 0, 1, 1], "features": [
+              {"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[0, 0], [1, 1]]}, "properties": {}},
+              {"type": "Feature", "geometry": null, "properties": {}},
+              {"type": "Feature", "geometry": {"type": "Point", "coordinates": [200, 0]}, "properties": {}},
+              {"type": "Feature", "geometry": {"type": "Point", "coordinates": [true, 0]}, "properties": {}},
+              {"type": "Feature", "geometry": {"type": "Point", "coordinates": [1]}, "properties": {}},
+              "nonsense",
+              {"type": "Feature", "geometry": {"type": "Point", "coordinates": [1, 2]},
+               "properties": {"name": "", "marker-color": "#f00", "alsoMaps": {"radius": -5, "heading": "north"}}}
+            ]}
+            """)
+        #expect(result.count == 1)
+        let p = try #require(result.first)
+        #expect(p.name == "2.0000, 1.0000")
+        #expect(p.radius == PlaceGeoJSON.defaultRadius)
+        #expect(p.heading == 0)
+    }
+
+    @Test func headingWraps() throws {
+        let p = try #require(try places("""
+            {"type": "Feature", "geometry": {"type": "Point", "coordinates": [0, 0]},
+             "properties": {"alsoMaps": {"heading": -90}}}
+            """).first)
+        #expect(p.heading == 270)
+    }
+
+    /// Feature ids aren't used, so repeated ones are no problem, and none
+    /// are written.
+    @Test func featureIDsAreIgnored() throws {
+        let json = """
+            {"type": "FeatureCollection", "features": [
+              {"type": "Feature", "id": 7, "geometry": {"type": "Point", "coordinates": [0, 0]}, "properties": {}},
+              {"type": "Feature", "id": 7, "geometry": {"type": "Point", "coordinates": [1, 1]}, "properties": {}}
+            ]}
+            """
+        let first = try places(json), second = try places(json)
+        #expect(Set(first.map(\.id) + second.map(\.id)).count == 4)
+        let written = try JSONSerialization.jsonObject(with: PlaceGeoJSON.data(for: first)) as? [String: Any]
+        let features = try #require(written?["features"] as? [[String: Any]])
+        #expect(features.count == 2)
+        #expect(features.allSatisfy { $0["id"] == nil })
+    }
+
+    @Test(arguments: ["", "[1, 2]", "{\"type\": \"Point\", \"coordinates\": [0, 0]}", "not json"])
+    func rejectsWhatIsntAFeatureCollection(_ json: String) {
+        #expect(throws: PlaceGeoJSON.ReadError.self) { try places(json) }
+    }
+
+    @Test func emptyCollectionHasNoPlaces() throws {
+        #expect(try places(#"{"type": "FeatureCollection", "features": []}"#).isEmpty)
+    }
+
+    /// Saved positions carry float noise; files get readable numbers.
+    @Test func writesRoundedNumbers() throws {
+        var noisy = Place(id: "a", name: "Ferry Building", latitude: 37.795690562623399, longitude: -122.3937,
+                          radius: 500, heading: 359.99999999999562)
+        noisy.position = Place.Position(height: 602.962846475653, pitch: -12.000000000000002)
+        let text = try #require(String(data: PlaceGeoJSON.data(for: [noisy]), encoding: .utf8))
+        #expect(text.contains("37.7956906"))
+        #expect(text.contains("602.96"))
+        #expect(!text.contains("359.99"))
+        #expect(!text.contains("00000"))
+        #expect(!text.contains("radius"))
+        let read = try #require(try PlaceGeoJSON.places(from: Data(text.utf8)).first)
+        #expect(read.latitude == 37.7956906)
+        #expect(read.heading == 0)
+        #expect(read.position == Place.Position(height: 602.96, pitch: -12))
+    }
+
+    @Test func roundTrips() throws {
+        var position = Place(id: "c", name: "Over Paris", latitude: 48.8584, longitude: 2.2945, radius: 500,
+                             heading: 120)
+        position.position = Place.Position(height: 1200.5)
+        let saved = [
+            Place(id: "a", name: "Eiffel Tower", latitude: 48.8584, longitude: 2.2945, radius: 400, heading: 120),
+            Place(id: "b", name: "Somewhere / else", latitude: -33.8568, longitude: 151.2153, radius: 900),
+            position,
+        ]
+        #expect(contents(try PlaceGeoJSON.places(from: PlaceGeoJSON.data(for: saved))) == contents(saved))
+    }
+}
+
+@MainActor
+struct PlaceStoreTests {
+    let directory = FileManager.default.temporaryDirectory
+        .appending(path: "PlaceStoreTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+
+    private func file(_ name: String, _ json: String) throws -> URL {
+        let source = directory.appending(path: "source", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let url = source.appending(path: name)
+        try Data(json.utf8).write(to: url)
+        return url
+    }
+
+    private let point = """
+        {"type": "FeatureCollection", "features": [
+          {"type": "Feature", "geometry": {"type": "Point", "coordinates": [1, 2]}, "properties": {"name": "One"}}
+        ]}
+        """
+
+    @Test func myMapLastsAcrossLaunches() throws {
+        let store = PlaceStore(directory: directory)
+        try store.add(Place(id: "x", name: "Here", latitude: 1, longitude: 2, radius: 300, heading: 45))
+        try store.add(Place(id: "y", name: "There", latitude: 3, longitude: 4, radius: 300))
+        try store.rename("x", to: "  Home  ")
+        try store.remove(["y"])
+
+        let relaunched = PlaceStore(directory: directory)
+        #expect(contents(relaunched.myMap) == [Place(id: "", name: "Home", latitude: 1, longitude: 2, radius: 300, heading: 45)])
+    }
+
+    @Test func importedFileLastsAcrossLaunchesUnderItsName() throws {
+        let store = PlaceStore(directory: directory)
+        try store.importFile(file("Trip Ideas.geojson", point))
+
+        let relaunched = PlaceStore(directory: directory)
+        #expect(relaunched.imported?.name == "Trip Ideas")
+        #expect(relaunched.imported?.places.map(\.name) == ["One"])
+    }
+
+    /// A place that can't be written isn't shown, so it can't vanish at the
+    /// next launch.
+    @Test func aFailedSaveChangesNothing() throws {
+        // A file where the directory should be.
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let blocked = directory.appending(path: "blocked")
+        try Data().write(to: blocked)
+        let store = PlaceStore(directory: blocked)
+        #expect(throws: PlaceStore.SaveError.self) {
+            try store.add(Place(id: "x", name: "Here", latitude: 1, longitude: 2, radius: 300))
+        }
+        #expect(store.myMap.isEmpty)
+        #expect(PlaceStore(directory: blocked).myMap.isEmpty)
+    }
+
+    @Test func failedEditsKeepMyMapAsItWas() throws {
+        let store = PlaceStore(directory: directory)
+        try store.add(Place(id: "x", name: "Here", latitude: 1, longitude: 2, radius: 300))
+        try store.add(Place(id: "y", name: "There", latitude: 3, longitude: 4, radius: 300))
+        try readOnly(directory) {
+            #expect(throws: PlaceStore.SaveError.self) { try store.rename("x", to: "Home") }
+            #expect(throws: PlaceStore.SaveError.self) { try store.remove(["y"]) }
+            #expect(throws: PlaceStore.SaveError.self) { try store.move(fromOffsets: [0], toOffset: 2) }
+        }
+        #expect(store.myMap.map(\.name) == ["Here", "There"])
+        #expect(PlaceStore(directory: directory).myMap.map(\.name) == ["Here", "There"])
+    }
+
+    @Test func anotherImportReplacesTheKeptFile() throws {
+        let store = PlaceStore(directory: directory)
+        try store.importFile(file("First.geojson", point))
+        try store.importFile(file("Second.geojson", point))
+        #expect(PlaceStore(directory: directory).imported?.name == "Second")
+        let kept = try FileManager.default.contentsOfDirectory(atPath: directory.appending(path: "Imported").path)
+        #expect(kept == ["Second.geojson"])
+        #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "Importing").path))
+    }
+
+    @Test func anImportThatCantBeKeptLeavesTheSetAlone() throws {
+        let store = PlaceStore(directory: directory)
+        try store.importFile(file("First.geojson", point))
+        let second = try file("Second.geojson", point)
+        try readOnly(directory) {
+            #expect(throws: PlaceStore.ImportError.self) { try store.importFile(second) }
+        }
+        #expect(store.imported?.name == "First")
+        #expect(PlaceStore(directory: directory).imported?.name == "First")
+    }
+
+    /// Runs `body` with `directory` unwritable.
+    private func readOnly(_ directory: URL, _ body: () throws -> Void) throws {
+        let files = FileManager.default
+        try files.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+        defer { try? files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path) }
+        try body()
+    }
+
+    @Test func anImportedMyMapIsMarked() throws {
+        let store = PlaceStore(directory: directory)
+        try store.importFile(file("My Map.alsomaps", point))
+        #expect(store.imported?.name == "My Map (Imported)")
+        #expect(PlaceStore(directory: directory).imported?.name == "My Map (Imported)")
+    }
+
+    @Test func importingAnotherReplacesIt() throws {
+        let store = PlaceStore(directory: directory)
+        try store.importFile(file("First.geojson", point))
+        try store.importFile(file("Second.alsomaps", point))
+        #expect(PlaceStore(directory: directory).imported?.name == "Second")
+    }
+
+    @Test func aFailedImportKeepsTheCurrentSet() throws {
+        let store = PlaceStore(directory: directory)
+        try store.importFile(file("Good.geojson", point))
+        #expect(throws: PlaceStore.ImportError.noPlaces) {
+            try store.importFile(file("Lines.geojson", """
+                {"type": "FeatureCollection", "features": [
+                  {"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[0, 0], [1, 1]]}, "properties": {}}
+                ]}
+                """))
+        }
+        #expect(throws: PlaceStore.ImportError.notGeoJSON) { try store.importFile(file("Bad.geojson", "nope")) }
+        #expect(throws: PlaceStore.ImportError.unreadable) {
+            try store.importFile(directory.appending(path: "missing.geojson"))
+        }
+        #expect(store.imported?.name == "Good")
+        #expect(PlaceStore(directory: directory).imported?.name == "Good")
+    }
+
+    @Test func removingTheImportedSetLasts() throws {
+        let store = PlaceStore(directory: directory)
+        try store.importFile(file("Gone.geojson", point))
+        store.removeImported()
+        #expect(store.imported == nil)
+        #expect(PlaceStore(directory: directory).imported == nil)
+    }
+}
+
+@MainActor
+struct PlaceStoreMoveTests {
+    @Test(arguments: [
+        (IndexSet([0]), 3, ["b", "c", "a"]),
+        (IndexSet([2]), 0, ["c", "a", "b"]),
+        (IndexSet([0, 2]), 2, ["b", "a", "c"]),
+    ])
+    func movesLikeAList(source: IndexSet, destination: Int, expected: [String]) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "PlaceStoreMoveTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let store = PlaceStore(directory: directory)
+        for id in ["a", "b", "c"] {
+            try store.add(Place(id: id, name: id, latitude: 0, longitude: 0, radius: 100))
+        }
+        try store.move(fromOffsets: source, toOffset: destination)
+        #expect(store.myMap.map(\.name) == expected)
+        #expect(PlaceStore(directory: directory).myMap.map(\.name) == expected)
+    }
+}
+
+struct PlacePositionTests {
+    /// Saving a navigation position and going back gives the same one.
+    @Test(arguments: [true, false])
+    func roundTrips(savesPitch: Bool) throws {
+        let pose = CameraPose(latitude: 64.1, longitude: -120.5, height: 563_000,
+                              heading: -0.4, pitch: -0.3)
+        let place = Place(id: "p", name: "Here", position: pose, savesPitch: savesPitch)
+        let read = try #require(try PlaceGeoJSON.places(from: PlaceGeoJSON.data(for: [place])).first)
+        let back = try #require(read.pose(pitch: -1))
+        #expect(abs(back.latitude - pose.latitude) < 1e-7)
+        #expect(abs(back.longitude - pose.longitude) < 1e-7)
+        #expect(abs(back.height - pose.height) < 0.01)
+        #expect(abs(NavigationOperations.wrapped(back.heading - pose.heading)) < 1e-3)
+        #expect(abs(back.pitch - (savesPitch ? pose.pitch : -1)) < 1e-3)
+    }
+
+    @Test func aPlaceToLookAtHasNoPose() {
+        #expect(Place(id: "a", name: "A", latitude: 1, longitude: 2, radius: 300).pose(pitch: 0) == nil)
+    }
+}

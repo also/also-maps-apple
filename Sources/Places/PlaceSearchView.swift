@@ -1,5 +1,6 @@
 #if !os(tvOS)
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The saved places, or with a query, Google's suggestions for it.
 struct PlacesList: View {
@@ -9,8 +10,34 @@ struct PlacesList: View {
     var near: () -> GeoCoordinate?
     var selectedID: String?
     var go: (Place) -> Void
+    #if os(iOS)
+    @State private var editsMyMap = false
+    #else
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     var body: some View {
+        content
+            #if os(iOS)
+            .sheet(isPresented: $editsMyMap) { MyMapEditor() }
+            #endif
+    }
+
+    #if os(visionOS)
+    private let myMapWindowTitle = "Open in Window"
+    #else
+    private let myMapWindowTitle = "Edit My Map…"
+    #endif
+
+    private func editMyMap() {
+        #if os(iOS)
+        editsMyMap = true
+        #else
+        openWindow(id: MyMapEditor.windowID)
+        #endif
+    }
+
+    @ViewBuilder private var content: some View {
         #if os(macOS)
         // A Mac List draws each button as a filled row; rows like a menu's,
         // highlighted under the pointer, suit a popover better.
@@ -53,15 +80,74 @@ struct PlacesList: View {
                 }
             }
         } else {
-            ForEach(PlaceLibrary.all) { place in
-                Button {
-                    search.cancelChoice()
-                    go(place)
-                } label: {
-                    row(place.name, isSelected: place.id == selectedID)
+            let store = PlaceStore.shared
+            if !store.myMap.isEmpty {
+                section("My Map", accessory: {
+                    Button(myMapWindowTitle, action: editMyMap)
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                }) {
+                    ForEach(store.myMap) { placeButton($0) }
+                }
+            }
+            if let imported = store.imported {
+                section(imported.name) {
+                    ForEach(imported.places) { placeButton($0) }
+                }
+            }
+            // The built-in and remote config's places come after the user's
+            // own, under their own heading once there are any.
+            section(store.myMap.isEmpty && store.imported == nil ? nil : "Suggestions") {
+                ForEach(PlaceLibrary.all) { placeButton($0) }
+            }
+        }
+    }
+
+    private func placeButton(_ place: Place) -> some View {
+        Button {
+            search.cancelChoice()
+            go(place)
+        } label: {
+            row(place.name, isSelected: place.id == selectedID)
+        }
+    }
+
+    private func section<Content: View>(_ title: String?, @ViewBuilder content: () -> Content) -> some View {
+        section(title, accessory: { EmptyView() }, content: content)
+    }
+
+    @ViewBuilder
+    private func section<Accessory: View, Content: View>(
+        _ title: String?, @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content
+    ) -> some View {
+        #if os(macOS)
+        if let title {
+            HStack {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                accessory()
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+        }
+        content()
+        #else
+        Section {
+            content()
+        } header: {
+            if let title {
+                HStack {
+                    Text(title)
+                    Spacer()
+                    accessory()
+                        .textCase(nil)
                 }
             }
         }
+        #endif
     }
 
     private func row(_ name: String, detail: String? = nil, isSelected: Bool = false,
@@ -116,9 +202,13 @@ private struct MenuRowStyle: ButtonStyle {
 #endif
 
 /// Places search with its own field, for a popover from the Places button.
-/// The field is there only while the map shows Google's tiles.
+/// The field is there only while the map shows Google's tiles. Below the
+/// list, files: importing one, exporting (Mac) or sharing My Map.
 struct PlacesPanel: View {
     @State private var search = PlaceSearch()
+    @State private var importing = false
+    @State private var exporting = false
+    @State private var fileProblem: String?
     var searchesGoogle: Bool
     var near: () -> GeoCoordinate?
     var selectedID: String? = nil
@@ -134,12 +224,124 @@ struct PlacesPanel: View {
                     .padding()
             }
             PlacesList(search: search, near: near, selectedID: selectedID, go: go)
+            fileActions
         }
         .frame(width: 360, height: 440)
         .onChange(of: searchesGoogle, initial: true) { search.searchesGoogle = $1 }
         .onDisappear { search.cancelChoice() }
     }
 }
+
+#if os(macOS)
+/// My Map as a document, for saving with the export panel.
+private struct PlacesFile: FileDocument {
+    static let readableContentTypes: [UTType] = [.alsoMaps]
+    var places: [Place]
+
+    init(places: [Place]) { self.places = places }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents else { throw CocoaError(.fileReadCorruptFile) }
+        places = try PlaceGeoJSON.places(from: data)
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: try PlaceGeoJSON.data(for: places))
+    }
+}
+#endif
+
+extension PlacesPanel {
+    @ViewBuilder fileprivate var fileActions: some View {
+        let store = PlaceStore.shared
+        VStack(alignment: .leading, spacing: 8) {
+            if let fileProblem {
+                Text(fileProblem)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Button("Import…", systemImage: "square.and.arrow.down") { importing = true }
+                if !store.myMap.isEmpty {
+                    #if os(macOS)
+                    // On the Mac, saving a file somewhere is the usual way out.
+                    Button("Export My Map…", systemImage: "square.and.arrow.up") { exporting = true }
+                        .fileExporter(isPresented: $exporting, document: PlacesFile(places: store.myMap),
+                                      contentType: .alsoMaps, defaultFilename: "My Map") { result in
+                            if case let .failure(error) = result { fileProblem = error.localizedDescription }
+                        }
+                    #endif
+                    // On visionOS, sharing is in the My Map window.
+                    #if !os(visionOS)
+                    ShareLink(item: store.myMapFile) {
+                        Label("Share My Map", systemImage: "square.and.arrow.up")
+                    }
+                    #if os(macOS)
+                    .labelStyle(.iconOnly)
+                    .help("Share My Map")
+                    #endif
+                    #endif
+                }
+                Spacer()
+                if let imported = store.imported {
+                    Button("Remove \(imported.name)", systemImage: "xmark.circle") {
+                        store.removeImported()
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Remove \(imported.name)")
+                }
+            }
+        }
+        .padding()
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.alsoMaps, .geoJSON]) { result in
+            do {
+                try store.importFile(result.get())
+                fileProblem = nil
+            } catch {
+                fileProblem = error.localizedDescription
+            }
+        }
+    }
+}
+
+#if os(iOS)
+/// The iPhone Places sheet's … menu: the file actions that PlacesPanel
+/// shows under its list elsewhere.
+struct PlacesFileMenu: View {
+    @State private var importing = false
+    @State private var fileProblem: String?
+
+    var body: some View {
+        let store = PlaceStore.shared
+        Menu("More", systemImage: "ellipsis") {
+            Button("Import…", systemImage: "square.and.arrow.down") { importing = true }
+            if !store.myMap.isEmpty {
+                ShareLink(item: store.myMapFile) {
+                    Label("Share My Map", systemImage: "square.and.arrow.up")
+                }
+            }
+            if let imported = store.imported {
+                Button("Remove \(imported.name)", systemImage: "xmark.circle", role: .destructive) {
+                    store.removeImported()
+                }
+            }
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.alsoMaps, .geoJSON]) { result in
+            do {
+                try store.importFile(result.get())
+            } catch {
+                fileProblem = error.localizedDescription
+            }
+        }
+        .alert("Couldn't Import", isPresented: Binding(get: { fileProblem != nil },
+                                                      set: { if !$0 { fileProblem = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(fileProblem ?? "")
+        }
+    }
+}
+#endif
 
 /// Google's attribution for Places content shown off the map: the logo,
 /// which the app only has in white, so the name in light appearance.

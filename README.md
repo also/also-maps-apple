@@ -215,6 +215,7 @@ It needs a logged-in macOS session, since it opens a window. Kill it by PID when
 Where things land when unsandboxed:
 - **HTTP cache**: `~/Library/Caches/dev.also.maps/tiles/`. Delete it for a cold run. See [docs/tile-caching.md](docs/tile-caching.md).
 - **Defaults**: `~/Library/Preferences/dev.also.maps.plist`.
+- **Places**: `~/Library/Application Support/dev.also.maps/Places/`: `My Map.alsomaps` and `Imported/`, the last imported file.
 
 Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](docs/profiling.md). Tile caching, the request counters in the Tuning stats, and how to measure them are in [docs/tile-caching.md](docs/tile-caching.md).
 

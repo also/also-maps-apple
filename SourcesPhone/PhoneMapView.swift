@@ -7,6 +7,8 @@ struct PhoneMapView: View {
     @State private var map = PhoneMapView.makeMap()
     @State private var selection = initialPlace
     @State private var showsPlaces = false
+    /// The view being saved to My Map, while its name is chosen.
+    @State private var savingPlace: PlaceToSave?
     @State private var search = PlaceSearch()
     @State private var showsSettings = false
     @Environment(\.scenePhase) private var scenePhase
@@ -61,11 +63,11 @@ struct PhoneMapView: View {
                 if phase != .active { map.tracks.flush() }
             }
             .onDisappear { map.tracks.flush() }
-            .opensPlaceLinks { place in
+            .opensPlaces(go: { place in
                 selection = place
                 map.go(to: place)
                 showsPlaces = false
-            }
+            }, imported: { showsPlaces = true })
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
                     trackControls
@@ -73,6 +75,10 @@ struct PhoneMapView: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button("Settings", systemImage: "gearshape") {
                         showsSettings = true
+                    }
+                    Button("Save to My Map", systemImage: "star") {
+                        savingPlace = PlaceToSave(place: map.currentPlace(id: UUID().uuidString, name: ""),
+                                                  viewCenter: map.viewCenter)
                     }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
@@ -82,6 +88,11 @@ struct PhoneMapView: View {
             .sheet(isPresented: $showsSettings) {
                 @Bindable var map = map
                 SettingsView(settings: $map.settings) { showsSettings = false }
+            }
+            .sheet(item: $savingPlace) { saving in
+                SavePlaceView(saving: saving) { savingPlace = nil }
+                    .frame(maxWidth: .infinity)
+                    .presentationDetents([.medium])
             }
             .sheet(isPresented: $showsPlaces, onDismiss: {
                 search.cancelChoice()
@@ -104,6 +115,7 @@ struct PhoneMapView: View {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("Done") { showsPlaces = false }
                         }
+                        ToolbarItem(placement: .primaryAction) { PlacesFileMenu() }
                     }
                 }
                 .presentationDetents([.medium, .large])

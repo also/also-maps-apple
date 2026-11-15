@@ -14,6 +14,8 @@ struct VolumeView: View {
     @AppStorage(ViewPreferences.showsDebugControlsKey) private var showsDebugControls = false
     @State private var showsDebugPanel = false
     @State private var showsPlaces = false
+    /// The view being saved to My Map, while its name is chosen.
+    @State private var savingPlace: PlaceToSave?
 
     var body: some View {
         RealityView { content in
@@ -26,6 +28,7 @@ struct VolumeView: View {
         // With the map in an immersive space the volume is only the control
         // panel; its baseplate would outline an empty box.
         .volumeBaseplateVisibility(model.presentation.host == .volume ? .automatic : .hidden)
+        .opensPlaces(go: { model.go(to: $0) }, imported: { showsPlaces = true })
         .onAppear { model.volumeIsOpen = true }
         .onDisappear { model.volumeDidClose() }
         // Closing the window doesn't make it disappear, it sends its scene
@@ -45,6 +48,15 @@ struct VolumeView: View {
                 presentationPicker
                 TrackMenu(tracks: model.tracks, play: model.startPlayback, stopPlayback: model.stopPlayback)
                     .labelStyle(.iconOnly)
+                Button("Save to My Map", systemImage: "star") {
+                    savingPlace = PlaceToSave(place: model.currentPlace(id: UUID().uuidString, name: ""),
+                                          viewCenter: model.viewCenter)
+                }
+                .labelStyle(.iconOnly)
+                .help("Save this view to My Map")
+                .popover(item: $savingPlace) { saving in
+                    SavePlaceView(saving: saving) { savingPlace = nil }
+                }
                 Button("Places", systemImage: "mappin.and.ellipse") {
                     showsPlaces = true
                 }

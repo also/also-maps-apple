@@ -22,6 +22,10 @@ struct AlsoMapsMacApp: App {
         }
         .defaultSize(width: view.viewportSize.width, height: view.viewportSize.height)
 
+        Window("My Map", id: MyMapEditor.windowID) {
+            MyMapEditor()
+        }
+        .defaultSize(width: 360, height: 420)
         Settings {
             SettingsView(settings: $settings)
                 .frame(width: 680, height: 520)
@@ -39,6 +43,8 @@ struct MacMapView: View {
     /// ALSOMAPS_DIAGRAM opens it at launch, for tools.
     @State private var showsDiagram = ProcessInfo.processInfo.environment["ALSOMAPS_DIAGRAM"] != nil
     @State private var showsPlaces = false
+    /// The view being saved to My Map, while its name is chosen.
+    @State private var savingPlace: PlaceToSave?
     @FocusState private var focused: Bool
 
     init(start: StaticView, settings: StreamingSettings) {
@@ -58,7 +64,7 @@ struct MacMapView: View {
             .focused($focused)
             .onKeyPress(phases: .all) { _ in .handled }
             .onAppear { focused = true }
-            .opensPlaceLinks { map.go(to: $0) }
+            .opensPlaces(go: { map.go(to: $0) }, imported: { showsPlaces = true })
             .onChange(of: settings) { _, settings in map.settings = settings }
             .overlay(alignment: .topTrailing) {
                 HStack {
@@ -69,6 +75,16 @@ struct MacMapView: View {
                     }
                     .help("Show how the camera is placed in each host (⌥⌘D)")
                     .keyboardShortcut("d", modifiers: [.command, .option])
+                    Button("Save to My Map", systemImage: "star") {
+                        savingPlace = PlaceToSave(place: map.currentPlace(id: UUID().uuidString, name: ""),
+                                                  viewCenter: map.viewCenter)
+                    }
+                    // ⌘D, like adding a bookmark in Safari; ⌘S saves files.
+                    .help("Save this view to My Map (⌘D)")
+                    .keyboardShortcut("d")
+                    .popover(item: $savingPlace, arrowEdge: .bottom) { saving in
+                        SavePlaceView(saving: saving) { savingPlace = nil }
+                    }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
                     }

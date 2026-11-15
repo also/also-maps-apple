@@ -69,4 +69,26 @@ enum ScreenView {
         let distance = max(radius, 1) / tan(fieldOfView / 2)
         return CameraPose(position: target - forward * distance, forward: forward, fallbackHeading: heading)
     }
+
+    /// The view `camera` shows, the inverse of `framePlace`: the ground at
+    /// the screen's center (or, looking at or above the horizon, the lowest
+    /// usable ray's), the radius that fills the view from that far back,
+    /// and the way the view faces there. Nil when the ray misses the ground.
+    static func shownView(camera: CameraPose, groundHeight: Double, fieldOfView: Double)
+        -> (center: GeoCoordinate, height: Double, radius: Double, heading: Double)? {
+        let viewport = ScreenViewport(size: [2, 2], fieldOfView: fieldOfView)
+        guard let hit = ScreenGestures.groundPoint(camera: camera, point: viewport.center,
+                                                   viewport: viewport, groundHeight: groundHeight)
+        else { return nil }
+        let (center, height) = Geodesy.geodetic(hit)
+        let toCenter = hit - camera.position
+        let radius = simd_length(toCenter) * tan(fieldOfView / 2)
+        // The horizontal direction toward the center, at the center; straight
+        // down has none, so the camera's own heading.
+        let frame = Geodesy.enu(latitude: center.latitude, longitude: center.longitude)
+        let north = simd_dot(toCenter, frame.north), east = simd_dot(toCenter, frame.east)
+        let heading = (north * north + east * east).squareRoot() > 1e-6 * simd_length(toCenter)
+            ? atan2(east, north) : camera.heading
+        return (center, height, radius, heading)
+    }
 }

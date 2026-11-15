@@ -47,7 +47,6 @@ struct AlsoMapsApp: App {
                 .credentialGate()
                 .appGate()
                 .keepsVolumeDepth()
-                .opensPlaceLinks { model.go(to: $0) }
         }
         .windowStyle(.volumetric)
         .defaultSize(width: MapModel.volumeSize.x,
@@ -66,6 +65,16 @@ struct AlsoMapsApp: App {
             if blocked { model.flushTrack() }
         }
 
+        WindowGroup("My Map", id: MyMapEditor.windowID) {
+            MyMapEditor()
+                .environment(model)
+        }
+        .defaultSize(width: 520, height: 640)
+        // A utility window, like Settings: place links and files go to the
+        // volume, and reopening the app brings back the volume, not this.
+        .handlesExternalEvents(matching: [])
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
         WindowGroup(id: SettingsView.windowID) {
             @Bindable var model = model
             SettingsView(settings: $model.settings)

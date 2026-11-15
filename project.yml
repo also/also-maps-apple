@@ -111,6 +111,23 @@ targets:
         CFBundleURLTypes: &placeLinkURLTypes
           - CFBundleURLName: dev.also.maps.place
             CFBundleURLSchemes: [alsomaps]
+        # Opens files (Sources/Places/PlaceStore.swift): .alsomaps is ours,
+        # GeoJSON underneath; plain .geojson opens too.
+        UTExportedTypeDeclarations: &fileTypes
+          - UTTypeIdentifier: dev.also.maps.document
+            UTTypeDescription: Also Maps Document
+            UTTypeConformsTo: [public.geojson]
+            UTTypeTagSpecification:
+              public.filename-extension: [alsomaps]
+        CFBundleDocumentTypes: &documentTypes
+          - CFBundleTypeName: Also Maps Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Owner
+            LSItemContentTypes: [dev.also.maps.document]
+          - CFBundleTypeName: GeoJSON
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.geojson]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
           UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleVolumetricApplication
@@ -221,6 +238,8 @@ targets:
         LSApplicationCategoryType: public.app-category.navigation
         # Place links, as for the visionOS app.
         CFBundleURLTypes: *placeLinkURLTypes
+        UTExportedTypeDeclarations: *fileTypes
+        CFBundleDocumentTypes: *documentTypes
     postBuildScripts:
       # Place names, as for the visionOS app.
       - *geographyScript
@@ -270,6 +289,8 @@ targets:
       - path: Tests/Metal
       - path: Sources/Places/Place.swift
       - path: Sources/Places/PlaceLink.swift
+      - path: Sources/Places/PlaceGeoJSON.swift
+      - path: Sources/Places/PlaceStore.swift
       - path: Sources/Places/PlacesClient.swift
       - path: Sources/Places/PlaceSearch.swift
       - path: Tests/Places
@@ -394,6 +415,8 @@ targets:
         UILaunchScreen: {}
         # Place links, as for the visionOS app.
         CFBundleURLTypes: *placeLinkURLTypes
+        UTExportedTypeDeclarations: *fileTypes
+        CFBundleDocumentTypes: *documentTypes
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

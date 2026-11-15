@@ -354,23 +354,44 @@ final class MapModel {
                                         tiltFollowsAltitude: tiltFollowsAltitude)
     }
 
-    /// Jumps to `place`: a camera framing its position, size and facing.
-    /// Tiles for the old area unload as they fall outside the streamed
-    /// region; the new area streams in.
+    /// Jumps to `place`: its navigation position, or for a place that's
+    /// what you're looking at, a camera framing its center, size and
+    /// facing. Tiles for the old area unload as they fall outside the
+    /// streamed region; the new area streams in.
     func go(to place: Place) {
         if tilesHeld { setTilesHeld(false) }
         stopPlayback()
         endManipulation()
-        placeAwaitsGround = true
         placementGround.reset(to: 0)
         cameraGround.reset(to: 0)
         framing = nil
-        var camera = Self.framing(place, in: presentation, groundHeight: 0, tiltFollowsAltitude: tiltFollowsAltitude)
-        camera.height = context.clampHeight(camera.height)
+        let camera: CameraPose
+        if let position = place.pose(pitch: navigation.camera.pitch) {
+            // Exactly where it was saved: its height is above the ellipsoid,
+            // so the ground found there changes the scale, not the position.
+            placeAwaitsGround = false
+            camera = position
+        } else {
+            placeAwaitsGround = true
+            var framed = Self.framing(place, in: presentation, groundHeight: 0, tiltFollowsAltitude: tiltFollowsAltitude)
+            framed.height = context.clampHeight(framed.height)
+            camera = framed
+        }
         navigation = flight.activate(NavigationState(camera: camera))
         tracks.markJump()
         applyView()
         requestGroundSample()
+    }
+
+    /// The navigation position as a place to save. No pitch: the tilt
+    /// follows the height here.
+    func currentPlace(id: String, name: String) -> Place {
+        Place(id: id, name: name, position: navigation.camera, savesPitch: false)
+    }
+
+    /// The ground at the center of what's shown.
+    var viewCenter: GeoCoordinate {
+        Geodesy.geodetic((framing ?? frame(navigation.camera)).georeferencePoint).coordinate
     }
 
     // MARK: Gestures
