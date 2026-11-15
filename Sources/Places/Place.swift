@@ -52,13 +52,6 @@ struct Place: Codable, Identifiable, Hashable {
         position = Position(height: pose.height, pitch: savesPitch ? pose.pitch * 180 / .pi : nil)
     }
 
-    /// `place` with another id.
-    init(copying place: Place, id: String) {
-        self.init(id: id, name: place.name, latitude: place.latitude, longitude: place.longitude,
-                  radius: place.radius, heading: place.heading)
-        position = place.position
-    }
-
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)

@@ -1,28 +1,38 @@
 import Foundation
 import Testing
 
-private func places(_ json: String, idPrefix: String = "") throws -> [Place] {
-    try PlaceGeoJSON.places(from: Data(json.utf8), idPrefix: idPrefix)
+private func places(_ json: String) throws -> [Place] {
+    try PlaceGeoJSON.places(from: Data(json.utf8))
+}
+
+/// Places as files keep them: everything but the id, which is new each read.
+private func contents(_ places: [Place]) -> [Place] {
+    places.map { p in
+        var copy = Place(id: "", name: p.name, latitude: p.latitude, longitude: p.longitude,
+                         radius: p.radius, heading: p.heading)
+        copy.position = p.position
+        return copy
+    }
 }
 
 struct PlaceGeoJSONTests {
     @Test func readsEveryField() throws {
-        let p = try #require(try places("""
+        let p = try #require(contents(try places("""
             {"type": "FeatureCollection", "features": [{
-              "type": "Feature", "id": "eiffel",
+              "type": "Feature",
               "geometry": {"type": "Point", "coordinates": [2.2945, 48.8584, 35]},
               "properties": {"name": "Eiffel Tower", "alsoMaps": {"radius": 400, "heading": 120}}
             }]}
-            """).first)
+            """)).first)
         // With a radius it's a center to look at; the third coordinate is
         // ignored.
-        #expect(p == Place(id: "eiffel", name: "Eiffel Tower", latitude: 48.8584, longitude: 2.2945,
+        #expect(p == Place(id: "", name: "Eiffel Tower", latitude: 48.8584, longitude: 2.2945,
                            radius: 400, heading: 120))
     }
 
     @Test func readsANavigationPosition() throws {
         let p = try #require(try places("""
-            {"type": "Feature", "id": "over",
+            {"type": "Feature",
              "geometry": {"type": "Point", "coordinates": [2.2945, 48.8584, 1200]},
              "properties": {"name": "Over Paris", "alsoMaps": {"heading": 120, "pitch": -20}}}
             """).first)
@@ -52,7 +62,6 @@ struct PlaceGeoJSONTests {
         #expect(p.radius == PlaceGeoJSON.defaultRadius)
         #expect(p.heading == 0)
         #expect(p.position == nil)
-        #expect(p.id == "#0")
     }
 
     /// Other geometry, bad points and unknown members are skipped.
@@ -74,7 +83,6 @@ struct PlaceGeoJSONTests {
         #expect(p.name == "2.0000, 1.0000")
         #expect(p.radius == PlaceGeoJSON.defaultRadius)
         #expect(p.heading == 0)
-        #expect(p.id == "#6")
     }
 
     @Test func headingWraps() throws {
@@ -85,14 +93,21 @@ struct PlaceGeoJSONTests {
         #expect(p.heading == 270)
     }
 
-    @Test func idsArePrefixedAndUnique() throws {
-        let result = try places("""
+    /// Feature ids aren't used, so repeated ones are no problem, and none
+    /// are written.
+    @Test func featureIDsAreIgnored() throws {
+        let json = """
             {"type": "FeatureCollection", "features": [
               {"type": "Feature", "id": 7, "geometry": {"type": "Point", "coordinates": [0, 0]}, "properties": {}},
               {"type": "Feature", "id": 7, "geometry": {"type": "Point", "coordinates": [1, 1]}, "properties": {}}
             ]}
-            """, idPrefix: "imported:")
-        #expect(result.map(\.id) == ["imported:7", "imported:#1"])
+            """
+        let first = try places(json), second = try places(json)
+        #expect(Set(first.map(\.id) + second.map(\.id)).count == 4)
+        let written = try JSONSerialization.jsonObject(with: PlaceGeoJSON.data(for: first)) as? [String: Any]
+        let features = try #require(written?["features"] as? [[String: Any]])
+        #expect(features.count == 2)
+        #expect(features.allSatisfy { $0["id"] == nil })
     }
 
     @Test(arguments: ["", "[1, 2]", "{\"type\": \"Point\", \"coordinates\": [0, 0]}", "not json"])
@@ -130,7 +145,7 @@ struct PlaceGeoJSONTests {
             Place(id: "b", name: "Somewhere / else", latitude: -33.8568, longitude: 151.2153, radius: 900),
             position,
         ]
-        #expect(try PlaceGeoJSON.places(from: PlaceGeoJSON.data(for: saved)) == saved)
+        #expect(contents(try PlaceGeoJSON.places(from: PlaceGeoJSON.data(for: saved))) == contents(saved))
     }
 }
 
@@ -161,7 +176,7 @@ struct PlaceStoreTests {
         store.remove("y")
 
         let relaunched = PlaceStore(directory: directory)
-        #expect(relaunched.myMap == [Place(id: "x", name: "Home", latitude: 1, longitude: 2, radius: 300, heading: 45)])
+        #expect(contents(relaunched.myMap) == [Place(id: "", name: "Home", latitude: 1, longitude: 2, radius: 300, heading: 45)])
     }
 
     @Test func importedFileLastsAcrossLaunchesUnderItsName() throws {
@@ -171,7 +186,6 @@ struct PlaceStoreTests {
         let relaunched = PlaceStore(directory: directory)
         #expect(relaunched.imported?.name == "Trip Ideas")
         #expect(relaunched.imported?.places.map(\.name) == ["One"])
-        #expect(relaunched.imported?.places.first?.id.hasPrefix(PlaceStore.importedIDPrefix) == true)
     }
 
     @Test func anImportedMyMapIsMarked() throws {
@@ -230,8 +244,8 @@ struct PlaceStoreMoveTests {
             store.add(Place(id: id, name: id, latitude: 0, longitude: 0, radius: 100))
         }
         store.move(fromOffsets: source, toOffset: destination)
-        #expect(store.myMap.map(\.id) == expected)
-        #expect(PlaceStore(directory: directory).myMap.map(\.id) == expected)
+        #expect(store.myMap.map(\.name) == expected)
+        #expect(PlaceStore(directory: directory).myMap.map(\.name) == expected)
     }
 }
 

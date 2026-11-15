@@ -51,10 +51,6 @@ final class PlaceStore {
     var myMapFile: URL { directory.appending(path: "My Map.alsomaps") }
     private var importedDirectory: URL { directory.appending(path: "Imported", directoryHint: .isDirectory) }
 
-    /// Imported places' ids start with this, so they can't match a My Map or
-    /// suggested place's.
-    static let importedIDPrefix = "imported:"
-
     @ObservationIgnored private let log = Logger(subsystem: "dev.also.maps", category: "PlaceStore")
 
     init(directory: URL) {
@@ -65,7 +61,7 @@ final class PlaceStore {
         if let file = try? FileManager.default.contentsOfDirectory(at: importedDirectory, includingPropertiesForKeys: nil)
             .first(where: { !$0.lastPathComponent.hasPrefix(".") }),
            let data = try? Data(contentsOf: file),
-           let places = try? PlaceGeoJSON.places(from: data, idPrefix: Self.importedIDPrefix) {
+           let places = try? PlaceGeoJSON.places(from: data) {
             imported = ImportedSet(name: Self.importedName(file), places: places)
         }
     }
@@ -119,7 +115,7 @@ final class PlaceStore {
         do { data = try Data(contentsOf: url) } catch { throw .unreadable }
 
         let places: [Place]
-        do { places = try PlaceGeoJSON.places(from: data, idPrefix: Self.importedIDPrefix) } catch {
+        do { places = try PlaceGeoJSON.places(from: data) } catch {
             throw .notGeoJSON
         }
         guard !places.isEmpty else { throw .noPlaces }

@@ -4,7 +4,7 @@ import Foundation
 /// place is a Point feature, in one of Place's two forms:
 ///
 ///     // Where you are: a navigation position, saved to My Map.
-///     { "type": "Feature", "id": "…",
+///     { "type": "Feature",
 ///       "geometry": { "type": "Point", "coordinates": [2.2945, 48.8584, 1200] },
 ///       "properties": { "name": "Over Paris", "alsoMaps": { "heading": 120 } } }
 ///
@@ -23,7 +23,9 @@ import Foundation
 /// clockwise from north.
 ///
 /// Reading is tolerant, since files come from anywhere: other geometry,
-/// unusable points and unknown members are skipped, not errors.
+/// unusable points and unknown members are skipped, not errors. Features'
+/// `id`s are ignored and none are written: each place read gets a new id,
+/// which only tells places apart while the app runs.
 enum PlaceGeoJSON {
     /// View half-width for a point with no usable `alsoMaps.radius`, meters.
     static let defaultRadius = PlaceLink.defaultRadius
@@ -34,9 +36,8 @@ enum PlaceGeoJSON {
     }
 
     /// The Point features in a FeatureCollection or a single Feature, in
-    /// order. Each place's id is the feature's `id` prefixed with
-    /// `idPrefix`, or its position when the feature has none or repeats one.
-    static func places(from data: Data, idPrefix: String = "") throws -> [Place] {
+    /// order, each with a new id.
+    static func places(from data: Data) throws -> [Place] {
         guard let object = try? JSONSerialization.jsonObject(with: data) else { throw ReadError.notJSON }
         guard let root = object as? [String: Any] else { throw ReadError.notGeoJSON }
         let features: [Any]
@@ -46,17 +47,7 @@ enum PlaceGeoJSON {
         default: throw ReadError.notGeoJSON
         }
 
-        var places: [Place] = []
-        var seen = Set<String>()
-        for (index, item) in features.enumerated() {
-            guard let feature = item as? [String: Any], var place = place(from: feature) else { continue }
-            var id = featureID(feature["id"]) ?? "#\(index)"
-            if seen.contains(id) { id = "#\(index)" }
-            seen.insert(id)
-            place = Place(copying: place, id: idPrefix + id)
-            places.append(place)
-        }
-        return places
+        return features.compactMap { ($0 as? [String: Any]).flatMap(place(from:)) }
     }
 
     /// A FeatureCollection of `places`, pretty-printed so it reads and edits
@@ -73,7 +64,6 @@ enum PlaceGeoJSON {
             }
             return [
                 "type": "Feature",
-                "id": place.id,
                 "geometry": ["type": "Point", "coordinates": coordinates],
                 "properties": ["name": place.name, "alsoMaps": ours] as [String: Any],
             ]
@@ -94,7 +84,7 @@ enum PlaceGeoJSON {
         return NSDecimalNumber(string: "\(result)", locale: Locale(identifier: "en_US_POSIX"))
     }
 
-    /// The place for a Point feature, with an empty id, or nil for anything
+    /// The place for a Point feature, with a new id, or nil for anything
     /// else.
     private static func place(from feature: [String: Any]) -> Place? {
         guard feature["type"] as? String == "Feature",
@@ -109,7 +99,7 @@ enum PlaceGeoJSON {
         let heading = ours?["heading"].flatMap(number).map(normalizedHeading) ?? 0
         let name = (properties["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             ?? PlaceLink.coordinateName(latitude, longitude)
-        var place = Place(id: "", name: name, latitude: latitude, longitude: longitude,
+        var place = Place(id: UUID().uuidString, name: name, latitude: latitude, longitude: longitude,
                           radius: defaultRadius, heading: heading)
 
         if let ours, ours["radius"] == nil, coordinates.count > 2, let height = number(coordinates[2]) {
@@ -121,16 +111,6 @@ enum PlaceGeoJSON {
             place.radius = radius
         }
         return place
-    }
-
-    /// GeoJSON allows a string or a number.
-    private static func featureID(_ value: Any?) -> String? {
-        switch value {
-        case let string as String where !string.isEmpty: return string
-        case let number as NSNumber where !(number is Bool) && CFGetTypeID(number) != CFBooleanGetTypeID():
-            return number.stringValue
-        default: return nil
-        }
     }
 
     /// A finite JSON number. JSONSerialization reads `true` as an NSNumber,
