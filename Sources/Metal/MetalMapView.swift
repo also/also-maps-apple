@@ -5,7 +5,7 @@ import MetalKit
 import SwiftUI
 
 /// ScreenMapView, drawn by MetalTileRenderer instead of RealityKit while
-/// the Experimental renderer setting is on. Switching rebuilds the tiles
+/// Draw with Metal is on. Switching rebuilds the tiles
 /// for the other renderer (TileStreaming restarts; they reload from the
 /// cache).
 struct MetalOptionMapView: View {
