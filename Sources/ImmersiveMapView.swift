@@ -44,9 +44,10 @@ struct ImmersiveMapView: View {
                 content.add(attribution)
             }
         } update: { content, attachments in
-            // Full immersion hides passthrough, leaving black behind the map;
-            // show the sky there instead, as MetalImmersiveRenderer does.
-            content.entities.first { $0.name == Self.skyName }?.isEnabled = model.fullImmersion
+            // Full immersion, and progressive inside its portal, hide
+            // passthrough, leaving black behind the map; show the sky there
+            // instead, as MetalImmersiveRenderer does.
+            content.entities.first { $0.name == Self.skyName }?.isEnabled = model.immersion != .mixed
             // Keep the attribution at the map's near edge, a little above the
             // origin plane, as the presentation changes size.
             guard let attribution = attachments.entity(for: Self.attributionID) else { return }
