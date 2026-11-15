@@ -13,26 +13,36 @@ struct ControlInput: Equatable {
     var pitch = 0.0
     var fast = false
 
-    var boost: Double { fast ? 3 : 1 }
+    var isMoving: Bool { move != .zero || turn != 0 || climb != 0 || dolly != 0 || pitch != 0 }
 }
 
 /// Model flight, today's controls on the camera core: forward/right along
 /// the movement heading (linked to the view heading), climb straight up,
-/// turn in place, dolly along the view. Rates are starting values for
-/// tuning (docs/camera-core.md §12.2).
+/// turn in place, dolly along the view. Rates are from Settings
+/// (`ControlValues`), except pitch.
 struct ModelFlightStyle {
-    /// Fraction of height above ground travelled per second.
-    var moveRate = 0.75
-    /// Radians per second.
-    var turnRate = Double.pi / 3
-    /// e-folds of height above ground per second.
-    var climbRate = 1.0
-    /// e-folds of range per second.
-    var dollyRate = 1.0
     /// Radians per second.
     var pitchRate = Double.pi / 4
-    /// Surface the dolly target is found on, metres above the ellipsoid.
+    /// Turn, move, climb and zoom rates and boost.
+    var controls = ControlValues()
+    /// Surface the dolly target is found on along the view, meters above
+    /// the ellipsoid.
     var dollySurfaceHeight = 0.0
+    /// In a room host, where pitch doesn't show: the navigation position
+    /// moved to a height with its view center held in place. Zoom then changes the
+    /// height above the dolly surface, and the view center stays put.
+    /// Without it, zoom dollies along the view.
+    var holdingViewCenter: ((CameraPose, _ height: Double) -> CameraPose)?
+    /// A height above the ellipsoid zoom works below, if any: zooming out
+    /// stops 1% short of it, so there's room to zoom back in, and above it
+    /// (climbed to) zoom does nothing either way. Climbing isn't limited.
+    ///
+    /// Nothing about the world needs this limit. It keeps zoom out of the
+    /// room hosts' tilt range, where the immersive space's view center isn't
+    /// settled yet (#67).
+    var zoomCeiling: Double?
+    /// How far short of `zoomCeiling` zooming out stops, as a fraction.
+    static let zoomCeilingMargin = 0.01
 
     /// Takes over from another style: the view is unchanged, and movement
     /// heading follows the view from here on.
@@ -46,30 +56,48 @@ struct ModelFlightStyle {
     func step(_ state: NavigationState, input: ControlInput, deltaTime: Double,
               context: NavigationContext) -> NavigationState {
         var state = state
-        let boost = input.boost
+        let boost = input.fast ? controls.boost : 1
         if input.turn != 0 {
-            state = NavigationOperations.turn(state, by: input.turn * turnRate * boost * deltaTime)
+            state = NavigationOperations.turn(state, by: input.turn * controls.turnRate * boost * deltaTime)
         }
         if input.pitch != 0 {
             state = NavigationOperations.pitch(state, by: input.pitch * pitchRate * boost * deltaTime)
         }
         if input.climb != 0 {
             let altitude = context.altitude(of: state.camera)
-            let target = altitude * exp(input.climb * climbRate * boost * deltaTime)
+            let target = altitude * exp(input.climb * controls.climbRate * boost * deltaTime)
             state = NavigationOperations.climb(state, by: target - altitude, context: context)
         }
-        if input.dolly != 0 {
+        let belowCeiling = zoomCeiling.map { state.camera.height < $0 } ?? true
+        if input.dolly != 0, belowCeiling {
+            var context = context
+            if let zoomCeiling {
+                let stop = zoomCeiling * (1 - Self.zoomCeilingMargin)
+                context.maximumAltitude = min(context.maximumAltitude,
+                                              max(stop, state.camera.height) - context.cameraGround)
+            }
             let camera = state.camera
             let ray = Ray(origin: camera.position, direction: camera.basis.forward)
-            // Declines on a miss: there's nothing to approach.
-            if case let .hit(point, _) = Geodesy.intersect(ray: ray, surfaceHeight: dollySurfaceHeight) {
-                let fraction = 1 - exp(-input.dolly * dollyRate * boost * deltaTime)
+            let fraction = 1 - exp(-input.dolly * controls.zoomRate * boost * deltaTime)
+            if let holdingViewCenter {
+                let above = context.navigationHeight(of: camera) - dollySurfaceHeight
+                let height = context.clampHeight(context.storedHeight(
+                    navigationHeight: dollySurfaceHeight + above * (1 - min(fraction, 0.95)), at: camera))
+                // At a height limit, stay put rather than nudge the view.
+                if height != camera.height {
+                    let moved = holdingViewCenter(camera, height)
+                    let turn = NavigationOperations.wrapped(moved.heading - camera.heading)
+                    state.camera = moved
+                    state.movementHeading = NavigationOperations.wrapped(state.movementHeading + turn)
+                }
+            } else if case let .hit(point, _) = Geodesy.intersect(ray: ray, surfaceHeight: dollySurfaceHeight) {
+                // Declines on a miss: there's nothing to approach.
                 state = NavigationOperations.dolly(state, toward: point, fraction: fraction, context: context)
             }
         }
         if input.move != .zero {
-            let metres = context.altitude(of: state.camera) * moveRate * boost * deltaTime
-            state = NavigationOperations.move(state, forward: input.move.y * metres, right: input.move.x * metres)
+            let meters = context.altitude(of: state.camera) * controls.moveRate * boost * deltaTime
+            state = NavigationOperations.move(state, forward: input.move.y * meters, right: input.move.x * meters)
         }
         return state
     }
@@ -80,10 +108,9 @@ struct ModelFlightStyle {
 struct OrbitStyle {
     /// ECEF.
     var pivot: SIMD3<Double>
-    /// Radians per second.
-    var orbitRate = Double.pi / 3
-    /// e-folds of distance to the pivot per second.
-    var zoomRate = 1.0
+    /// Rates and boost: turn orbits, move pans (as a fraction of the
+    /// distance to the pivot) and zoom approaches the pivot.
+    var controls = ControlValues()
 
     /// Takes over from another style without moving the view: the pivot is
     /// where the view ray meets the surface at `surfaceHeight`, or, on a
@@ -107,25 +134,26 @@ struct OrbitStyle {
     mutating func step(_ state: NavigationState, input: ControlInput, deltaTime: Double,
                        context: NavigationContext) -> NavigationState {
         var state = state
-        let boost = input.boost
+        let boost = input.fast ? controls.boost : 1
         if input.turn != 0 {
             state = NavigationOperations.orbit(state, about: pivot,
-                                               by: input.turn * orbitRate * boost * deltaTime, context: context)
+                                               by: input.turn * controls.turnRate * boost * deltaTime,
+                                               context: context)
         }
         if input.dolly != 0 {
-            let fraction = 1 - exp(-input.dolly * zoomRate * boost * deltaTime)
+            let fraction = 1 - exp(-input.dolly * controls.zoomRate * boost * deltaTime)
             state = NavigationOperations.dolly(state, toward: pivot, fraction: fraction, context: context)
         }
         if input.move != .zero {
-            let metres = simd_distance(state.camera.position, pivot) * 0.75 * boost * deltaTime
+            let meters = simd_distance(state.camera.position, pivot) * controls.moveRate * boost * deltaTime
             let (pivotCoordinate, pivotHeight) = Geodesy.geodetic(pivot)
             // Pan along the view heading, whatever the movement heading is.
             var panning = state
             panning.movementHeading = state.camera.heading
-            let moved = NavigationOperations.move(panning, forward: input.move.y * metres,
-                                                  right: input.move.x * metres)
+            let moved = NavigationOperations.move(panning, forward: input.move.y * meters,
+                                                  right: input.move.x * meters)
             let bearing = state.camera.heading + atan2(input.move.x, input.move.y)
-            let pivotEnd = GeoMath.destination(from: pivotCoordinate, bearing: bearing, distance: metres * simd_length(input.move))
+            let pivotEnd = GeoMath.destination(from: pivotCoordinate, bearing: bearing, distance: meters * simd_length(input.move))
             pivot = Geodesy.ecef(pivotEnd, height: pivotHeight)
             let movementChange = moved.movementHeading - panning.movementHeading
             state.camera = moved.camera

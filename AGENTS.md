@@ -1,14 +1,18 @@
 # Agent notes
 
+## No backwards compatibility code
+
+The app has a handful of users. Don't write code to stay compatible with an earlier version of the app unless the task says so explicitly. When a file format, file name, setting, URL or stored value changes, change it and drop the old one: no migrations, no reading the old format alongside the new one, no fallbacks or aliases, and no renaming of existing files. Don't propose these either; if old data stops working, say so in the summary and move on.
+
 ## Read the project's docs before the task
 
 This project has its own ways of doing several routine things, and some differ from the usual approach. Before starting one of these, read the doc it names and follow it:
 
-- **Timing or profiling anything:** [docs/profiling.md](docs/profiling.md). Launch through `env -u OS_ACTIVITY_DT_MODE` (without it, `xctrace --launch` records none of the app's signposts), and summarise with `Scripts/signpost_summary.py`.
+- **Timing or profiling anything:** [docs/profiling.md](docs/profiling.md). Launch through `env -u OS_ACTIVITY_DT_MODE` (without it, `xctrace --launch` records none of the app's signposts), and summarize with `Scripts/signpost_summary.py`.
 - **Running, logging from, or inspecting the Mac app:** the README's "Running and inspecting the Mac app" section.
 - **Comparing runs, or anything touching tile requests:** [docs/tile-caching.md](docs/tile-caching.md). Decide whether each run starts with a cold or warm cache.
-- **Navigation or the camera:** [docs/camera-core.md](docs/camera-core.md) and [docs/navigation-handoff.md](docs/navigation-handoff.md), which records what the owner decided.
-- **Setup, keys, building and testing:** the README's "Setup", "Keys" and "Tests" sections. The Xcode project is generated, so a fresh checkout or worktree needs `xcodegen generate` first.
+- **Navigation, scale or placement:** [docs/fundamentals.md](docs/fundamentals.md), for the ideas and the terms to use. It describes options, not rules.
+- **Setup, keys, building and testing:** the README's "Setup", "Keys" and "Tests" sections. The Xcode project is generated, so a fresh checkout or worktree needs `xcodegen generate` first. Tools that read `.worktreeinclude` (Claude Code, Conductor and others) copy `Config/Secrets.xcconfig` into new worktrees. With plain `git worktree add`, copy it from the main checkout. Building the visionOS, iOS or macOS app or `Also Maps Core Tests` runs `Scripts/build_geography.sh`, which writes to `~/Library/Caches/dev.also.maps/geography` and, the first time on a machine, downloads about 19 MB from `static.also.dev`. A sandboxed shell without network access or write access there fails that build step: run the build outside the sandbox once, and later builds (in any worktree) reuse the cache. That's the whole setup: dependencies come only from `project.yml` (Swift packages and that build step), and nothing else gets copied or linked into a worktree, whatever stray files the main checkout has. If a build seems to need more, stop and say what failed. Don't add symlinks, copies or other workarounds.
 - **App icons and artwork:** [docs/branding/README.md](docs/branding/README.md).
 - **The experimental Metal renderer:** [notes/metal-renderer.md](notes/metal-renderer.md), for how its culling, foveation and counters work, how to measure them, and what's been found.
 

@@ -19,9 +19,9 @@ private func hit(_ state: NavigationState, _ point: SIMD2<Double>) -> SIMD3<Doub
 
 struct ScreenGestureTests {
     @Test
-    func theCentreOfTheScreenIsTheViewRay() {
+    func theCenterOfTheScreenIsTheViewRay() {
         let start = state()
-        let ray = ScreenGestures.ray(camera: start.camera, point: viewport.centre, viewport: viewport)
+        let ray = ScreenGestures.ray(camera: start.camera, point: viewport.center, viewport: viewport)
         #expect(simd_distance(ray.direction, start.camera.basis.forward) < 1e-12)
     }
 
@@ -66,7 +66,7 @@ struct ScreenGestureTests {
     @Test
     func zoomingOutMovesAway() throws {
         let start = state()
-        let pivot = try #require(hit(start, viewport.centre))
+        let pivot = try #require(hit(start, viewport.center))
         let zoomed = ScreenGestures.zoom(start, about: pivot, scale: 0.5, context: context)
         #expect(zoomed.camera.height > start.camera.height)
     }
@@ -74,12 +74,12 @@ struct ScreenGestureTests {
     @Test
     func tiltingKeepsThePivotOnScreenAndLevelsTheView() throws {
         let start = state()
-        let pivot = try #require(hit(start, viewport.centre))
+        let pivot = try #require(hit(start, viewport.center))
         let tilted = NavigationOperations.tilt(start, about: pivot, by: 15 * degrees,
                                                range: (-Double.pi / 2)...ScreenGestures.levelestTilt, context: context)
         #expect(abs(tilted.camera.pitch - (start.camera.pitch + 15 * degrees)) < 1e-3)
         #expect(tilted.camera.height < start.camera.height)
-        let after = try #require(hit(tilted, viewport.centre))
+        let after = try #require(hit(tilted, viewport.center))
         #expect(simd_distance(after, pivot) < 0.5)
     }
 
@@ -87,9 +87,9 @@ struct ScreenGestureTests {
     func tiltStopsShortOfLevelAndDoesNotJumpFromOutsideTheRange() throws {
         let range = (-Double.pi / 2)...ScreenGestures.levelestTilt
         let start = state(pitch: -5 * degrees)
-        let pivot = try #require(hit(start, viewport.centre))
-        let levelled = NavigationOperations.tilt(start, about: pivot, by: 30 * degrees, range: range, context: context)
-        #expect(abs(levelled.camera.pitch - ScreenGestures.levelestTilt) < 1e-2)
+        let pivot = try #require(hit(start, viewport.center))
+        let leveled = NavigationOperations.tilt(start, about: pivot, by: 30 * degrees, range: range, context: context)
+        #expect(abs(leveled.camera.pitch - ScreenGestures.levelestTilt) < 1e-2)
 
         let lookingUp = state(pitch: 10 * degrees)
         let unchanged = NavigationOperations.tilt(lookingUp, about: pivot, by: 5 * degrees, range: range, context: context)

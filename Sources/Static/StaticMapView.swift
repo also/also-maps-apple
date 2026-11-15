@@ -24,7 +24,7 @@ final class StaticMap {
     func attach(_ content: inout RealityViewCameraContent) {
         content.camera = .virtual
         // Tiles come placed in the anchor's level frame (x east, y up, z
-        // south, metres), so the scene is that frame, unscaled.
+        // south, meters), so the scene is that frame, unscaled.
         content.add(streaming.tilesRoot)
         content.add(makeCamera())
 

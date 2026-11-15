@@ -3,7 +3,7 @@ import Foundation
 /// A fixed camera and what to stream for it. The camera is also the camera
 /// level of detail is selected for. Pick one with ALSOMAPS_VIEW (`bay`, the
 /// default, or `ferry`). Streaming can be overridden for quick experiments:
-/// ALSOMAPS_RADIUS (area of interest half-width, metres),
+/// ALSOMAPS_RADIUS (area of interest half-width, meters),
 /// ALSOMAPS_DETAIL and ALSOMAPS_OUTER_DETAIL (pixels of error on screen),
 /// ALSOMAPS_LOADS and ALSOMAPS_UPLOADS (concurrency).
 struct StaticView {

@@ -3,7 +3,7 @@ import simd
 
 /// A flat screen's presentation (macOS, iOS): the window's camera is the
 /// navigation camera, so there's no placement to choose. The scene is the
-/// camera's local level frame (x east, y up, z south, metres) with the
+/// camera's local level frame (x east, y up, z south, meters) with the
 /// camera at its origin, so only nearby numbers reach Float; the camera
 /// entity turns by the pose's heading and pitch.
 enum ScreenView {
@@ -32,7 +32,7 @@ enum ScreenView {
         let area = AOIPolicy.horizon(limitPerAltitude: nil)
             .area(viewerNadir: camera.coordinate, altitude: altitude, heading: camera.heading,
                   georeferencePoint: camera.coordinate, shownRadius: 0)
-        let anchor = StreamingAnchor(coordinate: area.centre, height: groundHeight)
+        let anchor = StreamingAnchor(coordinate: area.center, height: groundHeight)
         let toAnchor = anchor.ecefFromAnchor.inverse
         let basis = camera.basis
         let lod = LODCamera(position: toAnchor.apply(camera.position),
@@ -43,7 +43,7 @@ enum ScreenView {
                                streamingRadius: area.radius)
     }
 
-    /// Near and far clip distances, metres: near grows with altitude so
+    /// Near and far clip distances, meters: near grows with altitude so
     /// depth precision follows what's in view, and far reaches the horizon.
     static func clipping(altitude: Double) -> (near: Double, far: Double) {
         let altitude = max(altitude, 0)
@@ -56,14 +56,14 @@ enum ScreenView {
     /// the horizon is in view.
     static let placeElevation = 12 * Double.pi / 180
 
-    /// A pose looking at `centre` (on ground at `groundHeight`) from
+    /// A pose looking at `center` (on ground at `groundHeight`) from
     /// `elevation` radians above its horizon, facing `heading`, far enough
-    /// back that `radius` metres around it fill the view.
-    static func framePlace(centre: GeoCoordinate, radius: Double, heading: Double,
+    /// back that `radius` meters around it fill the view.
+    static func framePlace(center: GeoCoordinate, radius: Double, heading: Double,
                            groundHeight: Double = 0, elevation: Double = placeElevation,
                            fieldOfView: Double = .pi / 4) -> CameraPose {
-        let target = Geodesy.ecef(centre, height: groundHeight)
-        let frame = Geodesy.enu(latitude: centre.latitude, longitude: centre.longitude)
+        let target = Geodesy.ecef(center, height: groundHeight)
+        let frame = Geodesy.enu(latitude: center.latitude, longitude: center.longitude)
         let level = frame.north * cos(heading) + frame.east * sin(heading)
         let forward = level * cos(elevation) - frame.up * sin(elevation)
         let distance = max(radius, 1) / tan(fieldOfView / 2)

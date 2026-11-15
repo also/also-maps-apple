@@ -6,7 +6,7 @@ struct Place: Codable, Identifiable, Hashable {
     var name: String
     var latitude: Double
     var longitude: Double
-    /// View half-width, metres.
+    /// View half-width, meters.
     var radius: Double
     /// Direction the volume's front faces, degrees clockwise from north.
     var heading: Double = 0
@@ -56,11 +56,4 @@ enum PlaceLibrary {
     /// The list can change while the app runs, so hold on to a place's id
     /// rather than its position.
     @MainActor static var all: [Place] { AppConfigStore.shared.config?.places ?? defaults }
-
-    /// The place `step` entries along `places` from the one with `id`,
-    /// wrapping around. Without that place, starts from the list's nearer end.
-    static func place(in places: [Place], stepping step: Int, from id: String?) -> Place {
-        let index = places.firstIndex { $0.id == id } ?? (step > 0 ? -1 : 0)
-        return places[(index + step + places.count) % places.count]
-    }
 }

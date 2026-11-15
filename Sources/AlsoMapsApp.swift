@@ -26,6 +26,19 @@ struct AlsoMapsApp: App {
         })
     }
 
+    /// The Metal space's style: Progressive isn't supported there yet, so it
+    /// opens full instead, without changing the setting.
+    private var metalImmersionStyle: Binding<any ImmersionStyle> {
+        Binding(get: { model.immersion == .mixed ? .mixed : .full },
+                set: { style in
+                    switch style {
+                    case is FullImmersionStyle:
+                        if model.immersion == .mixed { model.immersion = .full }
+                    default: model.immersion = .mixed
+                    }
+                })
+    }
+
     var body: some Scene {
         WindowGroup(id: VolumeView.windowID) {
             VolumeView()
@@ -34,6 +47,7 @@ struct AlsoMapsApp: App {
                 .credentialGate()
                 .appGate()
                 .keepsVolumeDepth()
+                .opensPlaceLinks { model.go(to: $0) }
         }
         .windowStyle(.volumetric)
         .defaultSize(width: MapModel.volumeSize.x,
@@ -59,6 +73,8 @@ struct AlsoMapsApp: App {
                 .appGate(presentsNotices: false)
         }
         .defaultSize(width: 760, height: 760)
+        // Place links go to the volume, never open this.
+        .handlesExternalEvents(matching: [])
         // A utility window: only opened on request, never restored at launch.
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
@@ -74,10 +90,17 @@ struct AlsoMapsApp: App {
         .immersiveEnvironmentBehavior(.coexist)
 
         // The same immersive presentation drawn with Metal, when Settings
-        // says so (MapModel.drawsImmersiveWithMetal).
+        // says so (MapModel.drawsImmersiveWithMetal). Mixed or full, like
+        // the RealityKit space; the renderer clears to transparent in mixed.
+        // Not progressive: that needs the layered layout and a stencil mask
+        // (notes/metal-renderer.md, "Immersion styles"), so it opens full
+        // when Progressive is picked. No `.coexist`: the
+        // system doesn't draw its environment behind a CompositorLayer, so
+        // bringing one in with the Digital Crown left a black sky
+        // (notes/metal-renderer.md, "System environments").
         ImmersiveSpace(id: MetalImmersiveContent.spaceID) {
             MetalImmersiveContent(model: model)
         }
-        .immersionStyle(selection: .constant(.full), in: .full)
+        .immersionStyle(selection: metalImmersionStyle, in: .mixed, .full)
     }
 }

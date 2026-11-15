@@ -1,7 +1,7 @@
 import Foundation
 import simd
 
-/// A half-line from `origin` along `direction`, ECEF metres.
+/// A half-line from `origin` along `direction`, ECEF meters.
 struct Ray: Equatable {
     var origin: SIMD3<Double>
     var direction: SIMD3<Double>
@@ -27,7 +27,7 @@ enum Geodesy {
     /// First eccentricity squared.
     static let eccentricitySquared = flattening * (2 - flattening)
 
-    /// A point at `height` metres above the ellipsoid.
+    /// A point at `height` meters above the ellipsoid.
     static func ecef(latitude: Double, longitude: Double, height: Double) -> SIMD3<Double> {
         let phi = latitude * .pi / 180, lambda = longitude * .pi / 180
         let sinPhi = sin(phi)
@@ -41,9 +41,9 @@ enum Geodesy {
         ecef(latitude: coordinate.latitude, longitude: coordinate.longitude, height: height)
     }
 
-    /// Latitude and longitude in degrees, height in metres above the
+    /// Latitude and longitude in degrees, height in meters above the
     /// ellipsoid. Fixed-point iteration on latitude; converges to well under
-    /// a millimetre in a few steps for any point outside the Earth's core.
+    /// a millimeter in a few steps for any point outside the Earth's core.
     static func geodetic(_ p: SIMD3<Double>) -> (coordinate: GeoCoordinate, height: Double) {
         let horizontal = (p.x * p.x + p.y * p.y).squareRoot()
         let lambda = atan2(p.y, p.x)
@@ -93,7 +93,7 @@ enum Geodesy {
     /// ray to refine safely (grazing); the quadric hit is returned as is.
     private static let refinementMinimumSlope = 1e-3
 
-    /// The first point along `ray` at `surfaceHeight` metres above the
+    /// The first point along `ray` at `surfaceHeight` meters above the
     /// ellipsoid, or a miss.
     ///
     /// The surface is approximated by the ellipsoid with semi-axes

@@ -31,6 +31,7 @@ struct SettingsView: View {
 
     enum Category: String, CaseIterable, Identifiable {
         case general
+        case controls
         #if os(visionOS)
         case immersion
         case detail
@@ -43,6 +44,7 @@ struct SettingsView: View {
         var title: String {
             switch self {
             case .general: "General"
+            case .controls: "Controls"
             #if os(visionOS)
             case .immersion: "Immersion"
             case .detail: "Detail"
@@ -55,6 +57,7 @@ struct SettingsView: View {
         var systemImage: String {
             switch self {
             case .general: "gearshape"
+            case .controls: "gamecontroller"
             #if os(visionOS)
             case .immersion: "visionpro"
             case .detail: "square.grid.3x3"
@@ -94,6 +97,7 @@ struct SettingsView: View {
     @ViewBuilder private func page(for category: Category) -> some View {
         switch category {
         case .general: general
+        case .controls: controls
         #if os(visionOS)
         case .immersion: immersion
         case .detail: detailSettings
@@ -153,6 +157,24 @@ struct SettingsView: View {
         .navigationTitle("General")
     }
 
+    private var controls: some View {
+        Form {
+            Section {
+                ControlSettingsRows(controls: $settings.controls)
+            } footer: {
+                Text("For the keyboard, a game controller and the on-screen sticks. A slider you haven't moved follows the app's default.")
+            }
+            Section {
+                Button("Reset Controls") {
+                    settings.controls = ControlSettings()
+                }
+                .disabled(settings.controls.isDefault)
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Controls")
+    }
+
     #if os(visionOS)
     private var immersion: some View {
         @Bindable var model = model
@@ -166,7 +188,7 @@ struct SettingsView: View {
                 case .mixed:
                     Text("Immersive modes keep passthrough and any system environment around the map.")
                 case .progressive:
-                    Text("Immersive modes show the map in a portal. Turn the Digital Crown to widen or narrow it.")
+                    Text("Immersive modes show the map in a portal. Turn the Digital Crown to widen or narrow it. With Draw with Metal on, Immersive opens in full immersion instead.")
                 case .full:
                     Text("Immersive modes show only the map, with no passthrough or environment.")
                 }
@@ -230,6 +252,10 @@ struct SettingsView: View {
             debugging
             #endif
 
+            if let build = BuildInfo.current {
+                BuildInfoSection(info: build)
+            }
+
             Section {
                 Button("Reset to Defaults") {
                     settings = defaults
@@ -275,12 +301,6 @@ struct SettingsView: View {
                          step: Double,
                          format: @escaping (Double) -> String,
                          hint: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(title, value: format(value.wrappedValue))
-            Slider(value: value, in: range, step: step)
-            Text(hint)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
+        SettingSlider(title: title, value: value, range: range, step: step, format: format, hint: hint)
     }
 }

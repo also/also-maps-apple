@@ -14,14 +14,14 @@ struct MapViewState: Codable {
     struct Camera: Codable {
         var latitude: Double
         var longitude: Double
-        /// Metres above the WGS84 ellipsoid.
+        /// Meters above the WGS84 ellipsoid.
         var height: Double
         var headingDegrees: Double
         var pitchDegrees: Double
     }
 
     struct GroundEstimate: Codable {
-        /// h_ray: terrain height the view ray meets, metres above the ellipsoid.
+        /// h_ray: terrain height the view ray meets, meters above the ellipsoid.
         var ray: Double
         /// h_env: the low envelope placed on the base plane.
         var envelope: Double
@@ -108,7 +108,7 @@ struct MapViewState: Codable {
     }
 
     /// Parses and validates a view state. Older focus-centric states are
-    /// recognised and rejected with a clear message.
+    /// recognized and rejected with a clear message.
     static func parse(_ text: String) throws -> MapViewState {
         let data = Data(text.utf8)
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {

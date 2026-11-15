@@ -1,5 +1,10 @@
 import GameController
 import simd
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// Game-style map controls from a hardware keyboard and a game controller,
 /// merged into one set of values.
@@ -25,20 +30,19 @@ struct MapInput {
 
     /// One-shot actions; reported while the button is held, so the model
     /// fires them on the frame a button goes down.
-    enum Action: Hashable { case previousPlace, nextPlace, faceNorth, toggleTileHold }
+    enum Action: Hashable { case faceNorth }
     var held: Set<Action> = []
-
-    var isMoving: Bool { move != .zero || turn != 0 || zoom != 0 || altitude != 0 || pitch != 0 }
 
     /// The same values as rates for the control styles.
     var controlInput: ControlInput {
         ControlInput(move: move, turn: turn, climb: altitude, dolly: zoom, pitch: pitch, fast: fast)
     }
 
-    /// Keyboard and controller together.
-    static func current() -> MapInput {
+    /// Keyboard and controller together, with the controller's sticks
+    /// shaped by `controls`.
+    @MainActor static func current(controls: ControlValues) -> MapInput {
         var input = keyboard()
-        input.merge(gamepad())
+        input.merge(gamepad(controls: controls))
         return input
     }
 
@@ -65,9 +69,12 @@ struct MapInput {
 
     static var isKeyboardConnected: Bool { GCKeyboard.coalesced != nil }
 
-    /// The keys held right now, or no input if there's no keyboard.
-    static func keyboard() -> MapInput {
-        guard let keyboard = GCKeyboard.coalesced?.keyboardInput else { return MapInput() }
+    /// The keys held right now, or no input if there's no keyboard or the
+    /// keys are typing into a text field. The keyboard is read whatever has
+    /// focus, so without that check typing a search would fly the map.
+    @MainActor static func keyboard() -> MapInput {
+        guard !TextEntry.isActive,
+              let keyboard = GCKeyboard.coalesced?.keyboardInput else { return MapInput() }
         func held(_ codes: GCKeyCode...) -> Bool {
             codes.contains { keyboard.button(forKeyCode: $0)?.isPressed == true }
         }
@@ -89,7 +96,7 @@ struct MapInput {
 
     // MARK: Game controller
 
-    static let controllerHint = "Left stick move · Right stick turn, climb/descend · RT LT zoom · LB faster · D-pad places · Y north · X hold tiles"
+    static let controllerHint = "Left stick move · Right stick turn, climb/descend · RT LT zoom · LB faster · Y north"
 
     /// The controller in use, if any (the most recently used one, or else
     /// the first connected).
@@ -99,36 +106,62 @@ struct MapInput {
 
     /// Sticks, triggers and buttons right now, or no input if there's no
     /// controller. Laid out for an Xbox-style extended gamepad.
-    static func gamepad() -> MapInput {
+    static func gamepad(controls: ControlValues) -> MapInput {
         guard let pad = controller?.extendedGamepad else { return MapInput() }
         var input = MapInput()
-        input.move = stick(pad.leftThumbstick)
-        let right = stick(pad.rightThumbstick)
+        input.move = controls.stick(stick(pad.leftThumbstick))
+        let right = controls.lockingAxes(controls.stick(stick(pad.rightThumbstick)))
         input.turn = right.x
         // Right stick up climbs, down descends, as on a drone.
         input.altitude = right.y
         input.zoom = trigger(pad.rightTrigger) - trigger(pad.leftTrigger)
         input.fast = pad.leftShoulder.isPressed || pad.leftThumbstickButton?.isPressed == true
-        if pad.dpad.left.isPressed { input.held.insert(.previousPlace) }
-        if pad.dpad.right.isPressed { input.held.insert(.nextPlace) }
         if pad.buttonY.isPressed { input.held.insert(.faceNorth) }
-        if pad.buttonX.isPressed { input.held.insert(.toggleTileHold) }
         return input
     }
 
-    /// Radial dead zone, then a squared response so small deflections give
-    /// fine control and a full push still reaches full speed.
+    /// The stick's raw position; `ControlValues.stick` shapes it.
     private static func stick(_ pad: GCControllerDirectionPad) -> SIMD2<Double> {
-        let raw = SIMD2(Double(pad.xAxis.value), Double(pad.yAxis.value))
-        let deadZone = 0.15
-        let magnitude = min(simd_length(raw), 1)
-        guard magnitude > deadZone else { return .zero }
-        let scaled = (magnitude - deadZone) / (1 - deadZone)
-        return raw / simd_length(raw) * scaled * scaled
+        SIMD2(Double(pad.xAxis.value), Double(pad.yAxis.value))
     }
 
     private static func trigger(_ button: GCControllerButtonInput) -> Double {
         let value = Double(button.value)
         return value < 0.05 ? 0 : value
     }
+}
+
+/// Whether a text field in the app is taking typing.
+@MainActor
+enum TextEntry {
+    #if canImport(AppKit)
+    /// A text field edits through its window's field editor, a text view.
+    static var isActive: Bool { NSApp.keyWindow?.firstResponder is NSTextView }
+    #else
+    /// UIKit has no public way to ask for the first responder, so this
+    /// follows text fields and views beginning and ending editing.
+    static var isActive: Bool {
+        _ = observers
+        return !editing.isEmpty
+    }
+
+    private static var editing: Set<ObjectIdentifier> = []
+
+    private static let observers: [NSObjectProtocol] = {
+        let center = NotificationCenter.default
+        func observe(_ name: Notification.Name, _ update: @escaping @MainActor (ObjectIdentifier) -> Void) -> NSObjectProtocol {
+            center.addObserver(forName: name, object: nil, queue: .main) { note in
+                guard let object = note.object as AnyObject? else { return }
+                let id = ObjectIdentifier(object)
+                MainActor.assumeIsolated { update(id) }
+            }
+        }
+        return [
+            observe(UITextField.textDidBeginEditingNotification) { editing.insert($0) },
+            observe(UITextField.textDidEndEditingNotification) { editing.remove($0) },
+            observe(UITextView.textDidBeginEditingNotification) { editing.insert($0) },
+            observe(UITextView.textDidEndEditingNotification) { editing.remove($0) },
+        ]
+    }()
+    #endif
 }
