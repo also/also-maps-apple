@@ -80,8 +80,9 @@ struct ModelFlightStyle {
             let ray = Ray(origin: camera.position, direction: camera.basis.forward)
             let fraction = 1 - exp(-input.dolly * controls.zoomRate * boost * deltaTime)
             if let holdingViewCenter {
-                let above = camera.height - dollySurfaceHeight
-                let height = context.clampHeight(dollySurfaceHeight + above * (1 - min(fraction, 0.95)))
+                let above = context.navigationHeight(of: camera) - dollySurfaceHeight
+                let height = context.clampHeight(context.storedHeight(
+                    navigationHeight: dollySurfaceHeight + above * (1 - min(fraction, 0.95)), at: camera))
                 // At a height limit, stay put rather than nudge the view.
                 if height != camera.height {
                     let moved = holdingViewCenter(camera, height)
