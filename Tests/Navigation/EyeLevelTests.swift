@@ -287,7 +287,7 @@ struct EyeLevelTests {
     func withNoTiltTheViewCenterStaysOnTheGlobeAtAnyHeightWithoutAJump(room: RoomGeometry) {
         var last: (around: Double, placed: SIMD3<Double>)?
         var altitude = 1_000.0
-        while altitude < 11_000_000 {
+        while altitude < 60_000_000 {
             let (belowHorizon, around, f) = Self.viewCenter(room, altitude: altitude)
             // On the ground, ahead, and clear of the horizon.
             #expect(abs(Geodesy.geodetic(f.georeferencePoint).height - 565) < 1e-2)
@@ -296,8 +296,11 @@ struct EyeLevelTests {
             #expect(around > 0)
             if let last {
                 // 1% higher moves the view center a little: no jump, in the
-                // world or in the room.
-                #expect(abs(around - last.around) < 0.02 * max(around, last.around) + 1e-9)
+                // world or in the room. Above about 45,000 km the globe is
+                // small enough that the line 5° below its limb swings in
+                // toward its center, so the view center nears the ground
+                // below by up to 0.6° a step.
+                #expect(abs(around - last.around) < max(0.02 * max(around, last.around), 1 * degrees))
                 let reach = simd_distance(f.placementPoint, room.designEye)
                 #expect(simd_distance(f.placementPoint, last.placed) < 0.02 * reach)
             }

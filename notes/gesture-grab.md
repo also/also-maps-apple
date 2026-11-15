@@ -4,6 +4,11 @@ Working notes for [also/also-maps-apple#61](https://github.com/also/also-maps-ap
 
 ## 2026-11-15
 
+### The ceiling is 60,000 km at H
+
+- **Change:** the room hosts' maximum altitude goes from 11,000 km to 60,000 km. Seen from H, the globe is about 11° across there, against 43° at 11,000 km (a quarter, rounded). The Mac and iPhone screen map keep 11,000 km.
+- **Observed (core tests):** placement stays level and the volume's view center stays in the box up to 60,000 km. With no tilt (only reachable with the tilt off; auto is full above 500 km), the line 5° below the horizon swings in toward the globe's center above about 45,000 km: the view center goes from 15° to 5° from the ground below by 60,000 km, smoothly, up to 0.6° per 1% climb. Around 66,700 km the globe would be under 10° across and the margin couldn't be kept.
+
 ### The camera's height is the eye's; placement and gestures stay as they were (#104)
 
 - **Change:** the camera's height is the reference head pose's (H's) height above the ellipsoid, so a stored or restored view's altitude is where it's seen from. The navigation position is put below the camera's latitude and longitude, low enough that H is at the camera's height (`EyeLevelModel.framing`, `Framing.navigation`). The raised tilt pivot, the tilt curve (on the navigation position's height, found over the ellipsoid so a new ground estimate doesn't turn the map) and the pinch hold are as before, so the same views and gestures come out with the altitude restated. Controller climb, zoom and move rates still follow the navigation position's height (`NavigationContext.lift`). The 11,000 km ceiling now applies at H, which lowers it.

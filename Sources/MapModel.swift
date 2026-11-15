@@ -95,9 +95,10 @@ final class MapModel {
     var tiltFollowsAltitude = true
     /// Lowest camera height above the estimated ground in room hosts.
     private static let minimumAltitude = 55.0
-    /// Highest camera height above the estimated ground, meters: a view
-    /// 10,000 km in half-width, roughly a hemisphere.
-    private static let maximumAltitude = 11_000_000.0
+    /// Highest camera height above the estimated ground, meters. The
+    /// camera's height is the reference eye's, so this sets how small the
+    /// globe gets: about 11° across from 60,000 km.
+    private static let maximumAltitude = 60_000_000.0
 
     // Ground estimates: the placement ground, put
     // on the base plane, and the ground under the camera, for speed and

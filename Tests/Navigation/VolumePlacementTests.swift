@@ -43,7 +43,7 @@ private func shownUp(_ f: AdaptiveModel.Framing, _ camera: CameraPose) -> SIMD3<
 }
 
 struct VolumePlacementTests {
-    @Test(arguments: [100.0, 3_000, 45_000, 900_000, 11_000_000])
+    @Test(arguments: [100.0, 3_000, 45_000, 900_000, 11_000_000, 60_000_000])
     func untiltedIsExactlyLevelInEveryHostWhateverThePitch(height: Double) {
         for place in places {
             for pitch in [-89.0, -33, 0, 25] {
@@ -106,7 +106,7 @@ struct VolumePlacementTests {
 
     /// The navigation position is on the eye while level, and the tilt
     /// turns it about the pivot with the rest of the world.
-    @Test(arguments: [600.0, 120_000, 900_000, 11_000_000])
+    @Test(arguments: [600.0, 120_000, 900_000, 11_000_000, 60_000_000])
     func theTiltTurnsTheNavigationPositionAboutThePivot(height: Double) {
         let camera = CameraPose(latitude: -33.86, longitude: 151.21, height: height, heading: 4, pitch: -0.4)
         let w = EyeLevelModel.tiltWeight(for: camera, room: volume)
@@ -135,7 +135,7 @@ struct VolumePlacementTests {
     /// every altitude, on C₀ while level.
     @Test func viewCenterStaysInTheBox() {
         var height = 60.0
-        while height < 11_000_000 {
+        while height < 60_000_000 {
             let camera = CameraPose(latitude: 37.79, longitude: -122.39, height: height, heading: 0.3, pitch: -0.4)
             let f = framing(camera, volume)
             let p = f.placementPoint
