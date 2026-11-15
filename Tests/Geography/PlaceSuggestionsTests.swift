@@ -93,38 +93,26 @@ struct PlaceSuggestionsTests {
     }
 
     @Test func lookingAtTheSamePlaceIsntLookingToward() {
-        let center = PlaceContext.ViewCenter(surroundings: surroundings(urban: "Boston"), distance: 3_000, bearing: 90)
+        let boston = PlaceContext.Nearby(place: feature("Boston"), distance: 0, bearingFromPlace: 0)
+        let center = PlaceContext.ViewCenter(surroundings: surroundings(urban: "Boston"), distance: 3_000, bearing: 90, ahead: boston)
         let names = PlaceSuggestions.names(for: context(below: surroundings(urban: "Boston"), center: center))
         #expect(!names.contains { $0.contains("looking toward") })
         #expect(names.first == "30,000 ft over Boston")
     }
 
+    /// With no place ahead, the view center is named by its state, and
+    /// nothing is seen "from the" any direction.
+    @Test func lookingTowardAStateWhenNoPlaceIsAhead() {
+        let oregon = region("Oregon", kind: "State", country: "United States of America", code: "US")
+        let california = region("California", kind: "State", country: "United States of America", code: "US")
+        let center = PlaceContext.ViewCenter(surroundings: surroundings(state: oregon), distance: 330_000, bearing: 6)
+        let names = PlaceSuggestions.names(for: context(below: surroundings(state: california), center: center))
+        #expect(names.first == "Over California, looking toward Oregon")
+        #expect(!names.contains { $0.contains(" from the ") })
+    }
+
     @Test func noDuplicates() {
         let names = PlaceSuggestions.names(for: context(below: surroundings(urban: "Boston", state: region("Massachusetts", kind: "State", code: "US"))))
         #expect(names.count == Set(names.map { $0.lowercased() }).count)
-    }
-}
-
-struct KnownNameFilterTests {
-    let known = ["Worcester", "Boston", "Massachusetts", "North Atlantic Ocean"]
-
-    @Test(arguments: [
-        "Over Worcester",
-        "Boston from the West",
-        "Worcester Skyline at Sunset",
-        "Central Massachusetts",
-        "High Over the North Atlantic",
-    ])
-    func keeps(_ suggestion: String) {
-        #expect(PlaceSuggestions.usesOnlyKnownNames(suggestion, known: known))
-    }
-
-    @Test(arguments: [
-        "Over Springfield",
-        "Boston and Providence",
-        "A Quiet Evening",
-    ])
-    func drops(_ suggestion: String) {
-        #expect(!PlaceSuggestions.usesOnlyKnownNames(suggestion, known: known))
     }
 }

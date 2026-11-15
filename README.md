@@ -57,7 +57,7 @@ cesium-native decides which tiles to load and fetches them; a thin bridge hands 
 
 ## Views
 
-The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's center point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
+The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. Places are framed on the map's center point: the ground 15° below level ahead of you, about 6 m away on the floor for a standing eye height. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
 
 `ALSOMAPS_PRESENTATION=immersive` (or `volume`) starts in that mode.
 
@@ -121,7 +121,6 @@ The fragment is form-encoded. `lat` and `lon` (decimal degrees) are required; `r
 
 - `Gazetteer` answers queries from `Geography.sqlite`: a `PlaceContext` for a camera pose (what's below, and what's at the center of the view), nearby places, and places to label in a region. What counts as significant depends on altitude.
 - `PlaceSuggestions` turns a `PlaceContext` into names in American English: "30,000 ft over Worcester", "Over Worcester, looking toward Boston".
-- `PlaceNameModel` asks Apple's on-device model for more suggestions from the same context, where it's available, and drops any that name places not in the context.
 
 `Geography.sqlite` isn't committed: a build phase (`Scripts/build_geography.sh`) makes it for the visionOS, iOS and macOS apps and `Also Maps Core Tests`.
 
@@ -191,7 +190,7 @@ Only the sliders you've moved are saved. The rest follow the defaults in `Contro
 
 The debug panel also has the Controls sliders.
 
-At launch, `ALSOMAPS_STATE=<that JSON>` restores a state and `ALSOMAPS_MARKERS=1` shows the markers and `ALSOMAPS_TILE_BOUNDS=1` the tile bounds.
+At launch, `ALSOMAPS_STATE=<that JSON>` restores a state and `ALSOMAPS_MARKERS=1` shows the markers and `ALSOMAPS_TILE_BOUNDS=1` the tile bounds. `ALSOMAPS_TILE_STATS=1` logs tile counts, load progress, the slowest update and fetch counters once a second.
 
 ## Tests
 

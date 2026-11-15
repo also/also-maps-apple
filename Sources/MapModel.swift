@@ -95,9 +95,10 @@ final class MapModel {
     var tiltFollowsAltitude = true
     /// Lowest camera height above the estimated ground in room hosts.
     private static let minimumAltitude = 55.0
-    /// Highest camera height above the estimated ground, meters: a view
-    /// 10,000 km in half-width, roughly a hemisphere.
-    private static let maximumAltitude = 11_000_000.0
+    /// Highest altitude above the estimated ground, meters. The stored
+    /// altitude is H's (the reference head pose's), so this sets how small
+    /// the globe looks from there: about 11° across at 60,000 km.
+    private static let maximumAltitude = 60_000_000.0
 
     // Ground estimates: the placement ground, put
     // on the base plane, and the ground under the camera, for speed and
@@ -138,7 +139,7 @@ final class MapModel {
         let room = room, ground = placementGround.value, tiltFollowsAltitude = tiltFollowsAltitude
         let fixedScale: Double? = humanScale && isImmersive ? 1 : nil
         return { camera in
-            let weight = tiltFollowsAltitude ? EyeLevelModel.tiltWeight(for: camera) : 0
+            let weight = tiltFollowsAltitude ? EyeLevelModel.tiltWeight(for: camera, room: room) : 0
             return EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground,
                                          tiltWeight: weight, fixedScale: fixedScale)
         }
@@ -467,10 +468,10 @@ final class MapModel {
         let ground = placementGround.value
         // The height that gives the pinched scale. At human scale the scale
         // is fixed, so a pinch raises or lowers the camera instead.
-        let above = humanScale && isImmersive
-            ? max(m.startPose.height - ground, AdaptiveModel.minimumRange) / m.magnification
-            : EyeLevelModel.altitude(forScale: m.startScale * m.magnification, room: room)
-        let height = context.clampHeight(ground + above)
+        let height = context.clampHeight(humanScale && isImmersive
+            ? ground + max(m.startPose.height - ground, AdaptiveModel.minimumRange) / m.magnification
+            : EyeLevelModel.height(forScale: m.startScale * m.magnification, camera: m.pose,
+                                   groundHeight: ground, room: room, frame: frame))
         let grab = AdaptiveModel.Grab(point: m.grab, start: m.start, startRotation: m.startRotation,
                                       startCamera: m.startPose,
                                       translation: m.translation, twist: m.twist)
@@ -654,7 +655,9 @@ final class MapModel {
     private var context: NavigationContext {
         NavigationContext(cameraGround: cameraGround.value,
                           minimumAltitude: humanScale && isImmersive ? 1.6 : Self.minimumAltitude,
-                          maximumAltitude: Self.maximumAltitude)
+                          maximumAltitude: Self.maximumAltitude,
+                          lift: EyeLevelModel.Lift(room: room, groundHeight: placementGround.value,
+                                                   tiltFollowsAltitude: tiltFollowsAltitude))
     }
 
     private enum HeldLimit { case travel, size }

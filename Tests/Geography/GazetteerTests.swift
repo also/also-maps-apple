@@ -66,6 +66,22 @@ struct GazetteerTests {
         #expect(names.contains("Massachusetts"))
     }
 
+    /// From 200 km over Mendocino, pitched 33° down and heading north: the
+    /// view center is near Klamath Falls, with no significant place near it.
+    /// Los Angeles and San Francisco are behind the camera, and Vancouver is
+    /// ahead but far past the view center.
+    @Test func lookingTowardOnlyWhatsAhead() async throws {
+        let pose = CameraPose(latitude: 39.421, longitude: -122.5998, height: 202_362,
+                              heading: 5.9655 * .pi / 180, pitch: -32.8544 * .pi / 180)
+        let context = try await gazetteer.context(for: pose)
+        let center = try #require(context.viewCenter)
+        #expect(center.surroundings.state?.name == "Oregon")
+        #expect(center.ahead == nil)
+        let names = PlaceSuggestions.names(for: context)
+        #expect(names.first == "Over California, looking toward Oregon")
+        #expect(!names.contains { $0.contains("Los Angeles") || $0.contains("Vancouver") })
+    }
+
     @Test func smallTownsOnlyCountNearTheGround() async throws {
         let high = try await gazetteer.surroundings(of: boston, height: 400_000)
         let low = try await gazetteer.surroundings(of: boston, height: 300)

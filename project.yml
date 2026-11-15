@@ -294,11 +294,7 @@ targets:
       - path: Sources/Places/PlacesClient.swift
       - path: Sources/Places/PlaceSearch.swift
       - path: Tests/Places
-      # PlaceNameModel is left out: importing FoundationModels anywhere in
-      # this module changes how some #expect comparisons type-check, and
-      # StaticViewTests' aspect check fails.
       - path: Sources/Geography
-        excludes: ["PlaceNameModel.swift"]
       - path: Tests/Geography
       - path: Sources/Config/AppConfig.swift
       - path: Sources/Config/AppConfigStore.swift
@@ -388,6 +384,7 @@ targets:
           - MapInput.swift
           - Tracks
           - TrackSession.swift
+          - TrackMenu.swift
           - TrackOverlay.swift
           - TubeExtruder.swift
           - StreamingSettings.swift
