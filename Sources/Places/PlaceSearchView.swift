@@ -304,6 +304,45 @@ extension PlacesPanel {
     }
 }
 
+#if os(iOS)
+/// The iPhone Places sheet's … menu: the file actions that PlacesPanel
+/// shows under its list elsewhere.
+struct PlacesFileMenu: View {
+    @State private var importing = false
+    @State private var fileProblem: String?
+
+    var body: some View {
+        let store = PlaceStore.shared
+        Menu("More", systemImage: "ellipsis") {
+            Button("Import…", systemImage: "square.and.arrow.down") { importing = true }
+            if !store.myMap.isEmpty {
+                ShareLink(item: store.myMapFile) {
+                    Label("Share My Map", systemImage: "square.and.arrow.up")
+                }
+            }
+            if let imported = store.imported {
+                Button("Remove \(imported.name)", systemImage: "xmark.circle", role: .destructive) {
+                    store.removeImported()
+                }
+            }
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.alsoMaps, .geoJSON]) { result in
+            do {
+                try store.importFile(result.get())
+            } catch {
+                fileProblem = error.localizedDescription
+            }
+        }
+        .alert("Couldn't Import", isPresented: Binding(get: { fileProblem != nil },
+                                                      set: { if !$0 { fileProblem = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(fileProblem ?? "")
+        }
+    }
+}
+#endif
+
 /// Google's attribution for Places content shown off the map: the logo,
 /// which the app only has in white, so the name in light appearance.
 struct GoogleMapsAttribution: View {

@@ -115,6 +115,7 @@ struct PhoneMapView: View {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("Done") { showsPlaces = false }
                         }
+                        ToolbarItem(placement: .primaryAction) { PlacesFileMenu() }
                     }
                 }
                 .presentationDetents([.medium, .large])
