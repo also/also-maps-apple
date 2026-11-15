@@ -123,15 +123,11 @@ struct SettingsView: View {
                 }
             }
 
-            #if !os(tvOS)
+            #if !os(tvOS) && !os(visionOS)
             Section {
-                Toggle("Draw with Metal", isOn: $drawsWithMetal)
+                Toggle("Experimental renderer", isOn: $drawsWithMetal)
             } footer: {
-                #if os(visionOS)
-                Text("Draws the immersive map with the app's own Metal renderer instead of RealityKit, always in full immersion, with real depth. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
-                #else
-                Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
-                #endif
+                Text("A different way of drawing the map that's still being worked on. Tracks and tile bounds aren't shown with it.")
             }
             #endif
 
@@ -182,10 +178,16 @@ struct SettingsView: View {
                 case .mixed:
                     Text("Immersive modes keep passthrough and any system environment around the map.")
                 case .progressive:
-                    Text("Immersive modes show the map in a portal. Turn the Digital Crown to widen or narrow it. With Draw with Metal on, Immersive opens in full immersion instead.")
+                    Text("Immersive modes show the map in a portal. Turn the Digital Crown to widen or narrow it. With the experimental renderer on, Immersive opens in full immersion instead.")
                 case .full:
                     Text("Immersive modes show only the map, with no passthrough or environment.")
                 }
+            }
+
+            Section {
+                Toggle("Experimental renderer", isOn: $drawsWithMetal)
+            } footer: {
+                Text("Draws Immersive with a different renderer that's still being worked on, always in full immersion and with real depth. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
             }
 
             Section {
@@ -262,7 +264,7 @@ struct SettingsView: View {
                 }
                 .disabled(settings == defaults)
             } footer: {
-                Text("Returns every setting except Show stats, Draw with Metal and your keys to how the app ships.")
+                Text("Returns every setting except Show stats, Experimental renderer and your keys to how the app ships.")
             }
         }
         .formStyle(.grouped)

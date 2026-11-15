@@ -9,7 +9,7 @@ import simd
 /// cesium-native counts it as loaded; `encode` draws a frame's tiles into a
 /// color and depth target. Depth is reverse Z (1 near, 0 far), cleared to 0.
 ///
-/// Used when Settings › General › Draw with Metal is on
+/// Used when the Experimental renderer setting is on
 /// (ViewPreferences.drawsWithMetal): for the map window on macOS and iOS
 /// (MetalMapView), and for the immersive mode on visionOS
 /// (MetalImmersiveContent). Tracks and tile bounds aren't drawn.
