@@ -191,7 +191,7 @@ struct SettingsView: View {
             Section {
                 Toggle("Human scale", isOn: $model.humanScale)
             } footer: {
-                Text("The world stays 1:1 at every altitude, with the ground as far below you as your height. Gestures move what you see as they do at model scale.")
+                Text("The world stays 1:1 at every altitude, with the ground as far below you as your height.")
             }
         }
         .formStyle(.grouped)
