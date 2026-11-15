@@ -137,13 +137,37 @@ final class MapModel {
 
     /// `frame`, with the current host, ground and settings captured.
     private var framer: (CameraPose) -> AdaptiveModel.Framing {
+        framer(fixedScale: isHumanScale ? 1 : nil)
+    }
+
+    private func framer(fixedScale: Double?) -> (CameraPose) -> AdaptiveModel.Framing {
         let room = room, ground = placementGround.value, tiltFollowsAltitude = tiltFollowsAltitude
-        let fixedScale: Double? = humanScale && isImmersive ? 1 : nil
         return { camera in
             let weight = tiltFollowsAltitude ? EyeLevelModel.tiltWeight(for: camera, room: room) : 0
             return EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground,
                                          tiltWeight: weight, fixedScale: fixedScale)
         }
+    }
+
+    /// Human scale is in effect: asked for, in the immersive space.
+    private var isHumanScale: Bool { humanScale && isImmersive }
+
+    /// The framing gestures work in: the one shown, except at human scale,
+    /// where it's the model-scale framing for the same camera. That one is
+    /// the human-scale world scaled about the eye, so everything is in the
+    /// same direction from the eye but within reach: gaze finds the gesture
+    /// target a few meters away instead of at the ground's real distance,
+    /// and a hand's movement moves the picture as much as it does at model
+    /// scale instead of moving the world by the hand's own few centimeters.
+    private var gestureFramer: (CameraPose) -> AdaptiveModel.Framing {
+        framer(fixedScale: nil)
+    }
+
+    /// `gestureFramer`'s framing for the current camera, or nil before the
+    /// first `applyView`.
+    private var gestureFraming: AdaptiveModel.Framing? {
+        guard let framing else { return nil }
+        return isHumanScale ? gestureFramer(navigation.camera) : framing
     }
 
     // MARK: Tiles held
@@ -408,7 +432,7 @@ final class MapModel {
             endManipulation()
         }
         if manipulation == nil {
-            guard let framing else { return false }
+            guard let framing = gestureFraming else { return false }
             // Gaze hit the gesture cap, which lies a little inside the
             // curved ground between its points: grab the ground itself.
             let hit = framing.georeference.ecef(map: SIMD3<Double>(start))
@@ -446,12 +470,13 @@ final class MapModel {
     private func solveManipulation() {
         guard let m = manipulation else { return }
         let ground = placementGround.value
-        // The height that gives the pinched scale. At human scale the scale
-        // is fixed, so a pinch raises or lowers the camera instead.
-        let height = context.clampHeight(humanScale && isImmersive
-            ? ground + max(m.startPose.height - ground, AdaptiveModel.minimumRange) / m.magnification
-            : EyeLevelModel.height(forScale: m.startScale * m.magnification, camera: m.pose,
-                                   groundHeight: ground, room: room, frame: frame))
+        // The height that gives the pinched scale, in the framing gestures
+        // work in. At human scale the scale shown is fixed, so the pinch
+        // raises or lowers the camera as it would at model scale.
+        let frame = gestureFramer
+        let height = context.clampHeight(
+            EyeLevelModel.height(forScale: m.startScale * m.magnification, camera: m.pose,
+                                 groundHeight: ground, room: room, frame: frame))
         let grab = AdaptiveModel.Grab(point: m.grab, start: m.start, startRotation: m.startRotation,
                                       startCamera: m.startPose,
                                       translation: m.translation, twist: m.twist)
@@ -494,6 +519,7 @@ final class MapModel {
     /// One line per pinch update: what the hands asked for and where the
     /// grabbed point and globe ended up.
     private func logStep(_ m: Manipulation, pose: CameraPose) {
+        let frame = gestureFramer
         let before = frame(m.pose), after = frame(pose)
         let radius = after.georeference.scale * simd_length(m.grab)
         let eye = room.designEye
@@ -634,7 +660,7 @@ final class MapModel {
 
     private var context: NavigationContext {
         NavigationContext(cameraGround: cameraGround.value,
-                          minimumAltitude: humanScale && isImmersive ? 1.6 : Self.minimumAltitude,
+                          minimumAltitude: isHumanScale ? 1.6 : Self.minimumAltitude,
                           maximumAltitude: Self.maximumAltitude,
                           lift: EyeLevelModel.Lift(room: room, groundHeight: placementGround.value,
                                                    tiltFollowsAltitude: tiltFollowsAltitude))
@@ -778,11 +804,12 @@ final class MapModel {
         let georeference = framing.georeference
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
 
-        placeGestureSurface(framing)
+        placeGestureSurface(gestureFraming ?? framing)
         updateDebugMarkers()
     }
 
-    /// Fits the gesture target to the ground as shown: a cap of the
+    /// Fits the gesture target to the ground as `framing` (the framing
+    /// gestures work in) places it: a cap of the
     /// ellipsoid at the placement ground. The volume's covers twice the
     /// shown region around the view center; Immersive's reaches the horizon
     /// around the point beneath the eye, so gaze anywhere on the ground
@@ -838,7 +865,7 @@ final class MapModel {
                 pinchLog(String(format: "target rebuilt at %.2f, %.2f reaching %.1f°", surface.center.latitude,
                                 surface.center.longitude, surface.angularRadius * 180 / .pi))
             }
-            if let framing { placeGestureSurface(framing) }
+            if let gestureFraming { placeGestureSurface(gestureFraming) }
         }
     }
 
@@ -1020,7 +1047,12 @@ final class MapModel {
         grabPost.scale = [0.004 * size, height, 0.004 * size]
         grabPost.position = SIMD3<Float>(georeference.map(m.grab)) + [0, height / 2, 0]
         target.scale = SIMD3(repeating: 0.008 * size)
-        target.position = SIMD3<Float>(m.start + m.translation)
+        // The hand's target is in the framing gestures work in. At human
+        // scale that's the world shown scaled about the eye, so put the
+        // marker back out where the grab is shown.
+        let eye = room.designEye
+        let out = gestureFraming.map { georeference.scale / $0.georeference.scale } ?? 1
+        target.position = SIMD3<Float>(eye + (m.start + m.translation - eye) * out)
         hit.scale = SIMD3(repeating: 0.005 * size)
         hit.position = SIMD3<Float>(georeference.map(m.hit))
     }
