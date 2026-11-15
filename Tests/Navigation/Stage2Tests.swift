@@ -18,7 +18,7 @@ private let context = NavigationContext(cameraGround: 0, minimumAltitude: 55, ma
 /// The framing the app uses: tilt from the assist.
 private func framing(_ camera: CameraPose, _ room: RoomGeometry = volume) -> AdaptiveModel.Framing {
     EyeLevelModel.framing(camera: camera, room: room, groundHeight: 0,
-                          tiltWeight: EyeLevelModel.tiltWeight(for: camera))
+                          tiltWeight: EyeLevelModel.tiltWeight(for: camera, room: room))
 }
 
 struct PlaceFramingTests {
@@ -54,8 +54,10 @@ struct PinchManipulationTests {
         let scale = before.georeference.scale * magnification
         let grabbed = AdaptiveModel.Grab(point: grab, start: p, startRotation: before.georeference.rotation, startCamera: start,
                                          translation: translation, twist: twist)
-        let pose = AdaptiveModel.pose(for: grabbed, height: EyeLevelModel.altitude(forScale: scale, room: room),
-                                      from: start, room: room) { framing($0, room) }
+        let height = EyeLevelModel.height(forScale: scale, camera: start, groundHeight: 0, room: room) {
+            framing($0, room)
+        }
+        let pose = AdaptiveModel.pose(for: grabbed, height: height, from: start, room: room) { framing($0, room) }
         return (framing(pose, room), grab, scale)
     }
 
@@ -98,11 +100,14 @@ struct PinchManipulationTests {
     @Test(arguments: [0.6, 1.6])
     func zoomWhileTheTiltChanges(magnification: Double) {
         let start = EyeLevelModel.framePlace(center: sanFrancisco, radius: 120_000, heading: 0.2, room: volume)
-        let weight = EyeLevelModel.tiltWeight(for: start)
+        let weight = EyeLevelModel.tiltWeight(for: start, room: volume)
         #expect(weight > 0.1 && weight < 0.9)
         let p = framing(start).placementPoint + SIMD3(0.1, 0, 0.05)
         let (after, grab, scale) = pinch(grabAt: p, magnification: magnification, twist: 0, radius: 120_000)
-        #expect(abs(after.georeference.scale / scale - 1) < 1e-9)
+        // Within the tilt the scale depends very slightly on where the
+        // camera is (the navigation position below the eye's height, on the
+        // ellipsoid), not only its height.
+        #expect(abs(after.georeference.scale / scale - 1) < 1e-7)
         let w = EyeLevelModel.tiltWeight(altitude: EyeLevelModel.altitude(forScale: scale, room: volume))
         let sight = simd_quatd(from: volume.sightLine(tiltWeight: weight), to: volume.sightLine(tiltWeight: w))
             .act(simd_normalize(p - volume.designEye))
@@ -125,17 +130,18 @@ struct PinchManipulationTests {
                                          startRotation: before.georeference.rotation, startCamera: pose)
         var previous = before.georeference.scale
         var previousGrab = p
-        var previousWeight = EyeLevelModel.tiltWeight(for: pose)
+        var previousWeight = EyeLevelModel.tiltWeight(for: pose, room: volume)
         for step in 1...200 {
             let scale = before.georeference.scale * pow(0.97, Double(step))
-            pose = AdaptiveModel.pose(for: grabbed, height: EyeLevelModel.altitude(forScale: scale, room: volume),
-                                      from: pose, room: volume) { framing($0) }
+            let height = EyeLevelModel.height(forScale: scale, camera: pose, groundHeight: 0, room: volume) { framing($0) }
+            pose = AdaptiveModel.pose(for: grabbed, height: height, from: pose, room: volume) { framing($0) }
             let f = framing(pose)
             #expect(abs(log(f.georeference.scale / previous) - log(0.97)) < 1e-9)
             let at = f.georeference.map(grabbed.point)
-            let tiltTurn = abs(EyeLevelModel.tiltWeight(for: pose) - previousWeight) * volume.fullTilt
+            let weight = EyeLevelModel.tiltWeight(for: pose, room: volume)
+            let tiltTurn = abs(weight - previousWeight) * volume.fullTilt
             #expect(simd_distance(at, previousGrab) < 0.015 + tiltTurn * simd_distance(previousGrab, volume.designEye))
-            previousWeight = EyeLevelModel.tiltWeight(for: pose)
+            previousWeight = weight
             previous = f.georeference.scale
             previousGrab = at
         }
@@ -190,7 +196,7 @@ struct PinchManipulationTests {
         let point = GestureSurface.snap(before.georeference.ecef(map: start), toHeight: 0)
         let grab = AdaptiveModel.Grab(point: point, start: before.georeference.map(point),
                                       startRotation: before.georeference.rotation, startCamera: pose)
-        let startHeight = EyeLevelModel.altitude(forScale: before.georeference.scale, room: volume)
+        let startHeight = pose.height
         var previous = before.georeference.rotation
         for step in 1...700 {
             let height = min(11_000_000, startHeight * pow(1.01, Double(step)))
@@ -226,7 +232,7 @@ struct PinchManipulationTests {
         let ground = 1_000.0
         func frame(_ c: CameraPose) -> AdaptiveModel.Framing {
             EyeLevelModel.framing(camera: c, room: room, groundHeight: ground,
-                                  tiltWeight: EyeLevelModel.tiltWeight(for: c))
+                                  tiltWeight: EyeLevelModel.tiltWeight(for: c, room: room))
         }
         let first = CameraPose(latitude: 44.06, longitude: -117.81, height: 900_000,
                                heading: 7.6 * degrees, pitch: -0.57)
@@ -251,8 +257,9 @@ struct PinchManipulationTests {
             // ×100 in 1.03 steps: 900 km to under 10 km.
             for step in 1...160 {
                 let scale = f.georeference.scale * pow(1.03, Double(step))
-                pose = AdaptiveModel.pose(for: grab, height: ground + EyeLevelModel.altitude(forScale: scale, room: room),
-                                          from: pose, room: room, frame: frame)
+                let height = EyeLevelModel.height(forScale: scale, camera: pose, groundHeight: ground, room: room,
+                                                  frame: frame)
+                pose = AdaptiveModel.pose(for: grab, height: height, from: pose, room: room, frame: frame)
                 let after = frame(pose)
                 let at = after.georeference.map(point)
                 #expect(simd_distance(at, room.designEye) <= limit * (1 + 1e-6))
@@ -410,6 +417,24 @@ struct ViewStateTests {
                             rayHeight: -31, envelopeHeight: -33, host: "immersive5x",
                             roomPlacement: RoomPlacement(translation: SIMD3(0.1, 0, -0.2), yaw: 0.25),
                             heldStreaming: held ? inputs : nil, settings: StreamingSettings())
+    }
+
+    /// A saved view within the tilt keeps the eye's altitude, and restoring
+    /// it gives the same view.
+    @Test func restoringAViewInTheTiltGivesTheSameView() throws {
+        let camera = EyeLevelModel.framePlace(center: sanFrancisco, radius: 150_000, heading: 0.5, room: volume)
+        let w = EyeLevelModel.tiltWeight(for: camera, room: volume)
+        #expect(w > 0.1 && w < 0.9)
+        let state = MapViewState(navigation: NavigationState(camera: camera), rayHeight: 0, envelopeHeight: 0,
+                                 host: "volume", roomPlacement: RoomPlacement(translation: .zero, yaw: 0),
+                                 heldStreaming: nil, settings: StreamingSettings())
+        let before = framing(camera)
+        #expect(abs(state.camera.height - Geodesy.geodetic(before.eye(volume)).height) < 1e-3)
+        let after = framing(try MapViewState.parse(state.json()).navigationState.camera)
+        for map in [SIMD3<Double>(0, 0, 0), SIMD3(0.3, -0.2, 0.1), SIMD3(-0.4, 0.1, -0.3)] {
+            let world = before.georeference.ecef(map: map)
+            #expect(simd_distance(after.georeference.map(world), map) < 1e-6)
+        }
     }
 
     @Test(arguments: [false, true])

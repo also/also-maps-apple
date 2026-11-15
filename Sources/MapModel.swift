@@ -138,7 +138,7 @@ final class MapModel {
         let room = room, ground = placementGround.value, tiltFollowsAltitude = tiltFollowsAltitude
         let fixedScale: Double? = humanScale && isImmersive ? 1 : nil
         return { camera in
-            let weight = tiltFollowsAltitude ? EyeLevelModel.tiltWeight(for: camera) : 0
+            let weight = tiltFollowsAltitude ? EyeLevelModel.tiltWeight(for: camera, room: room) : 0
             return EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground,
                                          tiltWeight: weight, fixedScale: fixedScale)
         }
@@ -446,10 +446,10 @@ final class MapModel {
         let ground = placementGround.value
         // The height that gives the pinched scale. At human scale the scale
         // is fixed, so a pinch raises or lowers the camera instead.
-        let above = humanScale && isImmersive
-            ? max(m.startPose.height - ground, AdaptiveModel.minimumRange) / m.magnification
-            : EyeLevelModel.altitude(forScale: m.startScale * m.magnification, room: room)
-        let height = context.clampHeight(ground + above)
+        let height = context.clampHeight(humanScale && isImmersive
+            ? ground + max(m.startPose.height - ground, AdaptiveModel.minimumRange) / m.magnification
+            : EyeLevelModel.height(forScale: m.startScale * m.magnification, camera: m.pose,
+                                   groundHeight: ground, room: room, frame: frame))
         let grab = AdaptiveModel.Grab(point: m.grab, start: m.start, startRotation: m.startRotation,
                                       startCamera: m.startPose,
                                       translation: m.translation, twist: m.twist)
@@ -633,7 +633,9 @@ final class MapModel {
     private var context: NavigationContext {
         NavigationContext(cameraGround: cameraGround.value,
                           minimumAltitude: humanScale && isImmersive ? 1.6 : Self.minimumAltitude,
-                          maximumAltitude: Self.maximumAltitude)
+                          maximumAltitude: Self.maximumAltitude,
+                          lift: EyeLevelModel.Lift(room: room, groundHeight: placementGround.value,
+                                                   tiltFollowsAltitude: tiltFollowsAltitude))
     }
 
     private enum HeldLimit { case travel, size }

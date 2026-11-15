@@ -2,6 +2,22 @@
 
 Working notes for [also/also-maps-apple#61](https://github.com/also/also-maps-apple/issues/61): find the grab point by intersecting the gaze ray with the real surface, not from where gaze hits the flat gesture slab. Newest first.
 
+## 2026-11-15
+
+### The camera's height is the eye's; placement and gestures stay as they were (#104)
+
+- **Change:** the camera's height is the reference head pose's (H's) height above the ellipsoid, so a stored or restored view's altitude is where it's seen from. The navigation position is put below the camera's latitude and longitude, low enough that H is at the camera's height (`EyeLevelModel.framing`, `Framing.navigation`). The raised tilt pivot, the tilt curve (on the navigation position's height, found over the ellipsoid so a new ground estimate doesn't turn the map) and the pinch hold are as before, so the same views and gestures come out with the altitude restated. Controller climb, zoom and move rates still follow the navigation position's height (`NavigationContext.lift`). The 11,000 km ceiling now applies at H, which lowers it.
+- **Observed (core tests):** H is at the camera's height below, through and above the tilt in both rooms. Within the tilt it drifts behind the camera's place, by up to about 0.6× the navigation position's height above the ground in the immersive space. A pinch's scale is exact to 3×10⁻⁹, not 10⁻⁹: within the tilt the navigation position's height depends very slightly on latitude.
+
+### Tried and dropped: the tilt about H
+
+- **Tried:** turning the tilt about H, so the navigation position stays at H at every tilt, with the scale as before #81 (the ground below 1.6 m from H, not up to 5.8 m), and dropping the pinch hold.
+- **Observed (owner, headset, `log.txt`):** zooming in on a point just above eye level moved it away, angularly, until it went over the horizon, much more than on main. The log: eye at 0.97 m, grab 2.9 m ahead at +0.7° from 104 km, about 10° below the horizon as shown; zoomed ×1.42, it receded ×4.4 in the room (about ×3 in the world) and reached the horizon.
+- **Cause:** as the tilt eases, the world turns about H by the whole tilt change (about 15° over that zoom), but the grab's line of sight turns only as the view center's does (about 3°). To hold the point that much higher, the solve moves the navigation position back, away from it.
+- **Inferred:** the pinch hold ("no farther from the eye in the room") is the same as m× nearer in the world for a zoom ×m, since the scale follows height. About H that forces a point that starts below you (the view center at full tilt) to end below you; following the view center down to the level line of sight needs only about m^0.4 over 500 → 50 km.
+- **Tried:** a weaker bound, at least m^α nearer. Core tests about H: α 0.6 kept the view-center grab on the view center and brought grabs above eye level down onto the ground in front (about −9°, 3–7 m); about the raised pivot only α 1 kept them off the horizon.
+- **Outcome:** the owner found it all much less natural than main and dropped the direction. The tilt about H, the bound and its debug slider were removed.
+
 ## 2026-11-13
 
 ### Immersive grabs land behind where you look, by an amount that changes
