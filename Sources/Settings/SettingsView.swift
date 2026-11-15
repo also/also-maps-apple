@@ -123,12 +123,6 @@ struct SettingsView: View {
                 }
             }
 
-            Section {
-                Toggle("Show stats", isOn: $showsStats)
-            } footer: {
-                Text("Tiles drawn, load progress and requests, shown over the map.")
-            }
-
             #if !os(tvOS)
             Section {
                 Toggle("Draw with Metal", isOn: $drawsWithMetal)
@@ -195,18 +189,7 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Limit reach", isOn: $settings.limitsImmersiveReach)
-                if settings.limitsImmersiveReach {
-                    setting("Reach", value: $settings.immersiveReach, in: 5...100, step: 5,
-                            format: { String(format: "%.0f× height", $0) },
-                            hint: "How far around you to stream, in multiples of your height above the ground.")
-                }
-            } footer: {
-                Text("Immersive streams everything you could see, out to the horizon. Turn this on to stream less.")
-            }
-
-            Section {
-                Toggle("Human scale (test)", isOn: $model.humanScale)
+                Toggle("Human scale", isOn: $model.humanScale)
             } footer: {
                 Text("The world stays 1:1 at every altitude, with the ground as far below you as your height. Gestures move what you see as they do at model scale.")
             }
@@ -234,6 +217,27 @@ struct SettingsView: View {
     private var advanced: some View {
         Form {
             Section {
+                Toggle("Show stats", isOn: $showsStats)
+            } footer: {
+                Text("Tiles drawn, load progress and requests, shown over the map.")
+            }
+
+            #if os(visionOS)
+            Section {
+                Toggle("Limit reach", isOn: $settings.limitsImmersiveReach)
+                if settings.limitsImmersiveReach {
+                    setting("Reach", value: $settings.immersiveReach, in: 5...100, step: 5,
+                            format: { String(format: "%.0f× height", $0) },
+                            hint: "How far around you to stream, in multiples of your height above the ground.")
+                }
+            } footer: {
+                Text("Immersive streams everything you could see, out to the horizon. Turn this on to stream less.")
+            }
+
+            debugging
+            #endif
+
+            Section {
                 setting("Parallel uploads", value: $settings.uploadConcurrency, in: 1...12, step: 1,
                         format: { "\(Int($0))" },
                         hint: "Tiles turned into RealityKit resources at once, off the main thread. Higher fills in faster.")
@@ -247,10 +251,6 @@ struct SettingsView: View {
             } header: {
                 Text("Streaming")
             }
-
-            #if os(visionOS)
-            debugging
-            #endif
 
             if let build = BuildInfo.current {
                 BuildInfoSection(info: build)
