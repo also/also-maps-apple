@@ -11,8 +11,32 @@ struct AlsoMapsApp: App {
     /// Read straight from the model, so a space opened right after the
     /// setting changes opens in the new style.
     private var immersionStyle: Binding<any ImmersionStyle> {
-        Binding(get: { model.fullImmersion ? .full : .mixed },
-                set: { model.fullImmersion = $0 is FullImmersionStyle })
+        Binding(get: {
+            switch model.immersion {
+            case .mixed: .mixed
+            case .progressive: .progressive
+            case .full: .full
+            }
+        }, set: { style in
+            switch style {
+            case is FullImmersionStyle: model.immersion = .full
+            case is ProgressiveImmersionStyle: model.immersion = .progressive
+            default: model.immersion = .mixed
+            }
+        })
+    }
+
+    /// The Metal space's style: Progressive isn't supported there yet, so it
+    /// opens full instead, without changing the setting.
+    private var metalImmersionStyle: Binding<any ImmersionStyle> {
+        Binding(get: { model.immersion == .mixed ? .mixed : .full },
+                set: { style in
+                    switch style {
+                    case is FullImmersionStyle:
+                        if model.immersion == .mixed { model.immersion = .full }
+                    default: model.immersion = .mixed
+                    }
+                })
     }
 
     var body: some Scene {
@@ -60,7 +84,7 @@ struct AlsoMapsApp: App {
                 .environment(model)
                 .appGate(presentsNotices: false)
         }
-        .immersionStyle(selection: immersionStyle, in: .mixed, .full)
+        .immersionStyle(selection: immersionStyle, in: .mixed, .progressive, .full)
         // In mixed immersion, keep the user's system environment (Mount Hood,
         // the Moon, …) around the immersive map instead of hiding it.
         .immersiveEnvironmentBehavior(.coexist)
@@ -69,13 +93,14 @@ struct AlsoMapsApp: App {
         // says so (MapModel.drawsImmersiveWithMetal). Mixed or full, like
         // the RealityKit space; the renderer clears to transparent in mixed.
         // Not progressive: that needs the layered layout and a stencil mask
-        // (notes/metal-renderer.md, "Immersion styles"). No `.coexist`: the
+        // (notes/metal-renderer.md, "Immersion styles"), so it opens full
+        // when Progressive is picked. No `.coexist`: the
         // system doesn't draw its environment behind a CompositorLayer, so
         // bringing one in with the Digital Crown left a black sky
         // (notes/metal-renderer.md, "System environments").
         ImmersiveSpace(id: MetalImmersiveContent.spaceID) {
             MetalImmersiveContent(model: model)
         }
-        .immersionStyle(selection: immersionStyle, in: .mixed, .full)
+        .immersionStyle(selection: metalImmersionStyle, in: .mixed, .full)
     }
 }

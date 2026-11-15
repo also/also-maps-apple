@@ -129,10 +129,13 @@ struct VolumeView: View {
             if ProcessInfo.processInfo.environment["ALSOMAPS_SHOW_TRACK"] == "1" {
                 model.showsTrack = true
             }
-            // ALSOMAPS_FULL_IMMERSION=1 opens immersive modes with full immersion,
-            // and ALSOMAPS_HUMAN_SCALE=1 keeps them at human scale.
+            // ALSOMAPS_FULL_IMMERSION=1 or ALSOMAPS_PROGRESSIVE_IMMERSION=1
+            // opens immersive modes with that immersion, and
+            // ALSOMAPS_HUMAN_SCALE=1 keeps them at human scale.
             if ProcessInfo.processInfo.environment["ALSOMAPS_FULL_IMMERSION"] == "1" {
-                model.fullImmersion = true
+                model.immersion = .full
+            } else if ProcessInfo.processInfo.environment["ALSOMAPS_PROGRESSIVE_IMMERSION"] == "1" {
+                model.immersion = .progressive
             }
             if ProcessInfo.processInfo.environment["ALSOMAPS_HUMAN_SCALE"] == "1" {
                 model.humanScale = true

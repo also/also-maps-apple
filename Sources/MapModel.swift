@@ -73,9 +73,10 @@ final class MapModel {
     /// Whether the volume (map + controls) window is open. In an immersive mode
     /// it can be closed while the immersive space stays up.
     var volumeIsOpen = false
-    /// Immersive modes hide passthrough and the system environment: only the
-    /// map is shown. Applies live to an open immersive space.
-    var fullImmersion = false
+    /// How much of the surroundings the RealityKit immersive space replaces.
+    /// Applies live to an open immersive space. The Metal space is always
+    /// full.
+    var immersion = Immersion.mixed
     /// The immersive mode is drawn by the app's Metal renderer
     /// (MetalImmersiveContent) instead of RealityKit, per Settings. Read when
     /// the immersive space opens.
@@ -1054,5 +1055,26 @@ final class MapModel {
         target.position = SIMD3<Float>(eye + (m.start + m.translation - eye) * out)
         hit.scale = SIMD3(repeating: 0.005 * size)
         hit.position = SIMD3<Float>(georeference.map(m.hit))
+    }
+}
+
+/// The RealityKit immersive space's immersion style.
+enum Immersion: String, CaseIterable, Identifiable {
+    /// Passthrough and any system environment stay around the map.
+    case mixed
+    /// The map shows in a portal the Digital Crown opens and closes, with
+    /// passthrough outside it.
+    case progressive
+    /// Only the map is shown: no passthrough or environment.
+    case full
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .mixed: "Mixed"
+        case .progressive: "Progressive"
+        case .full: "Full"
+        }
     }
 }

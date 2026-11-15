@@ -57,7 +57,7 @@ cesium-native decides which tiles to load and fetches them; a thin bridge hands 
 
 ## Views
 
-The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. Places are framed on the map's center point: the ground 15° below level ahead of you, about 6 m away on the floor for a standing eye height. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
+The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. Places are framed on the map's center point: the ground 15° below level ahead of you, about 6 m away on the floor for a standing eye height. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless Settings picks **Progressive** (the map in a portal the Digital Crown widens and narrows, with passthrough outside it) or **Full** immersion. The Metal renderer has no progressive yet and opens full instead. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
 
 `ALSOMAPS_PRESENTATION=immersive` (or `volume`) starts in that mode.
 
@@ -167,7 +167,7 @@ Settings is a window on visionOS and a sheet on iPhone and iPad, each opened wit
 
 Only the sliders you've moved are saved. The rest follow the defaults in `ControlValues`, so a change to a default reaches them without changing a value anyone chose. Reset Controls, or Reset to Defaults, goes back to all defaults. The same sliders are in the debug panel on visionOS, to change while flying.
 
-**Immersion** (visionOS): **Full immersion**, **Human scale (test)**, and
+**Immersion** (visionOS): **Immersion** (Mixed, Progressive or Full), **Human scale (test)**, and
 - **Limit reach** (Immersive only): by default Immersive streams everything you could see, all around you out to the horizon (plus ~200 km for mountains beyond it), measured from where your eye is in the world, so a tilted globe shows its whole visible face. Turn this on to stream only **Reach** around you instead: 5× to 100× your height above the ground (the same multiple of your eye height above the floor).
 
 **Detail** (visionOS): cesium-native's screen-space error thresholds, for tiles inside and outside the LOD camera's view. Most of the area of interest is outside that view, so Outer detail controls how sharp the far map is and how many tiles it costs. On iPhone and the Mac, detail is set from the window's pixels instead.

@@ -165,7 +165,7 @@ final class MetalImmersiveRenderer {
         // sky clears to transparent black, and its depth stays at the far
         // plane, where the compositor drops it. Full: an opaque sky that
         // has to be lifted off the far plane to be shown at all.
-        let passthrough = !model.fullImmersion
+        let passthrough = model.immersion == .mixed
         var statistics = MetalDrawStatistics()
         // Views sharing a texture (the shared layout) are drawn in one pass,
         // cleared once, each in its own viewport.
