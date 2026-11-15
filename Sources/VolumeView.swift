@@ -13,6 +13,7 @@ struct VolumeView: View {
     @Environment(\.openWindow) private var openWindow
     @AppStorage(ViewPreferences.showsDebugControlsKey) private var showsDebugControls = false
     @State private var showsDebugPanel = false
+    @State private var showsPlaces = false
 
     var body: some View {
         RealityView { content in
@@ -42,45 +43,20 @@ struct VolumeView: View {
         .toolbar {
             ToolbarItemGroup(placement: .bottomOrnament) {
                 presentationPicker
-                Toggle(isOn: Binding(get: { model.isRecordingTrack },
-                                     set: { $0 ? model.startTrack() : model.stopTrack() })) {
-                    Label(model.isRecordingTrack ? "Stop Recording" : "Record Track",
-                          systemImage: model.isRecordingTrack ? "stop.circle.fill" : "record.circle")
-                }
-                .toggleStyle(.button)
-                .labelStyle(.iconOnly)
-                .help("Record the camera's track to a file in Files")
-                .disabled(model.isPlayingTrack)
-                Toggle(isOn: Binding(get: { model.showsTrack }, set: { model.showsTrack = $0 })) {
-                    Label(model.showsTrack ? "Hide Track" : "Show Track",
-                          systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                }
-                .toggleStyle(.button)
-                .labelStyle(.iconOnly)
-                .help("Draw the track being recorded, or the latest one")
-                Toggle(isOn: Binding(get: { model.isPlayingTrack },
-                                     set: { $0 ? model.startPlayback() : model.stopPlayback() })) {
-                    Label(model.isPlayingTrack ? "Stop Playback" : "Play Track",
-                          systemImage: model.isPlayingTrack ? "stop.fill" : "play.fill")
-                }
-                .toggleStyle(.button)
-                .labelStyle(.iconOnly)
-                .help("Play the latest track in real time")
-                .disabled(model.isRecordingTrack || model.latestTrack == nil)
-                if let track = model.latestTrack {
-                    ShareLink(item: track) {
-                        Label("Share Track", systemImage: "square.and.arrow.up")
-                    }
+                TrackMenu(tracks: model.tracks, play: model.startPlayback, stopPlayback: model.stopPlayback)
                     .labelStyle(.iconOnly)
-                    .help("Share \(track.deletingPathExtension().lastPathComponent)")
-                }
-                Menu("Places", systemImage: "mappin.and.ellipse") {
-                    ForEach(PlaceLibrary.all) { place in
-                        Button(place.name) { model.go(to: place) }
-                    }
+                Button("Places", systemImage: "mappin.and.ellipse") {
+                    showsPlaces = true
                 }
                 .labelStyle(.iconOnly)
                 .help("Go to a place")
+                .popover(isPresented: $showsPlaces) {
+                    PlacesPanel(searchesGoogle: model.settings.tileSource.showsGoogleTiles,
+                                near: { [model] in model.navigation.camera.coordinate }) { place in
+                        model.go(to: place)
+                        showsPlaces = false
+                    }
+                }
                 Button("Settings", systemImage: "gearshape") {
                     openWindow(id: SettingsView.windowID)
                 }

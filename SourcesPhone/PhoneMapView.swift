@@ -7,6 +7,7 @@ struct PhoneMapView: View {
     @State private var map = PhoneMapView.makeMap()
     @State private var selection = initialPlace
     @State private var showsPlaces = false
+    @State private var search = PlaceSearch()
     @State private var showsSettings = false
     @Environment(\.scenePhase) private var scenePhase
 
@@ -82,24 +83,20 @@ struct PhoneMapView: View {
                 @Bindable var map = map
                 SettingsView(settings: $map.settings) { showsSettings = false }
             }
-            .sheet(isPresented: $showsPlaces) {
+            .sheet(isPresented: $showsPlaces, onDismiss: {
+                search.cancelChoice()
+                search = PlaceSearch()
+            }) {
                 NavigationStack {
-                    List(PlaceLibrary.all) { place in
-                        Button {
-                            selection = place
-                            map.go(to: place)
-                            showsPlaces = false
-                        } label: {
-                            HStack {
-                                Text(place.name)
-                                Spacer()
-                                if selection?.id == place.id {
-                                    Image(systemName: "checkmark")
-                                        .accessibilityLabel("Selected")
-                                }
-                            }
-                        }
-                        .foregroundStyle(.primary)
+                    PlacesList(search: search, near: { [map] in map.navigation.camera.coordinate },
+                               selectedID: selection?.id) { place in
+                        selection = place
+                        map.go(to: place)
+                        showsPlaces = false
+                    }
+                    .placeSearchable($search.query, if: map.settings.tileSource.showsGoogleTiles)
+                    .onChange(of: map.settings.tileSource.showsGoogleTiles, initial: true) {
+                        search.searchesGoogle = $1
                     }
                     .navigationTitle("Places")
                     .navigationBarTitleDisplayMode(.inline)
@@ -116,29 +113,9 @@ struct PhoneMapView: View {
 
     // MARK: Tracks
 
-    /// Record, play, show and share the camera's track, as on visionOS.
-    @ViewBuilder private var trackControls: some View {
-        let tracks = map.tracks
-        Button(tracks.isRecording ? "Stop Recording" : "Record Track",
-               systemImage: tracks.isRecording ? "stop.circle.fill" : "record.circle") {
-            tracks.isRecording ? tracks.stopRecording() : tracks.startRecording()
-        }
-        .tint(tracks.isRecording ? .red : nil)
-        .disabled(tracks.isPlaying)
-        Button(tracks.isPlaying ? "Stop Playback" : "Play Track",
-               systemImage: tracks.isPlaying ? "stop.fill" : "play.fill") {
-            tracks.isPlaying ? tracks.stopPlayback() : map.startPlayback()
-        }
-        .disabled(tracks.isRecording || tracks.latestTrack == nil)
-        Menu("Track", systemImage: "ellipsis.circle") {
-            Toggle("Show Track", systemImage: "point.topleft.down.to.point.bottomright.curvepath",
-                   isOn: Binding(get: { tracks.showsTrack }, set: { tracks.showsTrack = $0 }))
-            if let track = tracks.latestTrack {
-                ShareLink(item: track) {
-                    Label("Share Track", systemImage: "square.and.arrow.up")
-                }
-            }
-        }
+    /// Record, play, show and share the track, in the same menu as on visionOS.
+    private var trackControls: some View {
+        TrackMenu(tracks: map.tracks, play: map.startPlayback, stopPlayback: map.tracks.stopPlayback)
     }
 
     /// What the track is doing, under the bar.
@@ -154,6 +131,19 @@ struct PhoneMapView: View {
                 .background(.black.opacity(0.5), in: .capsule)
                 .foregroundStyle(.white)
                 .padding(.top, 4)
+        }
+    }
+}
+
+private extension View {
+    /// The search field, only while the map shows Google's tiles; Google's
+    /// terms don't allow its places over another provider's map.
+    @ViewBuilder func placeSearchable(_ query: Binding<String>, if enabled: Bool) -> some View {
+        if enabled {
+            searchable(text: query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search Places")
+                .autocorrectionDisabled()
+        } else {
+            self
         }
     }
 }

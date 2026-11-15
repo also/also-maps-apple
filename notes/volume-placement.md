@@ -4,6 +4,16 @@ Status: **merged** in [also/also-maps-apple#66](https://github.com/also/also-map
 
 ## Log (newest first)
 
+**2026-11-13: the immersive space's resting dip, and a horizon margin** ([also/also-maps-apple#79](https://github.com/also/also-maps-apple/issues/79))
+
+- **Owner decision:** the immersive space's line of sight dips 15° below level with no tilt, instead of pointing at C₀ (about 16° for a 1.6 m eye, 12° for 1.2 m). The volume keeps C₀. The line stays at least 5° below the horizon. Whether the hold-tiles travel limit follows the view center is still not decided.
+- **Changed:** `RoomGeometry.restingDip` (nil: toward C₀). The tilt pivot's reach and place framing's starting point use where that line meets the base plane (`levelReach`, `levelViewCenter`), 6.1 m from a 1.6 m eye (was 5.8 m). The camera diagram marks that point where it marked C₀. The immersive `groundPosition` still sets the base plane's height and the attribution's place.
+- **Changed:** `EyeLevelModel.framing` dips the line to 5° below the horizon where `sightLine` would come nearer (`clearOfHorizon`), measured in the world from the eye's place there, against a sphere through the ground below.
+- **Inferred (horizon dip = acos(R / (R + h))):** with no tilt the margin starts to act at about 100 km in the immersive space and about 850 km in the volume. With the tilt following altitude it doesn't act (not swept at every height; `theViewCenterIsOnTheLineOfSight` checks six).
+- **Observed (core tests):** with no tilt, from 1 km to 11,000 km in 1% steps, the view center stays on the ground ahead in both hosts and moves less than 2% of its distance per step, in the world and in the room. The same navigation position gives the same view center for eyes at 1.2, 1.6 and 1.9 m.
+- **Not changed:** the pinch's line of sight turns with `sightLine` (`RoomGeometry.sightTurn`), which doesn't know about the margin, so with no tilt above those heights a point grabbed at the view center doesn't stay exactly with it.
+- **Not tried on the headset.**
+
 **2026-11-11: one line of sight for the view center** ([also/also-maps-apple#67](https://github.com/also/also-maps-apple/issues/67))
 
 - **Owner decision:** keep the view center, defined by what's in front of the reference head pose: C₀ with no tilt, the ground below the navigation position at full tilt. Supersedes the 2026-11-09 "eliminate it".

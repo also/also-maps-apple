@@ -123,7 +123,8 @@ struct CameraDiagram {
     struct Room {
         /// E, the design eye point.
         var eye: SIMD2<Double>
-        /// C₀: where the view center goes while level.
+        /// Where the view center goes while level: C₀, or where the resting
+        /// line of sight meets the base plane.
         var levelPlacement: SIMD2<Double>
         /// The line of sight the view center is on (unit, from E, the design
         /// eye point).
@@ -204,12 +205,15 @@ struct CameraDiagram {
         case let .window(fieldOfView):
             cameraFieldOfView = fieldOfView
         case let .room(room):
-            weight = inputs.tiltWeight ?? EyeLevelModel.tiltWeight(for: camera)
+            weight = inputs.tiltWeight ?? EyeLevelModel.tiltWeight(for: camera, room: room)
             framing = EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground,
                                             tiltWeight: weight, fixedScale: inputs.fixedScale)
         }
         tiltWeight = weight
-        self.camera = Viewpoint(position: plane.point(camera.position),
+        // In a room host, the navigation position, which sits below H;
+        // `camera`'s height is H's.
+        let navigation = framing?.navigation ?? camera.position
+        self.camera = Viewpoint(position: plane.point(navigation),
                                 direction: plane.direction(camera.basis.forward),
                                 fieldOfView: cameraFieldOfView)
 
@@ -230,7 +234,7 @@ struct CameraDiagram {
         viewer = Viewpoint(position: plane.point(viewerPosition),
                            direction: plane.direction(toWorld.rotation.act(lod.direction)),
                            fieldOfView: lod.fieldOfView)
-        cameraAltitude = camera.height - inputs.terrainHeight
+        cameraAltitude = Geodesy.geodetic(navigation).height - inputs.terrainHeight
         viewerAltitude = Geodesy.geodetic(viewerPosition).height - inputs.terrainHeight
 
         // G, and the point placed on C.
@@ -264,7 +268,7 @@ struct CameraDiagram {
             Self.samples(from: max(center - radius, -halfTurn), to: min(center + radius, halfTurn), count: count)
         }
         let gDistance = g.map(alongTrack) ?? 0
-        rangeToGeoreference = g.map { simd_distance($0, camera.position) }
+        rangeToGeoreference = g.map { simd_distance($0, navigation) }
         groundDistanceToGeoreference = g.map { _ in gDistance }
         let groundRadius = GeoMath.earthRadius + inputs.terrainHeight
         horizonDistance = groundRadius * acos(min(groundRadius / (groundRadius + max(cameraAltitude, 0)), 1))
@@ -320,8 +324,8 @@ struct CameraDiagram {
             let container = inputs.containerSize.map { size in
                 Bounds([SIMD2(-size.z / 2, -size.y / 2), SIMD2(size.z / 2, size.y / 2)])
             }
-            let level = Self.side(room.placementLevel)
-            let roomCamera = Self.side(framing.georeference.map(camera.position))
+            let level = Self.side(room.levelViewCenter)
+            let roomCamera = Self.side(framing.georeference.map(framing.navigation))
             var points = [eye, level, placement, roomCamera,
                           level - SIMD2(room.contentHalfWidth, 0), level + SIMD2(room.contentHalfWidth, 0)]
             if let container { points += [container.min, container.max] }

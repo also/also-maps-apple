@@ -57,7 +57,7 @@ cesium-native decides which tiles to load and fetches them; a thin bridge hands 
 
 ## Views
 
-The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. The map's center point, 5.6 m ahead, is where places are framed. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
+The picker under the volume switches between the volume and **Immersive**. Immersive opens an immersive space and lays the map level on its origin plane, the floor where you stood when it opened, all around you, with the camera at your eye. Places are framed on the map's center point: the ground 15° below level ahead of you, about 6 m away on the floor for a standing eye height. Far up, the map tilts about your eye into a globe in front of you. The space is mixed (passthrough) unless **Full immersion** is on in Settings. The volume stays open as the control panel, and an attribution panel sits at the map's near edge. If a system environment (Mount Hood, the Moon and so on) is active, mixed Immersive keeps it, with the map on its ground. If you close the volume while in Immersive, that panel shows **Show Controls** to bring it back. Opening the app from the Home View always reopens the volume.
 
 `ALSOMAPS_PRESENTATION=immersive` (or `volume`) starts in that mode.
 
@@ -95,6 +95,8 @@ The pin button next to the mode picker jumps to a saved place: its position, zoo
 
 The remote config can replace these defaults; see [docs/remote-config.md](docs/remote-config.md).
 
+The same button searches Google for a place, on every platform but tvOS. Search is there only while the tile source is Google Photorealistic, since Google's terms don't allow Places content over another provider's map; switching to a Cesium source drops the query, its suggestions and any lookup in progress. `Sources/Places/PlacesClient.swift` uses Places API (New) over REST with the Google Maps key: Autocomplete as you type, biased to 50 km around the camera, then Place Details for the place you pick, in one session token. Details asks only for `location` and `viewport` (Essentials, 10,000 free a month). A session ending in Essentials is billed for its first 12 Autocomplete requests (Autocomplete Requests, 10,000 free a month) and free after that; Autocomplete waits for a 250 ms pause in typing, so a session is usually a few requests. See [Google's session pricing](https://developers.google.com/maps/documentation/places/web-service/session-pricing). The name comes from the suggestion, because `displayName` would make the request Pro. The view is framed on the viewport, between 250 m and 2,000 km across half its larger side. The key needs Places API (New) enabled and allowed in its API restrictions. Saving a key doesn't check that; a search with a key that can't use it says so. The results show the Google Maps attribution, since they're off the map.
+
 ### Place links
 
 A link opens the app at a place, for "Open in Also Maps" buttons on the web (visionOS, iOS and macOS; not tvOS). It goes to the place in the open map or volume rather than a new window. Two forms share one fragment:
@@ -112,6 +114,21 @@ The fragment is form-encoded. `lat` and `lon` (decimal degrees) are required; `r
   open 'alsomaps://p#lat=48.8584&lon=2.2945&r=400&h=120'
   ```
 - **Universal links** need the associated domain `applinks:maps.also.dev`, which needs an explicit App ID on the maintainer's team, as App Attest does (see [Keys](#keys)). Release builds always have it. Debug and Optimized builds on visionOS and iOS have it with the App Attest opt-in (`Config/AppAttest.entitlements` holds both); the Mac's Debug build has it when `Config/Secrets.xcconfig` sets `DEBUG_MAC_CODE_SIGN_ENTITLEMENTS = SourcesMac/AlsoMapsMac.Debug.Links.entitlements`. Devices cache the site's association file through Apple's CDN. To fetch it straight from the site instead, for testing a changed file, enable Settings → Developer → Associated Domains Development on the device (on a Mac, `sudo swcutil developer-mode -e true`) and build with the domain as `applinks:maps.also.dev?mode=developer` in the entitlements (development-signed builds only).
+
+### Place names
+
+`Sources/Geography/` names where the camera is and what it's looking at, offline, from bundled [Natural Earth](https://www.naturalearthdata.com) data (public domain): populated places, states and provinces, and named waters (visionOS, iOS and macOS; not tvOS). Nothing in the UI uses it yet.
+
+- `Gazetteer` answers queries from `Geography.sqlite`: a `PlaceContext` for a camera pose (what's below, and what's at the center of the view), nearby places, and places to label in a region. What counts as significant depends on altitude.
+- `PlaceSuggestions` turns a `PlaceContext` into names in American English: "30,000 ft over Worcester", "Over Worcester, looking toward Boston".
+
+`Geography.sqlite` isn't committed: a build phase (`Scripts/build_geography.sh`) makes it for the visionOS, iOS and macOS apps and `Also Maps Core Tests`.
+
+- It downloads the three Natural Earth zips pinned by SHA-256 in `Scripts/natural_earth.txt` (about 19 MB, from `static.also.dev`, falling back to Natural Earth's CDN), compiles `Tools/GeographyBuilder` with `swiftc`, and converts them. That takes about 10 seconds.
+- Downloads and results are cached in `~/Library/Caches/dev.also.maps/geography`, keyed by the pinned files and the converter's source, so later builds just copy the cached file. A first build with an empty cache needs the network, and so does every Xcode Cloud build.
+- For a new Natural Earth release, upload its zips unchanged to a new `static.also.dev/natural-earth/<version>/` folder (never overwrite one), then update the base URL and checksums in `Scripts/natural_earth.txt`.
+
+The file records each layer's Natural Earth version and the polygon simplification (500 m) in its `meta` table.
 
 ## Keys
 
@@ -173,7 +190,7 @@ Only the sliders you've moved are saved. The rest follow the defaults in `Contro
 
 The debug panel also has the Controls sliders.
 
-At launch, `ALSOMAPS_STATE=<that JSON>` restores a state and `ALSOMAPS_MARKERS=1` shows the markers and `ALSOMAPS_TILE_BOUNDS=1` the tile bounds.
+At launch, `ALSOMAPS_STATE=<that JSON>` restores a state and `ALSOMAPS_MARKERS=1` shows the markers and `ALSOMAPS_TILE_BOUNDS=1` the tile bounds. `ALSOMAPS_TILE_STATS=1` logs tile counts, load progress, the slowest update and fetch counters once a second.
 
 ## Tests
 

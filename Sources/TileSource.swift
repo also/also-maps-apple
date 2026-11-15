@@ -16,6 +16,16 @@ enum TileSource: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Whether the map shows Google's tiles. Google's terms don't allow
+    /// Places content over another provider's map, so search needs this.
+    /// The debug ALSOMAPS_TILESET_URL can stream any tileset, so it counts
+    /// as not Google.
+    var showsGoogleTiles: Bool {
+        guard self == .googlePhotorealistic else { return false }
+        let override = ProcessInfo.processInfo.environment["ALSOMAPS_TILESET_URL"] ?? ""
+        return override.isEmpty
+    }
+
     var name: String {
         switch self {
         case .googlePhotorealistic: "Google Photorealistic"

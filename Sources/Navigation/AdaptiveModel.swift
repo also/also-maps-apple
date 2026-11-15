@@ -14,6 +14,9 @@ enum AdaptiveModel {
         var placementPoint: SIMD3<Double>
         /// |G − X|, meters.
         var range: Double
+        /// X, the navigation position, ECEF: below the stored latitude and
+        /// longitude, and off H within the tilt.
+        var navigation: SIMD3<Double>
 
         /// The design eye point in the world, ECEF: where what's shown is
         /// seen from, which the tilt moves off the navigation position.
@@ -93,7 +96,7 @@ extension AdaptiveModel {
     ///   where the pinch began, turned with the tilt since: on the side of
     ///   the globe facing you, or on the horizon nearest that line once the
     ///   globe has shrunk out of it. That zooms about it. The line turns with
-    ///   the tilt, and a zoom in never pushes the point further away (see
+    ///   the tilt, and a zoom in ×m brings the point at least m× nearer (see
     ///   `held`).
     /// - The hand's movement rolls it along the surface by the same
     ///   distance: on a nearly flat map that's moving it with the hand; on a
@@ -138,11 +141,13 @@ extension AdaptiveModel {
     ///
     /// The line of sight through where the pinch began turns as the view
     /// center's does with the tilt (`RoomGeometry.sightTurn`), so a point
-    /// grabbed at the view center stays with it. While zooming in, if that
-    /// would put the point farther from the eye than where it began, the
-    /// line turns on toward the full tilt's turn, only as far as keeps it no
-    /// farther. Turned the full tilt, the line has kept the point no farther
-    /// in every case tried, though it ends up nearly below the eye.
+    /// grabbed at the view center stays with it. Zooming in ×m, if that
+    /// would bring the point less than m× nearer to H's place in the world,
+    /// the line turns on toward the world's own turn with the tilt (keeping
+    /// the point's direction in the world, so H moves straight toward it),
+    /// only as far as brings it m× nearer. With the scale following height,
+    /// m× nearer in the world is no farther from H in the room. Turned the full tilt, the line has brought the
+    /// point m× nearer in every case tried.
     static func held(_ grab: Grab, room: RoomGeometry, startTilt: simd_quatd, startScale: Double,
                      framing: Framing, tilt: simd_quatd) -> SIMD3<Double> {
         let eye = room.designEye

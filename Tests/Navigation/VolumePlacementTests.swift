@@ -14,7 +14,8 @@ private let volume = RoomGeometry(designEye: SIMD3(0, 0.3, 0.85),
                                   fullTilt: RoomGeometry.tiltFacing(SIMD3(0, 0, 0), from: SIMD3(0, 0.3, 0.85)))
 private let immersive = RoomGeometry(designEye: SIMD3(0, 1.6, 0),
                                      placementLevel: SIMD3(0, 0.02, -5.6),
-                                     contentHalfWidth: 5)
+                                     contentHalfWidth: 5,
+                                     restingDip: 15 * .pi / 180)
 /// The volume's box: 1 × 0.6 × 1 m about its center.
 private let boxHalfSize = SIMD3(0.5, 0.3, 0.5)
 
@@ -27,7 +28,7 @@ private let places = [
 private func framing(_ camera: CameraPose, _ room: RoomGeometry, ground: Double = 0,
                      assist: Bool = true) -> AdaptiveModel.Framing {
     EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground,
-                          tiltWeight: assist ? EyeLevelModel.tiltWeight(for: camera) : 0)
+                          tiltWeight: assist ? EyeLevelModel.tiltWeight(for: camera, room: room) : 0)
 }
 
 /// Zoom in `room`: the camera at a height with its view center held.
@@ -42,7 +43,7 @@ private func shownUp(_ f: AdaptiveModel.Framing, _ camera: CameraPose) -> SIMD3<
 }
 
 struct VolumePlacementTests {
-    @Test(arguments: [100.0, 3_000, 45_000, 900_000, 11_000_000])
+    @Test(arguments: [100.0, 3_000, 45_000, 900_000, 11_000_000, 60_000_000])
     func untiltedIsExactlyLevelInEveryHostWhateverThePitch(height: Double) {
         for place in places {
             for pitch in [-89.0, -33, 0, 25] {
@@ -59,7 +60,7 @@ struct VolumePlacementTests {
     @Test(arguments: [100.0, 3_000, 45_000])
     func belowFiftyKilometersTheAssistLeavesItLevel(height: Double) {
         let camera = CameraPose(latitude: 37.79, longitude: -122.39, height: height, heading: 0.3, pitch: -0.4)
-        #expect(EyeLevelModel.tiltWeight(for: camera) == 0)
+        #expect(EyeLevelModel.tiltWeight(for: camera, room: volume) == 0)
         #expect(simd_distance(shownUp(framing(camera, volume), camera), SIMD3(0, 1, 0)) < 1e-12)
     }
 
@@ -85,13 +86,17 @@ struct VolumePlacementTests {
         #expect(simd_distance(shownUp(a, camera), shownUp(b, camera)) < 1e-12)
     }
 
-    /// Switching host keeps the camera; untilted, both hosts are level, and
-    /// tilted, both turn by the same weight of their own full tilt.
+    /// Switching host keeps the stored pose, and so H's altitude;
+    /// untilted, both hosts are level, and tilted, each turns by its weight
+    /// of its own full tilt. The weight follows the navigation position's
+    /// height, which is lower in the immersive space for the same stored
+    /// pose.
     @Test(arguments: [600.0, 120_000, 900_000])
-    func hostSwitchKeepsTheTiltWeight(height: Double) {
+    func hostSwitchKeepsTheCamera(height: Double) {
         let camera = CameraPose(latitude: 37.79, longitude: -122.39, height: height, heading: 0.3, pitch: -0.4)
-        let w = EyeLevelModel.tiltWeight(for: camera)
         for room in [volume, immersive] {
+            let w = EyeLevelModel.tiltWeight(for: camera, room: room)
+            #expect(abs(Geodesy.geodetic(framing(camera, room).eye(room)).height - height) < 1e-3)
             let up = shownUp(framing(camera, room), camera)
             // Tilting toward the viewer turns up toward +z.
             let angle = atan2(up.z, up.y)
@@ -102,21 +107,21 @@ struct VolumePlacementTests {
 
     /// The navigation position is on the eye while level, and the tilt
     /// turns it about the pivot with the rest of the world.
-    @Test(arguments: [600.0, 120_000, 900_000, 11_000_000])
+    @Test(arguments: [600.0, 120_000, 900_000, 11_000_000, 60_000_000])
     func theTiltTurnsTheNavigationPositionAboutThePivot(height: Double) {
         let camera = CameraPose(latitude: -33.86, longitude: 151.21, height: height, heading: 4, pitch: -0.4)
-        let w = EyeLevelModel.tiltWeight(for: camera)
+        let w = EyeLevelModel.tiltWeight(for: camera, room: volume)
         let f = framing(camera, volume)
         let pivot = volume.tiltPivot
         let turned = pivot + simd_quatd(angle: w * volume.fullTilt, axis: SIMD3(1, 0, 0)).act(volume.designEye - pivot)
-        #expect(simd_distance(f.georeference.map(camera.position), turned) < 1e-6)
+        #expect(simd_distance(f.georeference.map(f.navigation), turned) < 1e-6)
     }
 
     /// Fully tilted, the ground below faces you along your line of sight to
     /// the box's center, as far from the eye as C₀ is while level.
     @Test func fullTiltFacesTheViewerAtTheBoxCenter() {
-        let camera = CameraPose(latitude: 37.79, longitude: -122.39, height: 900_000, heading: 0.3, pitch: -0.4)
-        #expect(EyeLevelModel.tiltWeight(for: camera) == 1)
+        let camera = CameraPose(latitude: 37.79, longitude: -122.39, height: 2_000_000, heading: 0.3, pitch: -0.4)
+        #expect(EyeLevelModel.tiltWeight(for: camera, room: volume) == 1)
         let f = framing(camera, volume, ground: 10)
         let nadir = Geodesy.ecef(camera.coordinate, height: 10)
         let towardCenter = simd_normalize(SIMD3(0, 0, 0) - volume.designEye)
@@ -131,13 +136,13 @@ struct VolumePlacementTests {
     /// every altitude, on C₀ while level.
     @Test func viewCenterStaysInTheBox() {
         var height = 60.0
-        while height < 11_000_000 {
+        while height < 60_000_000 {
             let camera = CameraPose(latitude: 37.79, longitude: -122.39, height: height, heading: 0.3, pitch: -0.4)
             let f = framing(camera, volume)
             let p = f.placementPoint
             #expect(abs(p.x) <= boxHalfSize.x && abs(p.y) <= boxHalfSize.y && abs(p.z) <= boxHalfSize.z,
                     "view center at \(p) for \(Int(height)) m")
-            if EyeLevelModel.tiltWeight(for: camera) == 0 {
+            if EyeLevelModel.tiltWeight(for: camera, room: volume) == 0 {
                 // On C₀, but for the Earth's curve: the line of sight meets
                 // the ground a little past it.
                 #expect(simd_distance(SIMD2(p.x, p.z), SIMD2(0, 0)) < 0.01)
@@ -204,6 +209,38 @@ struct VolumePlacementTests {
         }
     }
 
+    /// Within the tilt, climbing and moving with the controls go at the
+    /// rates of the navigation position's height above the ground, below
+    /// the stored altitude: a second's climb multiplies it by e^climbRate, and a
+    /// second's move covers moveRate of it.
+    @Test(arguments: [true, false])
+    func controlSpeedsFollowTheNavigationPosition(inVolume: Bool) {
+        let room = inVolume ? volume : immersive
+        let lift = EyeLevelModel.Lift(room: room, groundHeight: 0, tiltFollowsAltitude: true)
+        let context = NavigationContext(cameraGround: 0, minimumAltitude: 55, maximumAltitude: 11_000_000, lift: lift)
+        var flight = ModelFlightStyle()
+        flight.holdingViewCenter = holdingViewCenter(room)
+        let start = CameraPose(latitude: 37.79, longitude: -122.39, height: 200_000, heading: 0.3, pitch: -0.4)
+        let w = EyeLevelModel.tiltWeight(for: start, room: room)
+        #expect(w > 0.1 && w < 0.9)
+        let below = lift.navigationHeight(of: start)
+        #expect(below < 0.9 * start.height)
+        var state = flight.activate(NavigationState(camera: start))
+        for _ in 0..<90 {
+            state = flight.step(state, input: ControlInput(climb: 1), deltaTime: 1.0 / 90, context: context)
+        }
+        #expect(abs(lift.navigationHeight(of: state.camera) / (below * exp(ControlValues.default.climbRate)) - 1) < 1e-6)
+        #expect(state.camera.coordinate == start.coordinate)
+        state = flight.activate(NavigationState(camera: start))
+        var moved = 0.0
+        for _ in 0..<9 {
+            let before = state.camera.coordinate
+            state = flight.step(state, input: ControlInput(move: SIMD2(0, 1)), deltaTime: 1.0 / 90, context: context)
+            moved += GeoMath.distance(from: before, to: state.camera.coordinate)
+        }
+        #expect(abs(moved / (below * ControlValues.default.moveRate * 0.1) - 1) < 0.01)
+    }
+
     /// Zooming out into the altitude ceiling stops there rather than
     /// sliding the camera along the globe, in both hosts.
     @Test(arguments: [true, false])
@@ -250,7 +287,7 @@ struct VolumePlacementTests {
         // Zooming out stops short of the ceiling, with room to zoom back in.
         #expect(highest <= 0.99 * EyeLevelModel.tiltStartAltitude)
         #expect(highest > 0.98 * EyeLevelModel.tiltStartAltitude)
-        #expect(EyeLevelModel.tiltWeight(for: state.camera) == 0)
+        #expect(EyeLevelModel.tiltWeight(for: state.camera, room: volume) == 0)
         let top = state.camera.height
         step(1)
         #expect(state.camera.height < top)

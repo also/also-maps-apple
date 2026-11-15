@@ -102,6 +102,8 @@ final class TileStreaming {
     private var started = false
     /// The key the streamer was started with.
     private var keyInUse: String?
+    /// Debug: ALSOMAPS_TILE_STATS=1 logs tile and fetch counts once a second.
+    private let logsStats = ProcessInfo.processInfo.environment["ALSOMAPS_TILE_STATS"] == "1"
     private var debugLogElapsed: Float = 0
     /// Longest main-thread update in the current debug-log second.
     private var debugSlowestUpdate: TimeInterval = 0
@@ -294,14 +296,14 @@ final class TileStreaming {
                              networkMegabytes: Double(fetch.networkBytes) / 1_048_576)
         if stats != newStats { stats = newStats }
 
-        #if DEBUG
-        debugLogElapsed += deltaTime
-        if debugLogElapsed > 1 {
-            debugLogElapsed = 0
-            print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB)")
-            debugSlowestUpdate = 0
+        if logsStats {
+            debugLogElapsed += deltaTime
+            if debugLogElapsed > 1 {
+                debugLogElapsed = 0
+                print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB)")
+                debugSlowestUpdate = 0
+            }
         }
-        #endif
     }
 
     /// Samples the most detailed surface across 0.8 × `radius` meters around

@@ -34,9 +34,11 @@ struct MapPresentation: Identifiable, Hashable {
         // In front of the volume, where the LOD camera assumes a viewer.
         viewerPosition: [0, 0.3, 0.85])
 
-    /// The map on the origin plane around you. Its center point is 5.6 m
-    /// ahead, in a shown square 10 times the volume's, whose near edge is
-    /// 0.6 m ahead, raised slightly so it doesn't fight the real floor.
+    /// The map on the origin plane around you, raised slightly so it doesn't
+    /// fight the real floor. The ground position is left from the old floor
+    /// modes' square of map, 5.6 m ahead: it still sets the base plane's
+    /// height and where the attribution goes, but not the view center
+    /// (`immersiveRestingDip`).
     static let immersive = MapPresentation(
         id: "immersive",
         name: "Immersive",
@@ -45,6 +47,12 @@ struct MapPresentation: Identifiable, Hashable {
         groundPosition: [0, 0.02, -5.6],
         // Where you stood when the immersive space opened.
         viewerPosition: [0, 1.6, 0])
+
+    /// How far below level the immersive space's view center is while the
+    /// map is level: about where a relaxed gaze rests. The view center is
+    /// then about 3.7 × the height above ground ahead, whatever the measured
+    /// eye height. (The volume's is at its box's ground center instead.)
+    static let immersiveRestingDip = 15 * Double.pi / 180
 
     static let all: [MapPresentation] = [.volume, .immersive]
 
@@ -79,6 +87,7 @@ struct MapPresentation: Identifiable, Hashable {
         return .room(RoomGeometry(designEye: eye,
                                   placementLevel: level,
                                   contentHalfWidth: Self.volumeSize.x / 2 * magnification,
-                                  fullTilt: host == .volume ? RoomGeometry.tiltFacing(boxCenter, from: eye) : .pi / 2))
+                                  fullTilt: host == .volume ? RoomGeometry.tiltFacing(boxCenter, from: eye) : .pi / 2,
+                                  restingDip: host == .volume ? nil : Self.immersiveRestingDip))
     }
 }
