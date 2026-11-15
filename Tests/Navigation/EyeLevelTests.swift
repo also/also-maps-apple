@@ -221,6 +221,60 @@ struct EyeLevelTests {
         #expect(abs(after.georeference.scale / (before.georeference.scale * 2) - 1) < 1e-9)
     }
 
+    /// At human scale the app solves a pinch in the model-scale framing and
+    /// shows the result at 1:1. The grabbed point then goes where the same
+    /// pinch puts it at model scale, as seen from the eye: the same
+    /// direction, and as far away as its real distance. Solved at 1:1
+    /// instead, the same hand movement would hardly turn the world.
+    @Test(arguments: [3_000.0, 300_000, 3_000_000])
+    func humanScalePinchMovesThePictureAsModelScaleDoes(radius: Double) {
+        func weight(_ camera: CameraPose) -> Double { EyeLevelModel.tiltWeight(for: camera, room: immersive) }
+        func model(_ camera: CameraPose) -> AdaptiveModel.Framing { framing(camera, weight: weight(camera)) }
+        func human(_ camera: CameraPose) -> AdaptiveModel.Framing {
+            EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565, tiltWeight: weight(camera),
+                                  fixedScale: 1)
+        }
+        func pinched(_ frame: (CameraPose) -> AdaptiveModel.Framing, from start: CameraPose,
+                     height: Double, grab: SIMD3<Double>, hand: SIMD3<Double>) -> CameraPose {
+            let before = frame(start)
+            return AdaptiveModel.pose(for: AdaptiveModel.Grab(point: grab, start: before.georeference.map(grab),
+                                                              startRotation: before.georeference.rotation,
+                                                              startCamera: start, translation: hand, twist: 0.3),
+                                      height: height, from: start, room: immersive, frame: frame)
+        }
+        let start = EyeLevelModel.framePlace(center: ronda, radius: radius, heading: 0.2,
+                                             room: immersive, groundHeight: 565)
+        let before = model(start)
+        // Gaze hits the gesture target where model scale puts the ground.
+        let grab = GestureSurface.snap(before.georeference.ecef(map: before.placementPoint + SIMD3(0.3, 0, 0.2)),
+                                       toHeight: 565)
+        let eye = immersive.designEye
+        // Seen from the eye, it's where the human-scale world shows it.
+        let shown = human(start).georeference.map(grab) - eye
+        #expect(simd_distance(simd_normalize(shown), simd_normalize(before.georeference.map(grab) - eye)) < 1e-9)
+
+        let hand = SIMD3(0.25, 0, 0.1)
+        let height = EyeLevelModel.height(forScale: before.georeference.scale * 1.5, camera: start,
+                                          groundHeight: 565, room: immersive, frame: model)
+        let pose = pinched(model, from: start, height: height, grab: grab, hand: hand)
+        let atModel = model(pose).georeference.map(grab) - eye
+        let atHuman = human(pose).georeference.map(grab) - eye
+        #expect(simd_distance(simd_normalize(atHuman), simd_normalize(atModel)) < 1e-9)
+        #expect(abs(simd_length(atHuman) * model(pose).georeference.scale / simd_length(atModel) - 1) < 1e-9)
+        // The pinch moved it across the view.
+        let moved = acos(simd_dot(simd_normalize(atHuman), simd_normalize(shown)))
+        #expect(moved > 0.02)
+
+        // The same hand movement solved at 1:1 moves it far less.
+        let direct = pinched(human, from: start, height: height, grab: grab, hand: hand)
+        let atDirect = human(direct).georeference.map(grab) - eye
+        // Compare with the zoom alone, which both share.
+        let zoomed = pinched(human, from: start, height: height, grab: grab, hand: .zero)
+        let atZoomed = human(zoomed).georeference.map(grab) - eye
+        let directlyMoved = acos(min(simd_dot(simd_normalize(atDirect), simd_normalize(atZoomed)), 1))
+        #expect(directlyMoved < moved / 100)
+    }
+
     // MARK: The resting dip and the horizon margin
 
     /// The volume, as MapPresentation defines it: its line of sight is
