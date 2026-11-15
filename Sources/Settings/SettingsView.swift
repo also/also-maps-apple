@@ -123,21 +123,11 @@ struct SettingsView: View {
                 }
             }
 
-            Section {
-                Toggle("Show stats", isOn: $showsStats)
-            } footer: {
-                Text("Tiles drawn, load progress and requests, shown over the map.")
-            }
-
-            #if !os(tvOS)
+            #if !os(tvOS) && !os(visionOS)
             Section {
                 Toggle("Draw with Metal", isOn: $drawsWithMetal)
             } footer: {
-                #if os(visionOS)
-                Text("Draws the immersive map with the app's own Metal renderer instead of RealityKit, always in full immersion, with real depth. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
-                #else
-                Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
-                #endif
+                Text("An experimental way of drawing the map. Tracks and tile bounds aren't shown with it.")
             }
             #endif
 
@@ -188,27 +178,22 @@ struct SettingsView: View {
                 case .mixed:
                     Text("Immersive modes keep passthrough and any system environment around the map.")
                 case .progressive:
-                    Text("Immersive modes show the map in a portal. Turn the Digital Crown to widen or narrow it. With Draw with Metal on, Immersive opens in full immersion instead.")
+                    Text("Immersive modes show the map in a portal. Turn the Digital Crown to widen or narrow it. With Draw with Metal on, Progressive opens as Full.")
                 case .full:
                     Text("Immersive modes show only the map, with no passthrough or environment.")
                 }
             }
 
             Section {
-                Toggle("Limit reach", isOn: $settings.limitsImmersiveReach)
-                if settings.limitsImmersiveReach {
-                    setting("Reach", value: $settings.immersiveReach, in: 5...100, step: 5,
-                            format: { String(format: "%.0f× height", $0) },
-                            hint: "How far around you to stream, in multiples of your height above the ground.")
-                }
+                Toggle("Draw with Metal", isOn: $drawsWithMetal)
             } footer: {
-                Text("Immersive streams everything you could see, out to the horizon. Turn this on to stream less.")
+                Text("An experimental way of drawing Immersive, typically with better performance but some limitations. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
             }
 
             Section {
-                Toggle("Human scale (test)", isOn: $model.humanScale)
+                Toggle("Human scale", isOn: $model.humanScale)
             } footer: {
-                Text("The world stays 1:1 at every altitude, with the ground as far below you as your height. Gestures move what you see as they do at model scale.")
+                Text("The world stays 1:1 at every altitude, with the ground as far below you as your height.")
             }
         }
         .formStyle(.grouped)
@@ -234,6 +219,27 @@ struct SettingsView: View {
     private var advanced: some View {
         Form {
             Section {
+                Toggle("Show stats", isOn: $showsStats)
+            } footer: {
+                Text("Tiles drawn, load progress and requests, shown over the map.")
+            }
+
+            #if os(visionOS)
+            Section {
+                Toggle("Limit reach", isOn: $settings.limitsImmersiveReach)
+                if settings.limitsImmersiveReach {
+                    setting("Reach", value: $settings.immersiveReach, in: 5...100, step: 5,
+                            format: { String(format: "%.0f× height", $0) },
+                            hint: "How far around you to stream, in multiples of your height above the ground.")
+                }
+            } footer: {
+                Text("Immersive streams everything you could see, out to the horizon. Turn this on to stream less.")
+            }
+
+            debugging
+            #endif
+
+            Section {
                 setting("Parallel uploads", value: $settings.uploadConcurrency, in: 1...12, step: 1,
                         format: { "\(Int($0))" },
                         hint: "Tiles turned into RealityKit resources at once, off the main thread. Higher fills in faster.")
@@ -247,10 +253,6 @@ struct SettingsView: View {
             } header: {
                 Text("Streaming")
             }
-
-            #if os(visionOS)
-            debugging
-            #endif
 
             if let build = BuildInfo.current {
                 BuildInfoSection(info: build)

@@ -116,7 +116,7 @@ final class MapModel {
     /// The current framing, set by `applyView`.
     private var framing: AdaptiveModel.Framing?
 
-    /// Immersive only, for testing: the world stays at human scale (1:1) at
+    /// Immersive only: the world stays at human scale (1:1) at
     /// every altitude, with the camera on the eye and the ground wherever
     /// height puts it, instead of scaling so the ground meets the floor.
     var humanScale = false {
