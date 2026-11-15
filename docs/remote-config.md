@@ -22,7 +22,7 @@ Every platform reads `https://maps.also.dev/config/v1.json`, a static file, on l
 }
 ```
 
-All the top-level keys are optional. A notice needs `id`, `severity`, `title` and `body`; everything else narrows who sees it. Versions compare against `CFBundleShortVersionString`, inclusive at both ends, so a fix that a notice shouldn't reach needs a new version number. `expires` takes ISO 8601 without fractional seconds.
+All the top-level keys are optional. A notice needs `id`, `severity`, `title` and `body`; everything else narrows who sees it. Versions compare against `CFBundleShortVersionString`, inclusive at both ends, so a fix that a notice shouldn't reach needs a new version number. A bound can also be an object, `{ "version": "1.0", "build": 42 }`, which compares `CFBundleVersion` when the app is on that version; a string covers every build of its version. `expires` takes ISO 8601 without fractional seconds.
 
 - **`info`** shows as an alert, once. Give a new message a new `id`.
 - **`blocking`** replaces the app, stopping streaming, until it no longer applies. With no version range it's the kill switch; with `maxVersion` it's a minimum version. Don't let one match a build in App Review, or the reviewer sees a blocked app.
