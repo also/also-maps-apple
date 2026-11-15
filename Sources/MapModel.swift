@@ -746,6 +746,13 @@ final class MapModel {
         return room
     }
 
+    /// The reference head pose in the host's space: the design eye's
+    /// position, and the yaw (radians about up) that turns −z to its
+    /// forward. Level; it has no pitch.
+    var referenceHead: (position: SIMD3<Double>, yaw: Double) {
+        (roomPlacement.similarity.apply(room.designEye), roomPlacement.yaw)
+    }
+
     /// The headset's position in the immersive space when it opened, or nil
     /// (tracking unavailable, or not measured yet): the assumed eye is used.
     var measuredEye: SIMD3<Double>? {

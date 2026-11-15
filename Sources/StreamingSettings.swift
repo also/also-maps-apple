@@ -79,6 +79,9 @@ enum ViewPreferences {
     static let drawsWithMetalKey = "DrawsWithMetal"
     /// UserDefaults key: show the wrench that opens the volume's debug panel.
     static let showsDebugControlsKey = "ShowsDebugControls"
+    /// UserDefaults key: name where you are above your head in the
+    /// RealityKit immersive space (LocationLabel). Debug.
+    static let showsLocationLabelKey = "ShowsLocationLabel"
 
     /// The setting, or ALSOMAPS_METAL=1, which turns it on for a run.
     static var drawsWithMetal: Bool {

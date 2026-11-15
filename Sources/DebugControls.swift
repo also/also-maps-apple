@@ -11,6 +11,7 @@ struct DebugControls: View {
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @State private var stateNote: String?
+    @AppStorage(ViewPreferences.showsLocationLabelKey) private var showsLocationLabel = false
 
     var body: some View {
         @Bindable var model = model
@@ -21,6 +22,8 @@ struct DebugControls: View {
         note("Red: the point turns and zooms rotate around. Blue: the map's center. While you pinch: orange, the point you grabbed, and white, where your hand has moved it; they should stay together. Purple: where your gaze hit the gesture target, just above or below the grabbed point.")
         Toggle("Tile bounds", isOn: $model.showsTileBounds)
         note("Each drawn tile's box: cyan inside the LOD camera's view, orange outside. Yellow: the area of interest. Pink: the LOD camera's view; white: its view direction.")
+        Toggle("Location label", isOn: $showsLocationLabel)
+        note("In Immersive with RealityKit, names where you are and what you're looking toward, from the bundled place names, ahead of you and above eye level. Updates as you move, at most twice a second.")
         Button("Copy View State") {
             let json = model.captureState().json()
             UIPasteboard.general.string = json
