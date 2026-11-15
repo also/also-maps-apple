@@ -9,9 +9,9 @@ struct NavigationContext: Equatable {
     var minimumAltitude = 1.5
     /// Highest height above that ground the camera may go.
     var maximumAltitude = 20_000_000.0
-    /// In a room host, where the navigation position is for a camera: speeds
-    /// follow its height, below the camera's within the tilt. Nil: the
-    /// camera is the navigation position.
+    /// In a room host, where the navigation position is for a stored pose:
+    /// speeds follow its height, below the stored altitude (H's) within the
+    /// tilt. Nil: the stored pose is the navigation position.
     var lift: EyeLevelModel.Lift?
 
     func clampHeight(_ height: Double) -> Double {
@@ -23,10 +23,10 @@ struct NavigationContext: Equatable {
         lift?.navigationHeight(of: camera) ?? camera.height
     }
 
-    /// The camera height, at `camera`'s place, that puts the navigation
+    /// The stored altitude, at `camera`'s place, that puts the navigation
     /// position at `height`.
-    func cameraHeight(navigationHeight height: Double, at camera: CameraPose) -> Double {
-        lift?.cameraHeight(navigationHeight: height, at: camera) ?? height
+    func storedHeight(navigationHeight height: Double, at camera: CameraPose) -> Double {
+        lift?.storedHeight(navigationHeight: height, at: camera) ?? height
     }
 
     /// The navigation position's height above the estimated ground, at
@@ -45,7 +45,7 @@ enum NavigationOperations {
     static func climb(_ state: NavigationState, by delta: Double, context: NavigationContext) -> NavigationState {
         var state = state
         let height = context.navigationHeight(of: state.camera) + delta
-        state.camera.height = context.clampHeight(context.cameraHeight(navigationHeight: height, at: state.camera))
+        state.camera.height = context.clampHeight(context.storedHeight(navigationHeight: height, at: state.camera))
         return state
     }
 

@@ -14,8 +14,8 @@ enum AdaptiveModel {
         var placementPoint: SIMD3<Double>
         /// |G − X|, meters.
         var range: Double
-        /// X, the navigation position, ECEF: below the camera's place, off
-        /// the eye within the tilt.
+        /// X, the navigation position, ECEF: below the stored latitude and
+        /// longitude, and off H within the tilt.
         var navigation: SIMD3<Double>
 
         /// The design eye point in the world, ECEF: where what's shown is
@@ -142,12 +142,11 @@ extension AdaptiveModel {
     /// The line of sight through where the pinch began turns as the view
     /// center's does with the tilt (`RoomGeometry.sightTurn`), so a point
     /// grabbed at the view center stays with it. Zooming in ×m, if that
-    /// would bring the point less than m× nearer to the eye's place in the
-    /// world, the line turns on toward the world's own turn with the tilt
-    /// (keeping the point's direction in the world, so the eye moves
-    /// straight toward it), only as far as brings it m× nearer. With the
-    /// scale following height, m× nearer in the world is no farther from
-    /// the eye in the room. Turned the full tilt, the line has brought the
+    /// would bring the point less than m× nearer to H's place in the world,
+    /// the line turns on toward the world's own turn with the tilt (keeping
+    /// the point's direction in the world, so H moves straight toward it),
+    /// only as far as brings it m× nearer. With the scale following height,
+    /// m× nearer in the world is no farther from H in the room. Turned the full tilt, the line has brought the
     /// point m× nearer in every case tried.
     static func held(_ grab: Grab, room: RoomGeometry, startTilt: simd_quatd, startScale: Double,
                      framing: Framing, tilt: simd_quatd) -> SIMD3<Double> {

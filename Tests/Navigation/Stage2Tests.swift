@@ -104,9 +104,9 @@ struct PinchManipulationTests {
         #expect(weight > 0.1 && weight < 0.9)
         let p = framing(start).placementPoint + SIMD3(0.1, 0, 0.05)
         let (after, grab, scale) = pinch(grabAt: p, magnification: magnification, twist: 0, radius: 120_000)
-        // Within the tilt the scale depends very slightly on where the
-        // camera is (the navigation position below the eye's height, on the
-        // ellipsoid), not only its height.
+        // Within the tilt the scale depends very slightly on the stored
+        // latitude and longitude (through the navigation position below H,
+        // on the ellipsoid), not only the stored altitude.
         #expect(abs(after.georeference.scale / scale - 1) < 1e-7)
         let w = EyeLevelModel.tiltWeight(altitude: EyeLevelModel.altitude(forScale: scale, room: volume))
         let sight = simd_quatd(from: volume.sightLine(tiltWeight: weight), to: volume.sightLine(tiltWeight: w))
@@ -419,7 +419,7 @@ struct ViewStateTests {
                             heldStreaming: held ? inputs : nil, settings: StreamingSettings())
     }
 
-    /// A saved view within the tilt keeps the eye's altitude, and restoring
+    /// A saved view within the tilt keeps H's altitude, and restoring
     /// it gives the same view.
     @Test func restoringAViewInTheTiltGivesTheSameView() throws {
         let camera = EyeLevelModel.framePlace(center: sanFrancisco, radius: 150_000, heading: 0.5, room: volume)

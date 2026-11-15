@@ -81,7 +81,7 @@ struct ModelFlightStyle {
             let fraction = 1 - exp(-input.dolly * controls.zoomRate * boost * deltaTime)
             if let holdingViewCenter {
                 let above = context.navigationHeight(of: camera) - dollySurfaceHeight
-                let height = context.clampHeight(context.cameraHeight(
+                let height = context.clampHeight(context.storedHeight(
                     navigationHeight: dollySurfaceHeight + above * (1 - min(fraction, 0.95)), at: camera))
                 // At a height limit, stay put rather than nudge the view.
                 if height != camera.height {

@@ -210,8 +210,8 @@ struct CameraDiagram {
                                             tiltWeight: weight, fixedScale: inputs.fixedScale)
         }
         tiltWeight = weight
-        // In a room host, the navigation position; the camera's height is
-        // the eye's (the viewer's).
+        // In a room host, the navigation position, which sits below H;
+        // `camera`'s height is H's.
         let navigation = framing?.navigation ?? camera.position
         self.camera = Viewpoint(position: plane.point(navigation),
                                 direction: plane.direction(camera.basis.forward),

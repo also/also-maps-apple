@@ -58,11 +58,11 @@ struct EyeLevelTests {
         #expect(simd_distance(f.georeference.map(f.navigation), turned) < 1e-6)
     }
 
-    /// The camera's height is the eye's, below, through and above the tilt,
-    /// in both rooms. Untilted and fully tilted the eye is also at the
-    /// camera's place; within the tilt it drifts off it, behind.
+    /// The stored altitude is H's, below, through and above the tilt, in
+    /// both rooms. Untilted and fully tilted H is also at the stored
+    /// latitude and longitude; within the tilt it drifts off them, behind.
     @Test(arguments: [10_000.0, 60_000, 150_000, 300_000, 500_000, 2_000_000])
-    func theAltitudeIsTheEyes(height: Double) {
+    func theStoredAltitudeIsHs(height: Double) {
         for room in [immersive, Self.volume] {
             let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: height,
                                     heading: 0.5, pitch: -0.3)
@@ -167,12 +167,12 @@ struct EyeLevelTests {
         #expect(simd_distance(f.georeference.map(f.navigation), immersive.designEye) < 1e-6)
         let nadir = Geodesy.ecef(ronda, height: 565)
         #expect(simd_distance(f.georeference.map(nadir), immersive.designEye - SIMD3(0, 945, 0)) < 1e-6)
-        // Tilted, the eye stays at the camera's height.
+        // Tilted, H stays at the stored altitude.
         #expect(abs(Geodesy.geodetic(EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565,
                                                            tiltWeight: 1, fixedScale: 1).eye(immersive)).height
                     - 1_510) < 1e-3)
-        // Fully tilted, the ground below the navigation position faces the
-        // eye, turned about the pivot.
+        // Fully tilted, the ground below the navigation position faces H,
+        // turned about the pivot.
         let tilted = EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565, tiltWeight: 1,
                                            fixedScale: 1)
         let depth = Geodesy.geodetic(tilted.navigation).height - 565

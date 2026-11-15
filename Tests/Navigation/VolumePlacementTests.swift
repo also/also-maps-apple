@@ -86,10 +86,11 @@ struct VolumePlacementTests {
         #expect(simd_distance(shownUp(a, camera), shownUp(b, camera)) < 1e-12)
     }
 
-    /// Switching host keeps the camera, and so the eye's altitude;
+    /// Switching host keeps the stored pose, and so H's altitude;
     /// untilted, both hosts are level, and tilted, each turns by its weight
     /// of its own full tilt. The weight follows the navigation position's
-    /// height, which is lower in the immersive space for the same camera.
+    /// height, which is lower in the immersive space for the same stored
+    /// pose.
     @Test(arguments: [600.0, 120_000, 900_000])
     func hostSwitchKeepsTheCamera(height: Double) {
         let camera = CameraPose(latitude: 37.79, longitude: -122.39, height: height, heading: 0.3, pitch: -0.4)
@@ -210,7 +211,7 @@ struct VolumePlacementTests {
 
     /// Within the tilt, climbing and moving with the controls go at the
     /// rates of the navigation position's height above the ground, below
-    /// the camera's: a second's climb multiplies it by e^climbRate, and a
+    /// the stored altitude: a second's climb multiplies it by e^climbRate, and a
     /// second's move covers moveRate of it.
     @Test(arguments: [true, false])
     func controlSpeedsFollowTheNavigationPosition(inVolume: Bool) {

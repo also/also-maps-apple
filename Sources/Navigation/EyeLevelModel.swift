@@ -2,8 +2,8 @@ import Foundation
 import simd
 
 /// The room hosts' presentation (the volume and the immersive space): level,
-/// the navigation position is at the design eye point (H), and the tilt tips
-/// the map from there.
+/// the navigation position is at H, the design eye point
+/// (`RoomGeometry.designEye`), and the tilt tips the map from there.
 ///
 /// - Untilted, the ground beneath the navigation position sits on the base
 ///   plane below the design eye point, and its heading faces away from the
@@ -14,15 +14,14 @@ import simd
 ///   `RoomGeometry.tiltPivot`, so the ground below comes up toward straight
 ///   ahead, like looking at a globe, and at full tilt is as far from the eye
 ///   as the view center is while level. The navigation position turns with
-///   the world, off the eye. Its weight is the interaction mode's choice;
+///   the world, off H. Its weight is the interaction mode's choice;
 ///   drone mode's assist follows the navigation position's height above the
 ///   ellipsoid (`tiltWeight`). Each host says how far full weight tilts
 ///   (`RoomGeometry.fullTilt`).
-/// - The camera's height is the eye's: its height above the ellipsoid is
-///   where the view is seen from. The navigation position is below the
-///   camera's latitude and longitude, low enough that the eye is at the
-///   camera's height. Within the tilt the eye drifts off that place
-///   horizontally, behind it by up to about 0.6× the navigation position's
+/// - The stored altitude (`CameraPose.height`) is H's height above the
+///   ellipsoid. The navigation position is below the stored latitude and
+///   longitude, low enough that H is at the stored altitude. Within the
+///   tilt H drifts off that place horizontally, behind it by up to about 0.6× the navigation position's
 ///   height above the ground in the immersive space.
 ///
 /// The returned framing's georeference point is the view center: what
@@ -52,10 +51,10 @@ enum EyeLevelModel {
 
     /// Drone mode's tilt assist for `camera` in `room`: from the
     /// navigation position's height above the ellipsoid, found as if the
-    /// ground were the ellipsoid, so the tilt depends on where the camera is
-    /// and nothing else; a new ground estimate rescales the map but doesn't
-    /// turn it. (Terrain shifts the 50–500 km curve negligibly.) On the
-    /// eye's height instead, the tilt would rise faster than the navigation
+    /// ground were the ellipsoid, so the tilt depends on `camera` and
+    /// nothing else; a new ground estimate rescales the map but doesn't
+    /// turn it. (Terrain shifts the 50–500 km curve negligibly.) On H's
+    /// height instead, the tilt would rise faster than the navigation
     /// position as you climb, and the scale would stop shrinking with
     /// height.
     static func tiltWeight(for camera: CameraPose, room: RoomGeometry) -> Double {
@@ -64,9 +63,9 @@ enum EyeLevelModel {
         return tiltWeight(altitude: above)
     }
 
-    /// Where the navigation position is for a camera in a room host, for
-    /// speeds and climbing, which follow its height as they did before the
-    /// camera's height became the eye's.
+    /// The navigation position's height for a stored pose in a room host.
+    /// Speeds and climbing follow it, as they did before the stored
+    /// altitude became H's.
     struct Lift: Equatable {
         var room: RoomGeometry
         /// The placement ground, meters above the ellipsoid.
@@ -83,7 +82,7 @@ enum EyeLevelModel {
                                                   rotation: levelRotation(camera)) { _ in w }
         }
 
-        func cameraHeight(navigationHeight height: Double, at camera: CameraPose) -> Double {
+        func storedHeight(navigationHeight height: Double, at camera: CameraPose) -> Double {
             let eyeHeight = max(room.designEye.y - room.placementLevel.y, 0.01)
             let scale = eyeHeight / max(height - groundHeight, AdaptiveModel.minimumRange)
             return EyeLevelModel.height(forScale: scale, camera: camera, groundHeight: groundHeight, room: room) {
@@ -93,8 +92,8 @@ enum EyeLevelModel {
     }
 
     /// How high above the ground the navigation position is for the framing
-    /// to have `scale` (unless a fixed scale is given). For the camera's
-    /// height, see `height(forScale:camera:groundHeight:room:frame:)`.
+    /// to have `scale` (unless a fixed scale is given). For the stored
+    /// altitude (H's), see `height(forScale:camera:groundHeight:room:frame:)`.
     static func altitude(forScale scale: Double, room: RoomGeometry) -> Double {
         let eyeHeight = max(room.designEye.y - room.placementLevel.y, 0.01)
         return max(eyeHeight / scale, AdaptiveModel.minimumRange)
@@ -142,7 +141,7 @@ enum EyeLevelModel {
     }
 
     /// How high above the ground the navigation position is, below
-    /// `camera`'s place, for the eye (H) to be at `camera`'s height, tilted
+    /// `camera`'s place, for H to be at `camera`'s height, tilted
     /// by `weight` of the full tilt for that height above the ground.
     ///
     /// Turning about the pivot moves H off the navigation position by a
