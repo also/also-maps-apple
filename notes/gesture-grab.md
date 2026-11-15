@@ -4,6 +4,16 @@ Working notes for [also/also-maps-apple#61](https://github.com/also/also-maps-ap
 
 ## 2026-11-15
 
+### Human scale: gestures work in the model-scale framing
+
+- **Observed (owner, headset):** at human scale, gestures don't seem to work. Which part fails wasn't narrowed down.
+- **Inferred (from the code, not checked on the headset):** the gesture target sat at the ground's real distance and size (1 km up: 1 km below the eye, about 113 km in radius), which gaze may not reach; and a drag rolled the world by the hand's own movement in room meters, which at 1:1 can't be seen from any height.
+- **Change:** at human scale, `MapModel` places the gesture target, converts the gaze hit and solves the pinch in the model-scale framing for the same camera (`gestureFramer`), and shows the result at 1:1. The human-scale world is that framing scaled about the eye (`EyeLevelTests.humanScaleLeavesThePictureFromTheEye`), so the target is in the same direction from the eye but a few meters away, and a pinch moves what's seen from the eye as it does at model scale. The zoom's special case for human scale (height ÷ magnification) is gone: the height comes from the model-scale framing's scale, as at model scale.
+- **Observed (core tests):** `EyeLevelTests.humanScalePinchMovesThePictureAsModelScaleDoes`, from 3 km to 3,000 km across: the grabbed point ends in the same direction from the eye as at model scale, at its real distance. The same hand movement solved at 1:1 moves it less than a hundredth as far across the view.
+- **Observed (owner, headset):** gestures at human scale work reasonably well. They may feel a little different from model scale; the owner isn't sure, and doesn't think it matters for merging.
+- **Inferred, not tried:** the target is in the right direction only from the reference head pose. With the head moved from it, gaze lands on the target a little off from the ground it's looking at (roughly the head's offset over the target's distance: about 3° for 15 cm at 3 m). Casting the ray from the tracked head through the hit onto the ground at 1:1 would remove that.
+- **Not covered:** the Metal immersive space still has no look-and-pinch.
+
 ### The ceiling is 60,000 km at H
 
 - **Change:** the room hosts' maximum altitude goes from 11,000 km to 60,000 km. Seen from H, the globe is about 11° across there, against 43° at 11,000 km (a quarter, rounded). The Mac and iPhone screen map keep 11,000 km.
