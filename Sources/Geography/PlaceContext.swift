@@ -1,9 +1,8 @@
 import Foundation
 
 /// Facts about where the camera is and what it's looking at, with no wording
-/// attached. Phrases (PlaceSuggestions) and the on-device model
-/// (PlaceNameModel) are both built from it, and tests can construct one
-/// directly.
+/// attached. PlaceSuggestions builds phrases from it, and tests can
+/// construct one directly.
 struct PlaceContext: Codable, Equatable {
     var camera: Camera
     /// The point directly below the camera.
@@ -89,23 +88,5 @@ struct PlaceContext: Codable, Equatable {
         /// the province of Málaga and the city of Málaga, New York State and
         /// New York City.
         var sharesNameWithPlace = false
-    }
-}
-
-extension PlaceContext.Surroundings {
-    /// Every place and region name in these surroundings.
-    var allNames: [String] {
-        var names: [String] = []
-        if let urbanArea { names += [urbanArea.name, urbanArea.localName].compactMap { $0 } }
-        for n in nearby { names += [n.place.name, n.place.localName, n.place.state, n.place.country].compactMap { $0 } }
-        for r in [state].compactMap({ $0 }) + waters { names += [r.name, r.localName, r.country].compactMap { $0 } }
-        return names
-    }
-}
-
-extension PlaceContext {
-    /// Every place and region name in the context.
-    var allNames: [String] {
-        below.allNames + (viewCenter?.surroundings.allNames ?? [])
     }
 }

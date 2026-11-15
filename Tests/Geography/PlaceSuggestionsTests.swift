@@ -116,27 +116,3 @@ struct PlaceSuggestionsTests {
         #expect(names.count == Set(names.map { $0.lowercased() }).count)
     }
 }
-
-struct KnownNameFilterTests {
-    let known = ["Worcester", "Boston", "Massachusetts", "North Atlantic Ocean"]
-
-    @Test(arguments: [
-        "Over Worcester",
-        "Boston from the West",
-        "Worcester Skyline at Sunset",
-        "Central Massachusetts",
-        "High Over the North Atlantic",
-    ])
-    func keeps(_ suggestion: String) {
-        #expect(PlaceSuggestions.usesOnlyKnownNames(suggestion, known: known))
-    }
-
-    @Test(arguments: [
-        "Over Springfield",
-        "Boston and Providence",
-        "A Quiet Evening",
-    ])
-    func drops(_ suggestion: String) {
-        #expect(!PlaceSuggestions.usesOnlyKnownNames(suggestion, known: known))
-    }
-}

@@ -121,7 +121,6 @@ The fragment is form-encoded. `lat` and `lon` (decimal degrees) are required; `r
 
 - `Gazetteer` answers queries from `Geography.sqlite`: a `PlaceContext` for a camera pose (what's below, and what's at the center of the view), nearby places, and places to label in a region. What counts as significant depends on altitude.
 - `PlaceSuggestions` turns a `PlaceContext` into names in American English: "30,000 ft over Worcester", "Over Worcester, looking toward Boston".
-- `PlaceNameModel` asks Apple's on-device model for more suggestions from the same context, where it's available, and drops any that name places not in the context.
 
 `Geography.sqlite` isn't committed: a build phase (`Scripts/build_geography.sh`) makes it for the visionOS, iOS and macOS apps and `Also Maps Core Tests`.
 

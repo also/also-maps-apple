@@ -53,36 +53,6 @@ enum PlaceSuggestions {
         return "over \(coordinatePhrase(latitude: s.latitude, longitude: s.longitude))"
     }
 
-    // MARK: Checking generated names
-
-    /// Whether `suggestion` (from PlaceNameModel) names at least one known
-    /// place and no unknown ones. Capitalized words after the first must
-    /// come from a known name or be ordinary words of direction and position.
-    static func usesOnlyKnownNames(_ suggestion: String, known: [String]) -> Bool {
-        let knownWords = Set(known.flatMap(words).map { $0.lowercased() })
-        let suggestionWords = words(suggestion)
-        guard suggestionWords.contains(where: { knownWords.contains($0.lowercased()) }) else { return false }
-        return suggestionWords.dropFirst().allSatisfy { word in
-            guard let first = word.first, first.isUppercase else { return true }
-            let lower = word.lowercased()
-            return knownWords.contains(lower) || genericWords.contains(lower)
-        }
-    }
-
-    private static func words(_ s: String) -> [String] {
-        s.split { !$0.isLetter && $0 != "'" && $0 != "’" }.map(String.init)
-    }
-
-    /// Words a suggestion may capitalize without naming a place.
-    private static let genericWords: Set<String> = [
-        "a", "above", "across", "an", "and", "at", "from", "in", "looking", "near", "of", "on", "over", "the", "to", "toward", "towards",
-        "north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest",
-        "northern", "southern", "eastern", "western", "central", "upper", "lower", "greater",
-        "view", "views", "skyline", "approach", "flight", "high", "low", "overhead", "aerial", "coast", "coastline", "shore",
-        "downtown", "city", "harbor", "bay", "sky", "morning", "evening", "night", "sunset", "sunrise", "ft", "mi",
-        "state", "province", "county", "prefecture", "region", "district",
-    ]
-
     // MARK: Pieces
 
     /// The shortest name for a point: its urban area, a place within
