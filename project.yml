@@ -417,6 +417,9 @@ targets:
         CFBundleURLTypes: *placeLinkURLTypes
         UTExportedTypeDeclarations: *fileTypes
         CFBundleDocumentTypes: *documentTypes
+        # Required with CFBundleDocumentTypes (ITMS-90737); PlaceStore.importFile
+        # reads the original with security-scoped access and keeps a copy.
+        LSSupportsOpeningDocumentsInPlace: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
