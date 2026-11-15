@@ -127,6 +127,13 @@ targets:
           else
             rm -f "$dst"
           fi
+      # Place names (Sources/Geography): downloads the pinned Natural Earth
+      # files and converts them, or copies the cached result. Every build;
+      # the script decides whether anything changed.
+      - &geographyScript
+        name: Build Geography.sqlite
+        basedOnDependencyAnalysis: false
+        script: '"${SRCROOT}/Scripts/build_geography.sh" "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Geography.sqlite"'
       # Which checkout, branch and commit the build came from, for Settings >
       # Advanced. Every build, since none of that is a declared input.
       - name: Write build info
@@ -135,7 +142,8 @@ targets:
     settings:
       groups: [CesiumBridge, AppName]
       base:
-        # The scripts read an optional, undeclared file and the git checkout.
+        # The scripts read an optional, undeclared file and the git checkout,
+        # and the Geography.sqlite script downloads and caches outside the build.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
@@ -191,6 +199,7 @@ targets:
           - Config
           - Credentials
           - Places
+          - Geography
           - Diagrams
           - MapPresentation.swift
           - MapViewState.swift
@@ -213,6 +222,8 @@ targets:
         # Place links, as for the visionOS app.
         CFBundleURLTypes: *placeLinkURLTypes
     postBuildScripts:
+      # Place names, as for the visionOS app.
+      - *geographyScript
       # Which checkout, branch and commit the build came from, for Settings >
       # Advanced. Every build, since none of that is a declared input.
       - name: Write build info
@@ -221,7 +232,8 @@ targets:
     settings:
       groups: [CesiumBridge, AppName]
       base:
-        # The build info script reads the git checkout.
+        # The build info script reads the git checkout, and the
+        # Geography.sqlite script downloads and caches outside the build.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
@@ -261,6 +273,8 @@ targets:
       - path: Sources/Places/PlacesClient.swift
       - path: Sources/Places/PlaceSearch.swift
       - path: Tests/Places
+      - path: Sources/Geography
+      - path: Tests/Geography
       - path: Sources/Config/AppConfig.swift
       - path: Sources/Config/AppConfigStore.swift
       - path: Sources/Credentials/CredentialStore.swift
@@ -269,10 +283,15 @@ targets:
       - path: Tests/Static
       - path: Sources/Tracks
       - path: Tests/Navigation
+    # Into the test bundle, as for the apps.
+    postBuildScripts:
+      - *geographyScript
     scheme:
       testTargets: ["Also Maps Core Tests"]
     settings:
       base:
+        # The Geography.sqlite script downloads and caches outside the build.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         SWIFT_VERSION: "5.0"
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps.CoreTests
@@ -356,6 +375,7 @@ targets:
           - Config
           - Credentials
           - Places
+          - Geography
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
     dependencies:
@@ -385,6 +405,8 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
     postBuildScripts:
+      # Place names, as for the visionOS app.
+      - *geographyScript
       # Which checkout, branch and commit the build came from, for Settings >
       # Advanced. Every build, since none of that is a declared input.
       - name: Write build info
@@ -393,7 +415,8 @@ targets:
     settings:
       groups: [CesiumBridge, AppName]
       base:
-        # The build info script reads the git checkout.
+        # The build info script reads the git checkout, and the
+        # Geography.sqlite script downloads and caches outside the build.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps

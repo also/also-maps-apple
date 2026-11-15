@@ -115,6 +115,21 @@ The fragment is form-encoded. `lat` and `lon` (decimal degrees) are required; `r
   ```
 - **Universal links** need the associated domain `applinks:maps.also.dev`, which needs an explicit App ID on the maintainer's team, as App Attest does (see [Keys](#keys)). Release builds always have it. Debug and Optimized builds on visionOS and iOS have it with the App Attest opt-in (`Config/AppAttest.entitlements` holds both); the Mac's Debug build has it when `Config/Secrets.xcconfig` sets `DEBUG_MAC_CODE_SIGN_ENTITLEMENTS = SourcesMac/AlsoMapsMac.Debug.Links.entitlements`. Devices cache the site's association file through Apple's CDN. To fetch it straight from the site instead, for testing a changed file, enable Settings → Developer → Associated Domains Development on the device (on a Mac, `sudo swcutil developer-mode -e true`) and build with the domain as `applinks:maps.also.dev?mode=developer` in the entitlements (development-signed builds only).
 
+### Place names
+
+`Sources/Geography/` names where the camera is and what it's looking at, offline, from bundled [Natural Earth](https://www.naturalearthdata.com) data (public domain): populated places, states and provinces, and named waters (visionOS, iOS and macOS; not tvOS). Nothing in the UI uses it yet.
+
+- `Gazetteer` answers queries from `Geography.sqlite`: a `PlaceContext` for a camera pose (what's below, and what's at the center of the view), nearby places, and places to label in a region. What counts as significant depends on altitude.
+- `PlaceSuggestions` turns a `PlaceContext` into names in American English: "30,000 ft over Worcester", "Over Worcester, looking toward Boston".
+
+`Geography.sqlite` isn't committed: a build phase (`Scripts/build_geography.sh`) makes it for the visionOS, iOS and macOS apps and `Also Maps Core Tests`.
+
+- It downloads the three Natural Earth zips pinned by SHA-256 in `Scripts/natural_earth.txt` (about 19 MB, from `static.also.dev`, falling back to Natural Earth's CDN), compiles `Tools/GeographyBuilder` with `swiftc`, and converts them. That takes about 10 seconds.
+- Downloads and results are cached in `~/Library/Caches/dev.also.maps/geography`, keyed by the pinned files and the converter's source, so later builds just copy the cached file. A first build with an empty cache needs the network, and so does every Xcode Cloud build.
+- For a new Natural Earth release, upload its zips unchanged to a new `static.also.dev/natural-earth/<version>/` folder (never overwrite one), then update the base URL and checksums in `Scripts/natural_earth.txt`.
+
+The file records each layer's Natural Earth version and the polygon simplification (500 m) in its `meta` table.
+
 ## Keys
 
 Release builds contain no keys, except on tvOS. Where there's no key yet, the first launch asks how to load the map: with the app's shared key, which may be throttled, or with your own. Change it later in Keys (in Settings on every platform but tvOS). `Sources/Credentials/` holds this.
