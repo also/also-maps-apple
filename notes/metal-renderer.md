@@ -74,6 +74,23 @@ quality.
 
 ## Log
 
+### 2026-11-16: Metal pinches on a Vision Pro, after merging main
+
+- **Observed (owner, Vision Pro):** look-and-pinch works in the Metal space.
+  Zoom near the ground is no longer jumpy, but it's mildly shaky, as if it
+  responds too sensitively to the hands. Zooming is much faster than with
+  the RealityKit space's gestures.
+- **Inferred, not checked:**
+  - Shake: `PinchGestures` uses each spatial event's raw hand position, with
+    no smoothing. SwiftUI's gestures may filter the hands before reporting.
+  - Speed: the magnification is the ratio of the hands' horizontal distance
+    now to when the pinch began. `MagnifyGesture`'s two-handed
+    magnification may be measured differently (in 3D, or damped), so the
+    same hand movement could give a smaller factor there.
+  - A way to check: log `MagnifyGesture`'s magnification against the hands'
+    distance in the RealityKit space, then match the curve; and low-pass
+    the hand positions (a few frames' half-life) in `MetalSpatialGestures`.
+
 ### 2026-11-08: system environments don't show behind the Metal layer
 
 - **Decided:** the Metal space no longer asks to coexist with the system
