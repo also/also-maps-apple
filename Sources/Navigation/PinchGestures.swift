@@ -1,3 +1,4 @@
+import Foundation
 import simd
 
 /// Turns raw pinches (each hand's position over time, and where its pinch
@@ -31,6 +32,12 @@ struct PinchGestures<ID: Hashable> {
     /// minimum distance, so a pinch that's about to become two-handed, or a
     /// still one, doesn't pan.
     var dragThreshold: Float = 0.01
+
+    /// The zoom is the hands' distance ratio raised to this: below 1, the
+    /// same movement of the hands zooms less. SwiftUI's two-handed zoom in
+    /// the RealityKit space felt much slower than the plain ratio
+    /// (notes/metal-renderer.md).
+    var zoomExponent = 0.5
 
     private struct Touch {
         /// Where the pinch met the map.
@@ -106,7 +113,8 @@ struct PinchGestures<ID: Hashable> {
             }
             // Hands nearly together give no usable scale or angle.
             guard let pair, pair.distance > 0.01 else { return result }
-            let magnification = Double(Self.horizontalDistance(a.hand, b.hand) / pair.distance)
+            let ratio = Double(Self.horizontalDistance(a.hand, b.hand) / pair.distance)
+            let magnification = pow(ratio, zoomExponent)
             let twist = Self.wrapped(Self.angle(a.hand, b.hand) - pair.angle)
             return result + [.magnify(by: magnification, startedAt: pair.start),
                              .rotate(angle: twist, startedAt: pair.start)]

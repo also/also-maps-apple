@@ -28,6 +28,7 @@ struct PinchGestureTests {
     @Test
     func handsMovingApartMagnifyAboutTheMidpoint() throws {
         var gestures = Gestures()
+        gestures.zoomExponent = 1
         _ = gestures.begin(1, hand: [-0.1, 1, -0.4], hit: [-1, 0, -5])
         let both = gestures.begin(2, hand: [0.1, 1, -0.4], hit: [1, 0, -5])
         #expect(both.contains(.magnify(by: 1, startedAt: [0, 0, -5])))
@@ -79,5 +80,56 @@ struct PinchGestureTests {
         #expect(gestures.move(7, hand: [0, 1, 0]).isEmpty)
         #expect(gestures.end(7).isEmpty)
         #expect(!gestures.isTracking(7))
+    }
+}
+
+struct PinchZoomResponseTests {
+    @Test
+    func theZoomIsTheDistanceRatioRaisedToTheExponent() throws {
+        var gestures = PinchGestures<Int>()
+        gestures.zoomExponent = 0.5
+        _ = gestures.begin(1, hand: [-0.1, 1, -0.4], hit: [-1, 0, -5])
+        _ = gestures.begin(2, hand: [0.1, 1, -0.4], hit: [1, 0, -5])
+        // Hands twice as far apart: √2, not 2.
+        let outputs = gestures.move(2, hand: [0.3, 1, -0.4])
+        let magnify = try #require(outputs.first { if case .magnify = $0 { true } else { false } })
+        guard case let .magnify(by, _) = magnify else { return }
+        #expect(abs(by - 2.0.squareRoot()) < 1e-5)
+    }
+}
+
+struct HandFilterTests {
+    @Test
+    func aStillHandsJitterIsSmoothed() {
+        var filter = HandFilter()
+        var output = SIMD3<Double>.zero
+        var largest = 0.0
+        // 90 Hz, ±2 mm of jitter about a still hand.
+        for step in 0..<180 {
+            let jitter = (step % 2 == 0 ? 0.002 : -0.002)
+            output = filter.filter([jitter, 1, -0.4], at: Double(step) / 90)
+            if step > 90 { largest = max(largest, abs(output.x)) }
+        }
+        #expect(largest < 0.001)
+    }
+
+    @Test
+    func aQuickMovementFollowsClosely() {
+        var filter = HandFilter()
+        var output = SIMD3<Double>.zero
+        // 0.5 m/s for a third of a second at 90 Hz.
+        for step in 0...30 {
+            output = filter.filter([0.5 * Double(step) / 90, 1, -0.4], at: Double(step) / 90)
+        }
+        let target = 0.5 * 30 / 90
+        // Within a few centimetres (tens of milliseconds) of the hand.
+        #expect(abs(output.x - target) < 0.03)
+        #expect(output.x < target)
+    }
+
+    @Test
+    func theFirstSampleIsPassedThrough() {
+        var filter = HandFilter()
+        #expect(filter.filter([0.2, 1, -0.4], at: 5) == [0.2, 1, -0.4])
     }
 }

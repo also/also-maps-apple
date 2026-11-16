@@ -90,6 +90,17 @@ quality.
   - A way to check: log `MagnifyGesture`'s magnification against the hands'
     distance in the RealityKit space, then match the curve; and low-pass
     the hand positions (a few frames' half-life) in `MetalSpatialGestures`.
+- **Tried next (not yet on a device):**
+  - Each hand's position goes through a One Euro filter (`HandFilter`:
+    1.5 Hz cutoff when still, rising 4 Hz per m/s). In tests, ±2 mm of
+    jitter on a still hand comes out under 1 mm, and a 0.5 m/s movement
+    trails by under 3 cm.
+  - The zoom is the hands' distance ratio raised to an exponent, 0.5 by
+    default, so hands twice as far apart zoom 1.4× rather than 2×. It's
+    a guess, adjustable live as "Metal pinch zoom" in the debug controls
+    (Settings › Advanced, or the volume's debug panel); it takes effect at
+    the next pinch. Matching `MagnifyGesture` properly still needs its
+    curve measured.
 
 ### 2026-11-08: system environments don't show behind the Metal layer
 

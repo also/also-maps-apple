@@ -23,6 +23,14 @@ final class MetalSpatialGestures {
     private var gestures = PinchGestures<ID>()
     /// Pinches that began off the map.
     private var ignored: Set<ID> = []
+    /// Each pinching hand's smoothing: spatial events give the raw hand
+    /// pose, which shakes the map.
+    private var filters: [ID: HandFilter] = [:]
+
+    /// The zoom response (PinchGestures.zoomExponent), from the debug
+    /// controls.
+    static let zoomExponentKey = "metalPinchZoomExponent"
+    static let defaultZoomExponent = 0.5
 
     init(model: MapModel) {
         self.model = model
@@ -36,6 +44,7 @@ final class MetalSpatialGestures {
             } else {
                 // Ended or cancelled.
                 ignored.remove(event.id)
+                filters[event.id] = nil
                 outputs = gestures.end(event.id)
             }
             for output in outputs { apply(output) }
@@ -50,7 +59,7 @@ final class MetalSpatialGestures {
         // space's gestures convert them.
         let inSpace = Self.lifted(SIMD3<Float>(pose.pose3D.position.vector))
         let mapped = model.mapInImmersiveSpace.inverse * SIMD4(inSpace, 1)
-        let hand = SIMD3(mapped.x, mapped.y, mapped.z)
+        let hand = smoothed(SIMD3(mapped.x, mapped.y, mapped.z), event)
         if gestures.isTracking(event.id) { return gestures.move(event.id, hand: hand) }
 
         // A new pinch.
@@ -68,7 +77,16 @@ final class MetalSpatialGestures {
         #if DEBUG
         print("[AlsoMaps] Metal gestures: pinch on the map at \(hit), hand \(hand), chirality \(String(describing: event.chirality))")
         #endif
+        gestures.zoomExponent = UserDefaults.standard.object(forKey: Self.zoomExponentKey) as? Double
+            ?? Self.defaultZoomExponent
         return gestures.begin(event.id, hand: hand, hit: hit)
+    }
+
+    private func smoothed(_ hand: SIMD3<Float>, _ event: SpatialEventCollection.Event) -> SIMD3<Float> {
+        var filter = filters[event.id] ?? HandFilter()
+        let position = filter.filter(SIMD3<Double>(hand), at: event.timestamp)
+        filters[event.id] = filter
+        return SIMD3<Float>(position)
     }
 
     private func apply(_ output: PinchGestures<ID>.Output) {
