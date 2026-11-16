@@ -39,6 +39,9 @@ final class ScreenMap {
     /// The ground under the camera, meters above the ellipsoid. Not observed:
     /// read it alongside the camera.
     var groundHeight: Double { cameraGround.value }
+    /// The pitch you've set, which auto tilt blends toward straight down
+    /// as you climb; nil while auto tilt is off.
+    @ObservationIgnored private var tiltBase: Double?
     @ObservationIgnored private var heldActions: Set<MapInput.Action> = []
     /// Sampled again if there was no streamer to ask.
     @ObservationIgnored private var lastGroundSample: (center: GeoCoordinate, radius: Double, liftsCamera: Bool)?
@@ -193,6 +196,7 @@ final class ScreenMap {
         }
         applyInput(deltaTime: dt)
         applyGlide(deltaTime: dt)
+        applyAutoTilt(deltaTime: dt)
         cameraGround.update(camera: navigation.camera, rendered: streaming.renderedHeightRanges(), deltaTime: dt)
         tracks.record(navigation.camera)
         applyView()
@@ -224,6 +228,25 @@ final class ScreenMap {
         flight.controls = controls
         flight.dollySurfaceHeight = cameraGround.value
         navigation = flight.step(navigation, input: rates, deltaTime: deltaTime, context: context)
+    }
+
+    /// With the visionOS-style controller, the view tips toward straight down from
+    /// 50 km up to 500 km. Below that the pitch is yours (`tiltBase`); above,
+    /// a pitch key or button moves the base and the view shows it blended.
+    private func applyAutoTilt(deltaTime: Double) {
+        guard settings.onScreenController.tiltsWithAltitude, !tracks.isPlaying else {
+            tiltBase = nil
+            return
+        }
+        let weight = EyeLevelModel.tiltWeight(altitude: navigation.camera.height)
+        guard weight > 0, var base = tiltBase else {
+            tiltBase = navigation.camera.pitch
+            return
+        }
+        base += rates.pitch * flight.pitchRate * (rates.fast ? settings.controls.values.boost : 1) * deltaTime
+        base = min(max(base, -Double.pi / 2), Double.pi * 4 / 9)
+        tiltBase = base
+        navigation.camera.pitch = base + (-Double.pi / 2 - base) * weight
     }
 
     private func perform(_ action: MapInput.Action) {

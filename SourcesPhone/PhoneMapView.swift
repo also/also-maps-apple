@@ -43,7 +43,7 @@ struct PhoneMapView: View {
                 }
                 .overlay(alignment: .bottom) {
                     // The track has the camera while it plays.
-                    if !map.tracks.isPlaying {
+                    if !map.tracks.isPlaying, map.settings.onScreenController != .none {
                         DroneControls(map: map)
                             // Clear of the attribution along the bottom.
                             .padding(.bottom, 64)

@@ -65,7 +65,10 @@ struct DroneControls: View {
                 map.touchInput.move = value
             }
             Spacer()
-            TiltControl(controls: map.settings.controls.values) { map.touchInput.pitch = $0 }
+            // The visionOS style tilts the view as you climb instead.
+            if map.settings.onScreenController == .standard {
+                TiltControl(controls: map.settings.controls.values) { map.touchInput.pitch = $0 }
+            }
             Joystick(label: "turn · climb", controls: map.settings.controls.values, locksAxes: true) { value in
                 map.touchInput.turn = value.x
                 map.touchInput.altitude = value.y
