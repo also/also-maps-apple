@@ -4,8 +4,8 @@ Adapted from Apple's sample "Creating a spatial drawing app with RealityKit"
 along polylines into a growable LowLevelMesh. Changed for AlsoMaps: several
 polylines per mesh with no faces between them, frames computed from the
 points (no SmoothCurveSampler), mitred corners, constant radius, and only
-position and normal per vertex (no colour, material properties or curve
-distance). The sample's licence follows.
+position and normal per vertex (no color, material properties or curve
+distance). The sample's license follows.
 
     Copyright 2024 Apple Inc. All Rights Reserved.
 
@@ -101,10 +101,10 @@ struct TubeExtruder {
             for ring in rings.joined() {
                 for (u, stretch) in zip(shape, ring.offsets) {
                     let normal = ring.frame * SIMD3<Float>(u, 0)
-                    vertices[v] = Vertex(position: ring.centre + stretch, normal: normal)
+                    vertices[v] = Vertex(position: ring.center + stretch, normal: normal)
                     v += 1
                 }
-                bounds.formUnion(ring.centre)
+                bounds.formUnion(ring.center)
             }
         }
         lowLevelMesh.withUnsafeMutableIndices { rawBuffer in
@@ -135,10 +135,10 @@ struct TubeExtruder {
         return didReallocate ? lowLevelMesh : nil
     }
 
-    /// One cross-section: its centre, its frame (x and y across the tube, z
-    /// along it) and each shape vertex's offset from the centre.
+    /// One cross-section: its center, its frame (x and y across the tube, z
+    /// along it) and each shape vertex's offset from the center.
     private struct Ring {
-        var centre: SIMD3<Float>
+        var center: SIMD3<Float>
         var frame: simd_float3x3
         var offsets: [SIMD3<Float>]
     }
@@ -159,7 +159,7 @@ struct TubeExtruder {
         var rings: [Ring] = []
         rings.reserveCapacity(points.count)
         var up: SIMD3<Float> = abs(directions[0].y) < 0.9 ? [0, 1, 0] : [1, 0, 0]
-        for (i, centre) in points.enumerated() {
+        for (i, center) in points.enumerated() {
             let before = directions[max(i - 1, 0)]
             let after = directions[min(i, directions.count - 1)]
             var tangent = before + after
@@ -184,7 +184,7 @@ struct TubeExtruder {
                 let across = frame * SIMD3<Float>(u, 0)
                 return radius * (across + (1 / cosine - 1) * simd_dot(across, bendAxis) * bendAxis)
             }
-            rings.append(Ring(centre: centre, frame: frame, offsets: offsets))
+            rings.append(Ring(center: center, frame: frame, offsets: offsets))
         }
         return rings
     }

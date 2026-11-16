@@ -10,7 +10,7 @@ final class HeadTracker {
     private let worldTracking = WorldTrackingProvider()
 
     /// Starts world tracking and returns the headset's position in the
-    /// immersive space (metres, the origin on the floor where the space
+    /// immersive space (meters, the origin on the floor where the space
     /// opened) once it's tracked, or nil if tracking isn't available or
     /// doesn't settle within `timeout`.
     func headPosition(timeout: Duration = .seconds(3)) async -> SIMD3<Float>? {

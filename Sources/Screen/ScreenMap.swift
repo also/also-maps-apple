@@ -33,11 +33,15 @@ final class ScreenMap {
     let tracks = TrackSession()
 
     @ObservationIgnored private var flight = ModelFlightStyle()
+    /// The rates being flown, ramping toward the input's per Settings.
+    @ObservationIgnored private var rates = ControlInput()
     @ObservationIgnored private var cameraGround = CameraGround()
+    /// The ground under the camera, meters above the ellipsoid. Not observed:
+    /// read it alongside the camera.
+    var groundHeight: Double { cameraGround.value }
     @ObservationIgnored private var heldActions: Set<MapInput.Action> = []
-    @ObservationIgnored private var currentPlaceID: String?
     /// Sampled again if there was no streamer to ask.
-    @ObservationIgnored private var lastGroundSample: (centre: GeoCoordinate, radius: Double, liftsCamera: Bool)?
+    @ObservationIgnored private var lastGroundSample: (center: GeoCoordinate, radius: Double, liftsCamera: Bool)?
     /// Bumped per ground sample so a slow, older result can't win.
     @ObservationIgnored private var groundSampleGeneration = 0
     @ObservationIgnored private let cameraEntity = Entity()
@@ -50,24 +54,23 @@ final class ScreenMap {
     /// Vertical field of view, radians: the window camera's and the LOD
     /// camera's.
     static let fieldOfView = Double.pi / 4
-    /// Lowest camera height above the estimated ground, metres.
+    /// Lowest camera height above the estimated ground, meters.
     private static let minimumAltitude = 2.0
-    /// Highest camera height above the estimated ground, metres: a view
+    /// Highest camera height above the estimated ground, meters: a view
     /// 10,000 km in half-width, roughly a hemisphere.
     private static let maximumAltitude = 11_000_000.0
 
     /// Where to sample the ground first, and whether the start camera was
     /// framed on the ellipsoid, to be lifted by the ground found there.
-    @ObservationIgnored private let startGround: (centre: GeoCoordinate, radius: Double, lifts: Bool)
+    @ObservationIgnored private let startGround: (center: GeoCoordinate, radius: Double, lifts: Bool)
 
     convenience init(place: Place, settings: StreamingSettings) {
-        self.init(camera: ScreenView.framePlace(place, fieldOfView: Self.fieldOfView), settings: settings,
-                  startGround: (place.coordinate, place.radius, true))
-        currentPlaceID = place.id
+        self.init(camera: Self.camera(for: place), settings: settings,
+                  startGround: (place.coordinate, place.radius, place.position == nil))
     }
 
     init(camera: CameraPose, settings: StreamingSettings,
-         startGround: (centre: GeoCoordinate, radius: Double, lifts: Bool)? = nil) {
+         startGround: (center: GeoCoordinate, radius: Double, lifts: Bool)? = nil) {
         self.startGround = startGround ?? (camera.coordinate, 500, false)
         self.settings = settings
         navigation = NavigationState(camera: camera)
@@ -84,7 +87,7 @@ final class ScreenMap {
         content.add(cameraEntity)
         applyView()
         streaming.start()
-        sampleGround(around: startGround.centre, radius: startGround.radius, liftsCamera: startGround.lifts)
+        sampleGround(around: startGround.center, radius: startGround.radius, liftsCamera: startGround.lifts)
         subscription = content.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             MainActor.assumeIsolated {
                 self?.tick(deltaTime: Float(event.deltaTime))
@@ -95,7 +98,7 @@ final class ScreenMap {
     /// The window camera's pose in the scene; it looks down its −z.
     var cameraMatrix: simd_float4x4 { cameraEntity.transform.matrix }
 
-    /// Near and far clip distances for the current camera, metres.
+    /// Near and far clip distances for the current camera, meters.
     var clipping: (near: Double, far: Double) {
         ScreenView.clipping(altitude: navigation.camera.height - cameraGround.value)
     }
@@ -122,23 +125,39 @@ final class ScreenMap {
         touch = TouchState()
         tracks.stopPlayback()
         tracks.markJump()
-        currentPlaceID = place.id
-        let camera = ScreenView.framePlace(place, fieldOfView: Self.fieldOfView)
-        navigation = flight.activate(NavigationState(camera: camera))
+        navigation = flight.activate(NavigationState(camera: Self.camera(for: place)))
         cameraGround.reset(to: 0)
-        // Framed on the ellipsoid; lift it by the ground there once known.
-        sampleGround(around: place.coordinate, radius: place.radius, liftsCamera: true)
+        // A navigation position's height is above the ellipsoid; a framed
+        // place is framed on the ellipsoid, to be lifted by the ground there.
+        sampleGround(around: place.coordinate, radius: place.radius, liftsCamera: place.position == nil)
     }
 
-    /// Samples the ground around `centre` for the ground estimate. With
+    /// The navigation position for `place`: its own, looking down at the
+    /// usual angle unless it saved a pitch, or one framing it.
+    private static func camera(for place: Place) -> CameraPose {
+        place.pose(pitch: -ScreenView.placeElevation) ?? ScreenView.framePlace(place, fieldOfView: fieldOfView)
+    }
+
+    /// The navigation position as a place to save, with its pitch.
+    func currentPlace(id: String, name: String) -> Place {
+        Place(id: id, name: name, position: navigation.camera, savesPitch: true)
+    }
+
+    /// The ground at the screen's center, or nil when it's off the ground.
+    var viewCenter: GeoCoordinate? {
+        ScreenView.shownView(camera: navigation.camera, groundHeight: cameraGround.value,
+                             fieldOfView: Self.fieldOfView)?.center
+    }
+
+    /// Samples the ground around `center` for the ground estimate. With
     /// `liftsCamera`, the camera rises by what it finds, so a place framed
     /// on the ellipsoid ends up framed on the ground.
-    private func sampleGround(around centre: GeoCoordinate, radius: Double, liftsCamera: Bool) {
-        lastGroundSample = (centre, radius, liftsCamera)
+    private func sampleGround(around center: GeoCoordinate, radius: Double, liftsCamera: Bool) {
+        lastGroundSample = (center, radius, liftsCamera)
         groundSampleGeneration += 1
         let generation = groundSampleGeneration
         let assumed = cameraGround.value
-        streaming.sampleGroundHeight(around: centre, radius: radius) { [weak self] height in
+        streaming.sampleGroundHeight(around: center, radius: radius) { [weak self] height in
             MainActor.assumeIsolated {
                 guard let self, generation == self.groundSampleGeneration, height.isFinite else { return }
                 let ground = min(max(height, -500), 9_000)
@@ -163,7 +182,7 @@ final class ScreenMap {
             // had no streamer to ask can run.
             streaming.updateKey()
             if streaming.isStreaming, let sample = lastGroundSample {
-                sampleGround(around: sample.centre, radius: sample.radius, liftsCamera: sample.liftsCamera)
+                sampleGround(around: sample.center, radius: sample.radius, liftsCamera: sample.liftsCamera)
             }
             return
         }
@@ -187,7 +206,7 @@ final class ScreenMap {
         let controller = MapInput.controller?.vendorName ?? (MapInput.controller == nil ? nil : "Controller")
         if controllerName != controller { controllerName = controller }
 
-        var input = MapInput.current()
+        var input = MapInput.current(controls: settings.controls.values)
         input.merge(touchInput)
         // Buttons act once, on the frame they go down.
         for action in input.held.subtracting(heldActions) {
@@ -195,18 +214,20 @@ final class ScreenMap {
         }
         heldActions = input.held
 
-        guard input.isMoving, !tracks.isPlaying else { return }
+        guard !tracks.isPlaying else {
+            rates = ControlInput()
+            return
+        }
+        let controls = settings.controls.values
+        rates = controls.ramp(rates, toward: input.controlInput, deltaTime: deltaTime)
+        guard rates.isMoving else { return }
+        flight.controls = controls
         flight.dollySurfaceHeight = cameraGround.value
-        navigation = flight.step(navigation, input: input.controlInput, deltaTime: deltaTime, context: context)
+        navigation = flight.step(navigation, input: rates, deltaTime: deltaTime, context: context)
     }
 
     private func perform(_ action: MapInput.Action) {
-        let places = PlaceLibrary.all
         switch action {
-        case .nextPlace where !places.isEmpty:
-            go(to: PlaceLibrary.place(in: places, stepping: 1, from: currentPlaceID))
-        case .previousPlace where !places.isEmpty:
-            go(to: PlaceLibrary.place(in: places, stepping: -1, from: currentPlaceID))
         case .faceNorth where !tracks.isPlaying:
             navigation = NavigationOperations.faceNorth(navigation)
         default:
@@ -252,9 +273,9 @@ final class ScreenMap {
         var lastScale = 1.0
         var lastRotation = 0.0
         var lastTranslationY = 0.0
-        /// What a two-finger tilt swings about, the ground at the centre.
+        /// What a two-finger tilt swings about, the ground at the center.
         var tiltPivot: SIMD3<Double>?
-        /// After a flick: metres per second forward and right of the
+        /// After a flick: meters per second forward and right of the
         /// movement heading, dying away.
         var coast = SIMD2<Double>.zero
         /// A tap's zoom, eased over a moment.
@@ -307,21 +328,21 @@ final class ScreenMap {
         touch.coast = simd_length(coast) > fastest ? simd_normalize(coast) * fastest : coast
     }
 
-    func beginTwoFingers(at centre: SIMD2<Double>) {
+    func beginTwoFingers(at center: SIMD2<Double>) {
         guard !tracks.isPlaying else { return }
         touch = TouchState()
-        touch.grab = groundPoint(under: centre)
+        touch.grab = groundPoint(under: center)
     }
 
     /// `translation`, `scale` and `rotation` are since the fingers came
     /// down; `rotation` is radians clockwise on screen.
-    func twoFingers(at centre: SIMD2<Double>, translation: SIMD2<Double>, scale: Double, rotation: Double) {
+    func twoFingers(at center: SIMD2<Double>, translation: SIMD2<Double>, scale: Double, rotation: Double) {
         guard !tracks.isPlaying else { return }
         switch touch.twoFingers.update(translation: translation, scale: scale, rotation: rotation) {
         case .undecided:
             break
         case .tilt:
-            if touch.tiltPivot == nil { touch.tiltPivot = groundPoint(under: viewport.centre) }
+            if touch.tiltPivot == nil { touch.tiltPivot = groundPoint(under: viewport.center) }
             guard let pivot = touch.tiltPivot else { return }
             let rise = touch.lastTranslationY - translation.y
             touch.lastTranslationY = translation.y
@@ -336,7 +357,7 @@ final class ScreenMap {
             state = NavigationOperations.orbit(state, about: grab, by: touch.lastRotation - rotation, context: context)
             touch.lastScale = scale
             touch.lastRotation = rotation
-            navigation = panned(state, to: centre)
+            navigation = panned(state, to: center)
         }
     }
 
@@ -357,17 +378,17 @@ final class ScreenMap {
     /// Moves the map by `delta` screen points with nothing to hold on to: a
     /// trackpad scroll, measured at the middle of the view.
     func scroll(by delta: SIMD2<Double>) {
-        guard !tracks.isPlaying, let grab = groundPoint(under: viewport.centre) else { return }
+        guard !tracks.isPlaying, let grab = groundPoint(under: viewport.center) else { return }
         touch = TouchState()
-        navigation = ScreenGestures.pan(navigation, grab: grab, to: viewport.centre + delta, viewport: viewport,
+        navigation = ScreenGestures.pan(navigation, grab: grab, to: viewport.center + delta, viewport: viewport,
                                         groundHeight: cameraGround.value)
     }
 
     /// Turns and tilts about the ground at the middle of the view: `drag`
     /// is points moved, right turning the camera clockwise (the near ground
-    /// follows) and up levelling the view.
+    /// follows) and up leveling the view.
     func orbit(by drag: SIMD2<Double>) {
-        guard !tracks.isPlaying, let pivot = groundPoint(under: viewport.centre) else { return }
+        guard !tracks.isPlaying, let pivot = groundPoint(under: viewport.center) else { return }
         touch = TouchState()
         var state = NavigationOperations.orbit(navigation, about: pivot,
                                                by: drag.x / viewportSize.x * Self.turnPerScreen, context: context)
@@ -494,7 +515,7 @@ struct ScreenMapView: View {
 private extension ScreenView {
     /// A place framed on the ellipsoid, from its radius and heading.
     static func framePlace(_ place: Place, fieldOfView: Double) -> CameraPose {
-        framePlace(centre: place.coordinate, radius: max(place.radius, 50),
+        framePlace(center: place.coordinate, radius: max(place.radius, 50),
                    heading: place.heading * .pi / 180, fieldOfView: fieldOfView)
     }
 }

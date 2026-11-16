@@ -21,9 +21,7 @@ struct SettingsView: View {
     #endif
     #if os(visionOS)
     @Environment(MapModel.self) private var model
-    @Environment(\.openImmersiveSpace) private var openImmersiveSpace
-    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
-    @State private var stateNote: String?
+    @AppStorage(ViewPreferences.showsDebugControlsKey) private var showsDebugControls = false
     #endif
 
     init(settings: Binding<StreamingSettings>, onDone: (() -> Void)? = nil) {
@@ -33,6 +31,7 @@ struct SettingsView: View {
 
     enum Category: String, CaseIterable, Identifiable {
         case general
+        case controls
         #if os(visionOS)
         case immersion
         case detail
@@ -45,6 +44,7 @@ struct SettingsView: View {
         var title: String {
             switch self {
             case .general: "General"
+            case .controls: "Controls"
             #if os(visionOS)
             case .immersion: "Immersion"
             case .detail: "Detail"
@@ -57,6 +57,7 @@ struct SettingsView: View {
         var systemImage: String {
             switch self {
             case .general: "gearshape"
+            case .controls: "gamecontroller"
             #if os(visionOS)
             case .immersion: "visionpro"
             case .detail: "square.grid.3x3"
@@ -96,6 +97,7 @@ struct SettingsView: View {
     @ViewBuilder private func page(for category: Category) -> some View {
         switch category {
         case .general: general
+        case .controls: controls
         #if os(visionOS)
         case .immersion: immersion
         case .detail: detailSettings
@@ -121,32 +123,11 @@ struct SettingsView: View {
                 }
             }
 
-            Section {
-                Toggle("Show stats", isOn: $showsStats)
-            } footer: {
-                Text("Tiles drawn, load progress and requests, shown over the map.")
-            }
-
-            #if !os(tvOS)
+            #if !os(tvOS) && !os(visionOS)
             Section {
                 Toggle("Draw with Metal", isOn: $drawsWithMetal)
             } footer: {
-                #if os(visionOS)
-                Text("Draws the immersive map with the app's own Metal renderer instead of RealityKit, always in full immersion, with real depth. Takes effect the next time you open Immersive. Tracks and tile bounds aren't available with it.")
-                #else
-                Text("Draws the map with the app's own Metal renderer instead of RealityKit. Tracks and tile bounds aren't drawn with it.")
-                #endif
-            }
-            #endif
-
-            #if os(visionOS)
-            Section {
-                Picker("Turn and zoom around", selection: $settings.keyboardTurnPivot) {
-                    Text("Map centre").tag(StreamingSettings.TurnPivot.center)
-                    Text("Where you are").tag(StreamingSettings.TurnPivot.viewer)
-                }
-            } footer: {
-                Text("Where you are keeps the ground beneath you fixed, so zooming is moving straight up or down and turning is turning on the spot.")
+                Text("An experimental way of drawing the map. Tracks and tile bounds aren't shown with it.")
             }
             #endif
 
@@ -166,31 +147,53 @@ struct SettingsView: View {
         .navigationTitle("General")
     }
 
+    private var controls: some View {
+        Form {
+            Section {
+                ControlSettingsRows(controls: $settings.controls)
+            } footer: {
+                Text("For the keyboard, a game controller and the on-screen sticks. A slider you haven't moved follows the app's default.")
+            }
+            Section {
+                Button("Reset Controls") {
+                    settings.controls = ControlSettings()
+                }
+                .disabled(settings.controls.isDefault)
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Controls")
+    }
+
     #if os(visionOS)
     private var immersion: some View {
         @Bindable var model = model
         return Form {
             Section {
-                Toggle("Full immersion", isOn: $model.fullImmersion)
-            } footer: {
-                Text("Immersive modes show only the map, with no passthrough or environment.")
-            }
-
-            Section {
-                Toggle("Limit reach", isOn: $settings.limitsImmersiveReach)
-                if settings.limitsImmersiveReach {
-                    setting("Reach", value: $settings.immersiveReach, in: 5...100, step: 5,
-                            format: { String(format: "%.0f× height", $0) },
-                            hint: "How far around you to stream, in multiples of your height above the ground.")
+                Picker("Immersion", selection: $model.immersion) {
+                    ForEach(Immersion.allCases) { Text($0.title).tag($0) }
                 }
             } footer: {
-                Text("Immersive streams everything you could see, out to the horizon. Turn this on to stream less.")
+                switch model.immersion {
+                case .mixed:
+                    Text("Immersive modes keep passthrough and any system environment around the map.")
+                case .progressive:
+                    Text("Immersive modes show the map in a portal. Turn the Digital Crown to widen or narrow it. With Draw with Metal on, Progressive opens as Full.")
+                case .full:
+                    Text("Immersive modes show only the map, with no passthrough or environment.")
+                }
             }
 
             Section {
-                Toggle("Human scale (test)", isOn: $model.humanScale)
+                Toggle("Draw with Metal", isOn: $drawsWithMetal)
             } footer: {
-                Text("The world stays 1:1 at every altitude, with the ground as far below you as your height. Gestures don't suit it yet.")
+                Text("An experimental way of drawing Immersive, typically with better performance but some limitations. Takes effect the next time you open Immersive. Pinching the map, tracks and tile bounds aren't available with it.")
+            }
+
+            Section {
+                Toggle("Human scale", isOn: $model.humanScale)
+            } footer: {
+                Text("The world stays 1:1 at every altitude, with the ground as far below you as your height.")
             }
         }
         .formStyle(.grouped)
@@ -216,6 +219,27 @@ struct SettingsView: View {
     private var advanced: some View {
         Form {
             Section {
+                Toggle("Show stats", isOn: $showsStats)
+            } footer: {
+                Text("Tiles drawn, load progress and requests, shown over the map.")
+            }
+
+            #if os(visionOS)
+            Section {
+                Toggle("Limit reach", isOn: $settings.limitsImmersiveReach)
+                if settings.limitsImmersiveReach {
+                    setting("Reach", value: $settings.immersiveReach, in: 5...100, step: 5,
+                            format: { String(format: "%.0f× height", $0) },
+                            hint: "How far around you to stream, in multiples of your height above the ground.")
+                }
+            } footer: {
+                Text("Immersive streams everything you could see, out to the horizon. Turn this on to stream less.")
+            }
+
+            debugging
+            #endif
+
+            Section {
                 setting("Parallel uploads", value: $settings.uploadConcurrency, in: 1...12, step: 1,
                         format: { "\(Int($0))" },
                         hint: "Tiles turned into RealityKit resources at once, off the main thread. Higher fills in faster.")
@@ -230,9 +254,9 @@ struct SettingsView: View {
                 Text("Streaming")
             }
 
-            #if os(visionOS)
-            debugging
-            #endif
+            if let build = BuildInfo.current {
+                BuildInfoSection(info: build)
+            }
 
             Section {
                 Button("Reset to Defaults") {
@@ -260,45 +284,15 @@ struct SettingsView: View {
 
     #if os(visionOS)
     @ViewBuilder private var debugging: some View {
-        @Bindable var model = model
         Section {
-            Toggle("Show pivot and centre markers", isOn: $model.showsDebugMarkers)
-            Text("Red: the point turns and zooms rotate around. Blue: the map's centre.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Toggle("Show tile bounds", isOn: $model.showsTileBounds)
-            Text("Each drawn tile's box: cyan inside the LOD camera's view, orange outside. Yellow: the area of interest. Pink: the LOD camera's view; white: its view direction.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Button("Copy View State") {
-                let json = model.captureState().json()
-                UIPasteboard.general.string = json
-                print("[AlsoMaps] view state: \(json)")
-                stateNote = "Copied (also printed to the console)."
-            }
-            Button("Restore from Clipboard") {
-                guard let text = UIPasteboard.general.string else {
-                    stateNote = "The clipboard doesn't hold a view state."
-                    return
-                }
-                let state: MapViewState
-                do {
-                    state = try MapViewState.parse(text)
-                } catch {
-                    stateNote = error.localizedDescription
-                    return
-                }
-                Task {
-                    await VolumeView.restore(state, model: model,
-                                             open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
-                    stateNote = "Restored."
-                }
-            }
-            if let stateNote {
-                Text(stateNote).font(.caption).foregroundStyle(.secondary)
-            }
+            Toggle("Show debug controls", isOn: $showsDebugControls)
         } header: {
             Text("Debugging")
+        } footer: {
+            Text("Adds a wrench to the map's toolbar that opens these controls beside the map, to change while you move it.")
+        }
+        Section {
+            DebugControls(showsNotes: true)
         }
     }
     #endif
@@ -309,12 +303,6 @@ struct SettingsView: View {
                          step: Double,
                          format: @escaping (Double) -> String,
                          hint: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(title, value: format(value.wrappedValue))
-            Slider(value: value, in: range, step: step)
-            Text(hint)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
+        SettingSlider(title: title, value: value, range: range, step: step, format: format, hint: hint)
     }
 }

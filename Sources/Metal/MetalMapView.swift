@@ -5,7 +5,7 @@ import MetalKit
 import SwiftUI
 
 /// ScreenMapView, drawn by MetalTileRenderer instead of RealityKit while
-/// Settings › General › Draw with Metal is on. Switching rebuilds the tiles
+/// Draw with Metal is on. Switching rebuilds the tiles
 /// for the other renderer (TileStreaming restarts; they reload from the
 /// cache).
 struct MetalOptionMapView: View {
@@ -24,6 +24,7 @@ struct MetalOptionMapView: View {
         ScreenMapView(map: map, creditLineLimit: creditLineLimit,
                       sceneOverride: metal.map { AnyView(MetalMapView(map: map, renderer: $0)) })
             .onChange(of: metal != nil, initial: true) { _, drawsWithMetal in
+                map.streaming.customRasterHandler = drawsWithMetal ? metal?.rasterHandler : nil
                 map.streaming.customTileHandler = drawsWithMetal ? metal?.handler : nil
             }
     }
@@ -43,7 +44,7 @@ struct MetalMapView {
         view.colorPixelFormat = .bgra8Unorm_srgb
         view.depthStencilPixelFormat = .depth32Float
         view.clearDepth = 0
-        view.clearColor = MetalTileRenderer.skyColour
+        view.clearColor = MetalTileRenderer.skyColor
         view.preferredFramesPerSecond = 60
         view.delegate = coordinator
         return view
@@ -76,7 +77,7 @@ struct MetalMapView {
                 let projection = MetalProjection.perspective(
                     tangents: [halfHeight * aspect, halfHeight * aspect, halfHeight, halfHeight],
                     near: Float(near), far: Float(far))
-                let statistics = renderer.encode(encoder, colour: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
+                let statistics = renderer.encode(encoder, color: view.colorPixelFormat, depth: view.depthStencilPixelFormat,
                                 viewProjection: projection * map.cameraMatrix.inverse,
                                 root: map.streaming.tilesRoot.transform.matrix,
                                 tiles: map.streaming.drawnTiles)

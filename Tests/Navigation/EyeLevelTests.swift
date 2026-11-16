@@ -7,8 +7,8 @@ private let degrees = Double.pi / 180
 /// Immersive 10×, as MapPresentation defines it.
 private let immersive = RoomGeometry(designEye: SIMD3(0, 1.6, 0),
                                      placementLevel: SIMD3(0, 0.02, -5.6),
-                                     placementDown: SIMD3(0, 1.3, -5.6),
-                                     contentHalfWidth: 5)
+                                     contentHalfWidth: 5,
+                                     restingDip: 15 * .pi / 180)
 private let ronda = GeoCoordinate(latitude: 36.7377, longitude: -5.1728)
 private let context = NavigationContext(cameraGround: 565, minimumAltitude: 55, maximumAltitude: 20_000_000)
 
@@ -24,7 +24,7 @@ struct EyeLevelTests {
         let f = framing(camera)
         let up = Geodesy.enu(latitude: ronda.latitude, longitude: ronda.longitude).up
         #expect(simd_distance(simd_normalize(f.georeference.rotation.act(up)), SIMD3(0, 1, 0)) < 1e-9)
-        #expect(simd_distance(f.georeference.map(camera.position), immersive.designEye) < 1e-6)
+        #expect(simd_distance(f.georeference.map(f.navigation), immersive.designEye) < 1e-6)
         // The camera's height above the ground is the eye's above the base plane.
         #expect(abs(f.georeference.scale - 1.58 / 945) < 1e-9)
         // Heading faces away from the viewer.
@@ -43,16 +43,55 @@ struct EyeLevelTests {
     }
 
     @Test(arguments: [100.0, 5_000, 40_000])
-    func noTiltBelowFiftyKilometres(altitude: Double) {
+    func noTiltBelowFiftyKilometers(altitude: Double) {
         #expect(EyeLevelModel.tiltWeight(altitude: altitude) == 0)
     }
 
     @Test(arguments: [0.0, 0.4, 1])
-    func theCameraStaysOnTheEyeAtAnyTilt(weight: Double) {
+    func theTiltTurnsTheNavigationPositionAboutThePivot(weight: Double) {
         let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 600_000,
                                 heading: 0.5, pitch: -0.3)
         let f = framing(camera, weight: weight)
-        #expect(simd_distance(f.georeference.map(camera.position), immersive.designEye) < 1e-6)
+        let pivot = immersive.tiltPivot
+        let turned = pivot + simd_quatd(angle: weight * immersive.fullTilt, axis: SIMD3(1, 0, 0))
+            .act(immersive.designEye - pivot)
+        #expect(simd_distance(f.georeference.map(f.navigation), turned) < 1e-6)
+    }
+
+    /// The stored altitude is H's, below, through and above the tilt, in
+    /// both rooms. Untilted and fully tilted H is also at the stored
+    /// latitude and longitude; within the tilt it drifts off them, behind.
+    @Test(arguments: [10_000.0, 60_000, 150_000, 300_000, 500_000, 2_000_000])
+    func theStoredAltitudeIsHs(height: Double) {
+        for room in [immersive, Self.volume] {
+            let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: height,
+                                    heading: 0.5, pitch: -0.3)
+            let w = EyeLevelModel.tiltWeight(for: camera, room: room)
+            let f = EyeLevelModel.framing(camera: camera, room: room, groundHeight: 565, tiltWeight: w)
+            let eye = Geodesy.geodetic(f.eye(room))
+            #expect(abs(eye.height - height) < 1e-3)
+            if w == 0 || w == 1 {
+                #expect(GeoMath.distance(from: eye.coordinate, to: camera.coordinate) < 1e-3)
+            }
+        }
+    }
+
+    /// `height(forScale:)` inverts the framing's scale through the tilt.
+    @Test(arguments: [2_000.0, 80_000, 200_000, 400_000, 3_000_000])
+    func heightForScaleInvertsTheFraming(height: Double) {
+        for room in [immersive, Self.volume] {
+            func frame(_ c: CameraPose) -> AdaptiveModel.Framing {
+                EyeLevelModel.framing(camera: c, room: room, groundHeight: 565,
+                                      tiltWeight: EyeLevelModel.tiltWeight(for: c, room: room))
+            }
+            let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: height,
+                                    heading: 0.5, pitch: -0.3)
+            var other = camera
+            other.height = 1_000
+            let solved = EyeLevelModel.height(forScale: frame(camera).georeference.scale, camera: other,
+                                              groundHeight: 565, room: room, frame: frame)
+            #expect(abs(solved / height - 1) < 1e-9)
+        }
     }
 
     @Test
@@ -61,92 +100,275 @@ struct EyeLevelTests {
         let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 600_000,
                                 heading: 0, pitch: -0.3)
         let f = framing(camera, weight: 1)
-        // The ground beneath the camera is straight ahead, as far as the base
-        // plane is below the eye, and the local up there points back at the
-        // viewer.
+        // The ground beneath the navigation position is straight ahead, as
+        // far as the level view center is from the eye, and the local up
+        // there points back at the viewer.
         let nadir = Geodesy.ecef(ronda, height: 565)
-        #expect(simd_distance(f.georeference.map(nadir), immersive.designEye - SIMD3(0, 0, 1.58)) < 1e-6)
+        let reach = immersive.levelReach
+        #expect(abs(reach - 1.58 / sin(15 * degrees)) < 1e-12)
+        #expect(simd_distance(f.georeference.map(nadir), immersive.designEye - SIMD3(0, 0, reach)) < 1e-6)
         let up = Geodesy.enu(latitude: ronda.latitude, longitude: ronda.longitude).up
         #expect(simd_distance(simd_normalize(f.georeference.rotation.act(up)), SIMD3(0, 0, 1)) < 1e-9)
     }
 
+    @Test(arguments: [1_510.0, 100_000, 158_000, 300_000, 600_000, 5_000_000])
+    func theViewCenterIsOnTheLineOfSight(altitude: Double) {
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: altitude,
+                                heading: 0.5, pitch: -0.3)
+        let w = EyeLevelModel.tiltWeight(for: camera, room: immersive)
+        let f = framing(camera, weight: w)
+        // On the ground, in front of the viewer: the line of sight meets the
+        // globe rather than falling back to the ground below.
+        let sight = immersive.sightLine(tiltWeight: w)
+        let toPlaced = f.placementPoint - immersive.designEye
+        #expect(simd_length(simd_cross(sight, simd_normalize(toPlaced))) < 1e-6)
+        #expect(simd_dot(sight, toPlaced) > 0)
+        #expect(abs(Geodesy.geodetic(f.georeferencePoint).height - 565) < 1e-3)
+    }
+
+    @Test(arguments: [0.0, 0.25, 0.5, 0.75, 1])
+    func theLineOfSightTurnsFromTheRestingDipToStraightAhead(weight: Double) {
+        let sight = immersive.sightLine(tiltWeight: weight)
+        let level = 15 * degrees
+        #expect(abs(asin(-sight.y) - level * (1 - weight)) < 1e-12)
+        #expect(abs(sight.x) < 1e-12 && sight.z < 0)
+    }
+
+    @Test
+    func theViewCenterIsTheGroundBelowAtFullTilt() {
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 600_000,
+                                heading: 0.5, pitch: -0.3)
+        let f = framing(camera, weight: 1)
+        #expect(simd_distance(f.georeferencePoint, Geodesy.ecef(ronda, height: 565)) < 1e-3)
+    }
+
     @Test(arguments: [600.0, 8_000, 30_000])
-    func placeCentreLandsOnTheMapCentreAtTheRequestedScale(radius: Double) {
-        let camera = EyeLevelModel.framePlace(centre: ronda, radius: radius, heading: 0.3,
+    func placeCenterLandsOnTheMapCenterAtTheRequestedScale(radius: Double) {
+        let camera = EyeLevelModel.framePlace(center: ronda, radius: radius, heading: 0.3,
                                               room: immersive, groundHeight: 565)
         let f = framing(camera)
-        let centre = Geodesy.ecef(ronda, height: 565)
-        // On C₀ horizontally; below it only by the Earth's curve.
-        let landed = f.georeference.map(centre)
-        #expect(simd_distance(SIMD2(landed.x, landed.z), SIMD2(0, -5.6)) < 1e-3)
-        #expect(abs(landed.y - 0.02) < 0.02)
+        let center = Geodesy.ecef(ronda, height: 565)
+        // On the view center: where the resting line of sight meets the
+        // ground, a little past where it meets the base plane for the
+        // Earth's curve.
+        let landed = f.georeference.map(center)
+        #expect(simd_distance(landed, f.placementPoint) < 1e-3)
+        #expect(simd_distance(landed, immersive.levelViewCenter) < 0.1)
         #expect(abs(f.shownRadius(immersive) / radius - 1) < 0.01)
     }
 
     @Test
-    func humanScaleKeepsTheCameraOnTheEyeAndTheGroundAtItsRealDistance() {
+    func humanScaleKeepsTheGroundAtItsRealDistance() {
         let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 1_510,
                                 heading: 0.7, pitch: -0.4)
         let f = EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565, tiltWeight: 0,
                                       fixedScale: 1)
         #expect(f.georeference.scale == 1)
-        #expect(simd_distance(f.georeference.map(camera.position), immersive.designEye) < 1e-6)
+        #expect(simd_distance(f.georeference.map(f.navigation), immersive.designEye) < 1e-6)
         let nadir = Geodesy.ecef(ronda, height: 565)
         #expect(simd_distance(f.georeference.map(nadir), immersive.designEye - SIMD3(0, 945, 0)) < 1e-6)
-        // Fully tilted, the ground below is straight ahead at the same distance.
+        // Tilted, H stays at the stored altitude.
+        #expect(abs(Geodesy.geodetic(EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565,
+                                                           tiltWeight: 1, fixedScale: 1).eye(immersive)).height
+                    - 1_510) < 1e-3)
+        // Fully tilted, the ground below the navigation position faces H,
+        // turned about the pivot.
         let tilted = EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565, tiltWeight: 1,
                                            fixedScale: 1)
-        #expect(simd_distance(tilted.georeference.map(nadir), immersive.designEye - SIMD3(0, 0, 945)) < 1e-6)
+        let depth = Geodesy.geodetic(tilted.navigation).height - 565
+        let pivot = immersive.tiltPivot(groundBelow: depth)
+        let below = immersive.designEye - SIMD3(0, depth, 0)
+        let turned = pivot + simd_quatd(angle: immersive.fullTilt, axis: SIMD3(1, 0, 0)).act(below - pivot)
+        #expect(simd_distance(tilted.georeference.map(nadir), turned) < 1e-6)
     }
 
-    @Test
-    func anchoredPinchKeepsTheGrabUnderTheHand() {
-        let start = EyeLevelModel.framePlace(centre: ronda, radius: 3_000, heading: 0.2,
-                                             room: immersive, groundHeight: 565)
-        let before = framing(start)
-        let p = SIMD3(0.4, 0.02, -3.0)
-        let grab = before.georeference.ecef(map: p)
-        let target = AdaptiveModel.AnchorTarget(grab: grab, target: p, scale: before.georeference.scale * 2,
-                                                heading: start.heading + 0.3, headingOrigin: start.coordinate,
-                                                pitch: { _ in start.pitch })
-        let solution = AdaptiveModel.solve(target, from: start, room: immersive, scaleSurface: 565,
-                                           context: context) { framing($0) }
-        #expect(solution.error < 1e-3)
-        let after = framing(solution.pose)
-        #expect(simd_distance(after.georeference.map(grab), p) < 1e-3)
-    }
-
-    /// A far point on the flat gesture slab sits above the curved Earth (here
-    /// about 48 m, 25 km out), and zooming in towards it near the floor
-    /// magnifies that height. The solve must still follow every update,
-    /// keeping the point under the hand along the map, instead of freezing
-    /// and then jumping.
-    @Test
-    func zoomingInOnAFarPointFollowsEveryUpdate() {
-        let start = EyeLevelModel.framePlace(centre: ronda, radius: 3_000, heading: 0.2,
-                                             room: immersive, groundHeight: 565)
-        let before = framing(start)
-        let p = SIMD3(10.0, 0.02, -40)
-        let grab = before.georeference.ecef(map: p)
-        var pose = start
-        var frozen = 0
-        // 2% a step, from about 950 m to the 55 m floor.
-        for step in 1...160 {
-            let target = AdaptiveModel.AnchorTarget(grab: grab, target: p,
-                                                    scale: before.georeference.scale * pow(1.02, Double(step)),
-                                                    heading: start.heading, headingOrigin: start.coordinate,
-                                                    pitch: { _ in start.pitch })
-            let solution = AdaptiveModel.solve(target, from: pose, room: immersive, scaleSurface: 565,
-                                               context: context) { framing($0) }
-            let reachesFloor = solution.pose.height <= 565 + 55 + 1e-6
-            if !reachesFloor {
-                if GeoMath.distance(from: pose.coordinate, to: solution.pose.coordinate) < 1e-6 { frozen += 1 }
-                let offset = p - framing(solution.pose).georeference.map(grab)
-                #expect(simd_length(SIMD2(offset.x, offset.z)) < 0.01)
-            }
-            pose = solution.pose
+    /// Turning human scale on or off changes only the scale, about the eye,
+    /// so the picture from the eye stays the same at any tilt: everything
+    /// keeps its direction, nearer or farther by the same factor.
+    @Test(arguments: [0.0, 0.5, 1])
+    func humanScaleLeavesThePictureFromTheEye(weight: Double) {
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 300_000,
+                                heading: 0.7, pitch: -0.4)
+        let model = framing(camera, weight: weight)
+        let human = EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565, tiltWeight: weight,
+                                          fixedScale: 1)
+        let eye = immersive.designEye
+        let points = [Geodesy.ecef(ronda, height: 565),
+                      Geodesy.ecef(GeoCoordinate(latitude: 37.5, longitude: -4.2), height: 0),
+                      Geodesy.ecef(GeoCoordinate(latitude: 35.0, longitude: -6.5), height: 2_000)]
+        for point in points {
+            let a = model.georeference.map(point) - eye, b = human.georeference.map(point) - eye
+            #expect(simd_distance(simd_normalize(a), simd_normalize(b)) < 1e-9)
+            #expect(abs(simd_length(b) / simd_length(a) * model.georeference.scale - 1) < 1e-9)
         }
-        #expect(frozen == 0)
-        #expect(abs(pose.height - (565 + 55)) < 1e-6)
+    }
+
+    @Test
+    func pinchKeepsTheGrabbedPointWhereItWas() {
+        let start = EyeLevelModel.framePlace(center: ronda, radius: 3_000, heading: 0.2,
+                                             room: immersive, groundHeight: 565)
+        let before = framing(start)
+        // As the app grabs: the gaze hit put on the ground.
+        let grab = GestureSurface.snap(before.georeference.ecef(map: SIMD3(0.4, 0.02, -3.0)), toHeight: 565)
+        let p = before.georeference.map(grab)
+        let height = 565 + EyeLevelModel.altitude(forScale: before.georeference.scale * 2, room: immersive)
+        let pose = AdaptiveModel.pose(for: AdaptiveModel.Grab(point: grab, start: p,
+                                                              startRotation: before.georeference.rotation, startCamera: start,
+                                                              twist: 0.3),
+                                      height: height, from: start, room: immersive) { framing($0) }
+        let after = framing(pose)
+        #expect(simd_distance(after.georeference.map(grab), p) < 1e-3)
+        #expect(abs(after.georeference.scale / (before.georeference.scale * 2) - 1) < 1e-9)
+    }
+
+    /// At human scale the app solves a pinch in the model-scale framing and
+    /// shows the result at 1:1. The grabbed point then goes where the same
+    /// pinch puts it at model scale, as seen from the eye: the same
+    /// direction, and as far away as its real distance. Solved at 1:1
+    /// instead, the same hand movement would hardly turn the world.
+    @Test(arguments: [3_000.0, 300_000, 3_000_000])
+    func humanScalePinchMovesThePictureAsModelScaleDoes(radius: Double) {
+        func weight(_ camera: CameraPose) -> Double { EyeLevelModel.tiltWeight(for: camera, room: immersive) }
+        func model(_ camera: CameraPose) -> AdaptiveModel.Framing { framing(camera, weight: weight(camera)) }
+        func human(_ camera: CameraPose) -> AdaptiveModel.Framing {
+            EyeLevelModel.framing(camera: camera, room: immersive, groundHeight: 565, tiltWeight: weight(camera),
+                                  fixedScale: 1)
+        }
+        func pinched(_ frame: (CameraPose) -> AdaptiveModel.Framing, from start: CameraPose,
+                     height: Double, grab: SIMD3<Double>, hand: SIMD3<Double>) -> CameraPose {
+            let before = frame(start)
+            return AdaptiveModel.pose(for: AdaptiveModel.Grab(point: grab, start: before.georeference.map(grab),
+                                                              startRotation: before.georeference.rotation,
+                                                              startCamera: start, translation: hand, twist: 0.3),
+                                      height: height, from: start, room: immersive, frame: frame)
+        }
+        let start = EyeLevelModel.framePlace(center: ronda, radius: radius, heading: 0.2,
+                                             room: immersive, groundHeight: 565)
+        let before = model(start)
+        // Gaze hits the gesture target where model scale puts the ground.
+        let grab = GestureSurface.snap(before.georeference.ecef(map: before.placementPoint + SIMD3(0.3, 0, 0.2)),
+                                       toHeight: 565)
+        let eye = immersive.designEye
+        // Seen from the eye, it's where the human-scale world shows it.
+        let shown = human(start).georeference.map(grab) - eye
+        #expect(simd_distance(simd_normalize(shown), simd_normalize(before.georeference.map(grab) - eye)) < 1e-9)
+
+        let hand = SIMD3(0.25, 0, 0.1)
+        let height = EyeLevelModel.height(forScale: before.georeference.scale * 1.5, camera: start,
+                                          groundHeight: 565, room: immersive, frame: model)
+        let pose = pinched(model, from: start, height: height, grab: grab, hand: hand)
+        let atModel = model(pose).georeference.map(grab) - eye
+        let atHuman = human(pose).georeference.map(grab) - eye
+        #expect(simd_distance(simd_normalize(atHuman), simd_normalize(atModel)) < 1e-9)
+        #expect(abs(simd_length(atHuman) * model(pose).georeference.scale / simd_length(atModel) - 1) < 1e-9)
+        // The pinch moved it across the view.
+        let moved = acos(simd_dot(simd_normalize(atHuman), simd_normalize(shown)))
+        #expect(moved > 0.02)
+
+        // The same hand movement solved at 1:1 moves it far less.
+        let direct = pinched(human, from: start, height: height, grab: grab, hand: hand)
+        let atDirect = human(direct).georeference.map(grab) - eye
+        // Compare with the zoom alone, which both share.
+        let zoomed = pinched(human, from: start, height: height, grab: grab, hand: .zero)
+        let atZoomed = human(zoomed).georeference.map(grab) - eye
+        let directlyMoved = acos(min(simd_dot(simd_normalize(atDirect), simd_normalize(atZoomed)), 1))
+        #expect(directlyMoved < moved / 100)
+    }
+
+    // MARK: The resting dip and the horizon margin
+
+    /// The volume, as MapPresentation defines it: its line of sight is
+    /// toward C₀, about 33° below level.
+    private static let volume: RoomGeometry = {
+        let eye = SIMD3<Double>(0, 0.3, 0.85)
+        return RoomGeometry(designEye: eye, placementLevel: SIMD3(0, -0.25, 0), contentHalfWidth: 0.5,
+                            fullTilt: RoomGeometry.tiltFacing(.zero, from: eye))
+    }()
+
+    /// How far below the horizon, seen from the eye's place in the world,
+    /// the view center is, and how far around the globe from the navigation
+    /// position, radians.
+    private static func viewCenter(_ room: RoomGeometry, altitude: Double) -> (belowHorizon: Double, around: Double,
+                                                                              framing: AdaptiveModel.Framing) {
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: altitude + 565,
+                                heading: 0.5, pitch: -0.3)
+        let f = EyeLevelModel.framing(camera: camera, room: room, groundHeight: 565, tiltWeight: 0)
+        let eye = f.georeference.ecef(map: room.designEye)
+        let up = simd_normalize(eye)
+        let dip = asin(-simd_dot(simd_normalize(f.georeferencePoint - eye), up))
+        let horizon = acos((simd_length(eye) - altitude) / simd_length(eye))
+        let around = acos(min(simd_dot(simd_normalize(f.georeferencePoint), simd_normalize(camera.position)), 1))
+        return (dip - horizon, around, f)
+    }
+
+    @Test(arguments: [1.2, 1.6, 1.9])
+    func theRestingDipPutsTheViewCenterTheSameDistanceAheadForAnyEyeHeight(eyeHeight: Double) {
+        var room = immersive
+        room.designEye.y = eyeHeight
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 1_510,
+                                heading: 0.5, pitch: -0.3)
+        let f = EyeLevelModel.framing(camera: camera, room: room, groundHeight: 565, tiltWeight: 0)
+        let ahead = GeoMath.distance(from: ronda, to: Geodesy.geodetic(f.georeferencePoint).coordinate)
+        // 945 m up, 15° down: 945 / tan 15°, within the Earth's curve and
+        // the distance's spherical estimate. The same point as for the
+        // 1.6 m eye.
+        #expect(abs(ahead / (945 / tan(15 * degrees)) - 1) < 0.005)
+        #expect(simd_distance(f.georeferencePoint, framing(camera).georeferencePoint) < 1e-3)
+        #expect(abs(simd_distance(f.placementPoint, room.designEye) - room.levelReach) < 0.01)
+    }
+
+    @Test
+    func aHostWithoutARestingDipLooksAtC0() {
+        let room = Self.volume
+        #expect(abs(room.levelDip - atan2(0.55, 0.85)) < 1e-12)
+        #expect(room.levelViewCenter == room.placementLevel)
+        #expect(simd_distance(room.sightLine(tiltWeight: 0), simd_normalize(room.placementLevel - room.designEye)) < 1e-12)
+    }
+
+    @Test(arguments: [immersive, Self.volume])
+    func lowDownTheHorizonMarginChangesNothing(room: RoomGeometry) {
+        // The immersive space's 15° comes within 5° of the horizon at about
+        // 100 km; the volume's 33° at about 850 km.
+        for altitude in [1_000.0, 20_000, 80_000] {
+            let (belowHorizon, _, f) = Self.viewCenter(room, altitude: altitude)
+            #expect(belowHorizon > EyeLevelModel.horizonMargin)
+            let toPlaced = simd_normalize(f.placementPoint - room.designEye)
+            #expect(simd_distance(toPlaced, room.sightLine(tiltWeight: 0)) < 1e-9)
+        }
+    }
+
+    @Test(arguments: [immersive, Self.volume])
+    func withNoTiltTheViewCenterStaysOnTheGlobeAtAnyHeightWithoutAJump(room: RoomGeometry) {
+        var last: (around: Double, placed: SIMD3<Double>)?
+        var altitude = 1_000.0
+        while altitude < 60_000_000 {
+            let (belowHorizon, around, f) = Self.viewCenter(room, altitude: altitude)
+            // On the ground, ahead, and clear of the horizon.
+            #expect(abs(Geodesy.geodetic(f.georeferencePoint).height - 565) < 1e-2)
+            #expect(belowHorizon > EyeLevelModel.horizonMargin - 0.2 * degrees)
+            #expect(f.placementPoint.z < room.designEye.z)
+            #expect(around > 0)
+            if let last {
+                // 1% higher moves the view center a little: no jump, in the
+                // world or in the room. Above about 45,000 km the globe is
+                // small enough that the line 5° below its limb swings in
+                // toward its center, so the view center nears the ground
+                // below by up to 0.6° a step.
+                #expect(abs(around - last.around) < max(0.02 * max(around, last.around), 1 * degrees))
+                let reach = simd_distance(f.placementPoint, room.designEye)
+                #expect(simd_distance(f.placementPoint, last.placed) < 0.02 * reach)
+            }
+            last = (around, f.placementPoint)
+            altitude *= 1.01
+        }
+    }
+
+    @Test
+    func highUpWithNoTiltTheLineFollowsTheHorizonDown() {
+        // 300 km: the horizon is 17° down, past the resting 15°. The line is
+        // 5° below it, not on the ground below the navigation position.
+        let (belowHorizon, around, _) = Self.viewCenter(immersive, altitude: 300_000)
+        #expect(abs(belowHorizon - EyeLevelModel.horizonMargin) < 0.2 * degrees)
+        #expect(around * GeoMath.earthRadius > 500_000)
     }
 }

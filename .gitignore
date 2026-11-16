@@ -10,6 +10,5 @@ AlsoMaps.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/*
 !AlsoMaps.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 build/
 DerivedData/
-Vendor/CesiumNative.xcframework/
 Local/
 .build/

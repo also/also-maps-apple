@@ -12,7 +12,7 @@ import Foundation
 /// - `segment`: starts at 0 and goes up by one after each camera jump (going
 ///   to a place, restoring a view), so the track isn't drawn across a jump.
 /// - `latitude`, `longitude`: degrees, WGS84.
-/// - `height`: metres above the WGS84 ellipsoid (not mean sea level).
+/// - `height`: meters above the WGS84 ellipsoid (not mean sea level).
 /// - `heading`: degrees clockwise from north, 0 ..< 360.
 /// - `pitch`: degrees, 0 level, −90 straight down.
 enum CameraTrack {

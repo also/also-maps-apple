@@ -6,23 +6,23 @@ import simd
 /// simplifying to any tolerance is a filter.
 ///
 /// Points are kept in double; `points(inSegment:tolerance:)` hands them out
-/// as Float relative to `origin`, which keeps about a centimetre over a few
-/// hundred kilometres (Float's spacing is 8 mm from 65 km to 131 km, 3 cm
+/// as Float relative to `origin`, which keeps about a centimeter over a few
+/// hundred kilometers (Float's spacing is 8 mm from 65 km to 131 km, 3 cm
 /// at 300 km).
 ///
 /// Segments are never joined: each is simplified and drawn on its own, so a
 /// camera jump leaves a gap. Within a segment, every `chunkSize`th point is
 /// always kept, so a growing track only re-simplifies its last chunk.
 struct TrackPath {
-    /// ECEF metres; every point is relative to it.
+    /// ECEF meters; every point is relative to it.
     let origin: SIMD3<Double>
 
     struct Segment {
         /// The track's segment number (CameraTrack.Sample.segment).
         var number: Int
-        /// Metres from `origin`, ECEF axes.
+        /// Meters from `origin`, ECEF axes.
         var points: [SIMD3<Double>] = []
-        /// For each point, the largest tolerance (metres) at which it's still
+        /// For each point, the largest tolerance (meters) at which it's still
         /// kept: drawn at tolerance t, the points with a drop tolerance above
         /// t remain. Infinite for the ends and chunk boundaries.
         var dropTolerances: [Double] = []

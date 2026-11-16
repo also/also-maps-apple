@@ -11,9 +11,11 @@ import simd
 ///
 /// Each pinching hand is its own event, with its own id. A pinch starts on the
 /// map only if its selection ray (the gaze when the pinch began) hits the
-/// gesture slab, as an entity-targeted gesture would; one that misses is
+/// gesture cap, as an entity-targeted gesture would; one that misses is
 /// ignored to its end. From then on the hand's pose drives it, and the ray
-/// isn't followed.
+/// isn't followed. Hands and hits are in the map frame, so the drag, the
+/// zoom's pivot and the twist (about the map frame's up) are what the
+/// RealityKit space's gestures report after converting to `root`.
 @MainActor
 final class MetalSpatialGestures {
     private typealias ID = SpatialEventCollection.Event.ID
@@ -44,7 +46,11 @@ final class MetalSpatialGestures {
         // Indirect only, like the RealityKit space's gesture target.
         guard event.kind == .indirectPinch, !ignored.contains(event.id),
               let pose = event.inputDevicePose else { return [] }
-        let hand = Self.lifted(SIMD3<Float>(pose.pose3D.position.vector))
+        // The model takes map-frame (`root`) positions, as the RealityKit
+        // space's gestures convert them.
+        let inSpace = Self.lifted(SIMD3<Float>(pose.pose3D.position.vector))
+        let mapped = model.mapInImmersiveSpace.inverse * SIMD4(inSpace, 1)
+        let hand = SIMD3(mapped.x, mapped.y, mapped.z)
         if gestures.isTracking(event.id) { return gestures.move(event.id, hand: hand) }
 
         // A new pinch.

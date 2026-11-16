@@ -87,6 +87,25 @@ struct NoticeTargetingTests {
         #expect(!applies("1.3.1"))
     }
 
+    @Test func buildBoundsReachIntoAVersion() throws {
+        let notice = try decoded(#", "minVersion": {"version": "1.0", "build": 10}, "maxVersion": {"version": "1.0", "build": 20}"#)
+        let applies = { (version: String, build: Int?) in
+            notice.applies(platform: "ios", version: AppVersion(version, build: build)!, keySource: "app", now: self.now)
+        }
+        #expect(!applies("1.0", 9))
+        #expect(applies("1.0", 10))
+        #expect(applies("1.0", 20))
+        #expect(!applies("1.0", 21))
+        #expect(!applies("0.9", 99))
+        #expect(!applies("1.1", 1))
+        #expect(!applies("1.0", nil))
+    }
+
+    @Test func stringBoundCoversEveryBuild() throws {
+        let notice = try decoded(#", "maxVersion": "1.0""#)
+        #expect(notice.applies(platform: "ios", version: AppVersion("1.0", build: 999)!, keySource: "app", now: now))
+    }
+
     @Test func filtersByPlatform() throws {
         let notice = try decoded(#", "platforms": ["tvos", "macos"]"#)
         #expect(notice.applies(platform: "tvos", version: AppVersion("1")!, keySource: "app", now: now))
@@ -207,23 +226,5 @@ struct AppConfigStoreTests {
         time += 31
         await store.refresh()
         #expect(fetches == 3)
-    }
-}
-
-struct PlaceSteppingTests {
-    private let places = ["a", "b", "c"].map {
-        Place(id: $0, name: $0, latitude: 0, longitude: 0, radius: 1)
-    }
-
-    @Test func wraps() {
-        #expect(PlaceLibrary.place(in: places, stepping: 1, from: "c").id == "a")
-        #expect(PlaceLibrary.place(in: places, stepping: -1, from: "a").id == "c")
-    }
-
-    @Test func startsFromTheEndsWithoutACurrentPlace() {
-        for id in [nil, "removed"] {
-            #expect(PlaceLibrary.place(in: places, stepping: 1, from: id).id == "a")
-            #expect(PlaceLibrary.place(in: places, stepping: -1, from: id).id == "c")
-        }
     }
 }

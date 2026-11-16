@@ -22,6 +22,10 @@ struct AlsoMapsMacApp: App {
         }
         .defaultSize(width: view.viewportSize.width, height: view.viewportSize.height)
 
+        Window("My Map", id: MyMapEditor.windowID) {
+            MyMapEditor()
+        }
+        .defaultSize(width: 360, height: 420)
         Settings {
             SettingsView(settings: $settings)
                 .frame(width: 680, height: 520)
@@ -36,6 +40,11 @@ struct AlsoMapsMacApp: App {
 struct MacMapView: View {
     let settings: StreamingSettings
     @State private var map: ScreenMap
+    /// ALSOMAPS_DIAGRAM opens it at launch, for tools.
+    @State private var showsDiagram = ProcessInfo.processInfo.environment["ALSOMAPS_DIAGRAM"] != nil
+    @State private var showsPlaces = false
+    /// The view being saved to My Map, while its name is chosen.
+    @State private var savingPlace: PlaceToSave?
     @FocusState private var focused: Bool
 
     init(start: StaticView, settings: StreamingSettings) {
@@ -55,16 +64,46 @@ struct MacMapView: View {
             .focused($focused)
             .onKeyPress(phases: .all) { _ in .handled }
             .onAppear { focused = true }
+            .opensPlaces(go: { map.go(to: $0) }, imported: { showsPlaces = true })
             .onChange(of: settings) { _, settings in map.settings = settings }
             .overlay(alignment: .topTrailing) {
-                Menu("Places", systemImage: "mappin.and.ellipse") {
-                    ForEach(PlaceLibrary.all) { place in
-                        Button(place.name) { map.go(to: place) }
+                HStack {
+                    Button {
+                        showsDiagram.toggle()
+                    } label: {
+                        Label("Camera Diagram", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                    }
+                    .help("Show how the camera is placed in each host (⌥⌘D)")
+                    .keyboardShortcut("d", modifiers: [.command, .option])
+                    Button("Save to My Map", systemImage: "star") {
+                        savingPlace = PlaceToSave(place: map.currentPlace(id: UUID().uuidString, name: ""),
+                                                  viewCenter: map.viewCenter)
+                    }
+                    // ⌘D, like adding a bookmark in Safari; ⌘S saves files.
+                    .help("Save this view to My Map (⌘D)")
+                    .keyboardShortcut("d")
+                    .popover(item: $savingPlace, arrowEdge: .bottom) { saving in
+                        SavePlaceView(saving: saving) { savingPlace = nil }
+                    }
+                    Button("Places", systemImage: "mappin.and.ellipse") {
+                        showsPlaces = true
+                    }
+                    .help("Go to a place (⌘F)")
+                    .keyboardShortcut("f")
+                    .popover(isPresented: $showsPlaces, arrowEdge: .bottom) {
+                        PlacesPanel(searchesGoogle: settings.tileSource.showsGoogleTiles,
+                                    near: { [map] in map.navigation.camera.coordinate }) { place in
+                            map.go(to: place)
+                            showsPlaces = false
+                        }
                     }
                 }
-                .menuStyle(.button)
                 .fixedSize()
                 .padding(8)
+            }
+            .inspector(isPresented: $showsDiagram) {
+                CameraDiagramPanel(map: map)
+                    .inspectorColumnWidth(min: 340, ideal: 420, max: 720)
             }
     }
 }

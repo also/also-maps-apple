@@ -8,7 +8,7 @@ struct ScreenViewport: Equatable {
     var fieldOfView: Double
 
     var aspect: Double { size.x / max(size.y, 1) }
-    var centre: SIMD2<Double> { size / 2 }
+    var center: SIMD2<Double> { size / 2 }
 }
 
 /// Direct manipulation on a flat screen: the ground you touch stays under
@@ -18,7 +18,7 @@ struct ScreenViewport: Equatable {
 enum ScreenGestures {
     /// How far below the horizon the lowest usable ray is, radians. Points
     /// nearer the horizon, or in the sky, use this ray instead, so a small
-    /// finger move there can't mean hundreds of kilometres.
+    /// finger move there can't mean hundreds of kilometers.
     static let horizonMargin = 1.5 * Double.pi / 180
     /// The levelest view tilting reaches, radians.
     static let levelestTilt = -3 * Double.pi / 180
@@ -67,7 +67,7 @@ enum ScreenGestures {
         return state
     }
 
-    /// An ECEF offset as metres forward and right of the movement heading.
+    /// An ECEF offset as meters forward and right of the movement heading.
     static func alongMovement(_ state: NavigationState, _ offset: SIMD3<Double>) -> (forward: Double, right: Double) {
         let frame = Geodesy.enu(latitude: state.camera.latitude, longitude: state.camera.longitude)
         let east = simd_dot(offset, frame.east), north = simd_dot(offset, frame.north)

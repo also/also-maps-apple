@@ -14,6 +14,23 @@ struct ImmersiveMapView: View {
             ? MetalImmersiveContent.spaceID : realityKitSpaceID
     }
     private static let attributionID = "attribution"
+    private static let skyName = "sky"
+
+    /// The sky, as in ScreenMapView and MetalTileRenderer.skyColor: a sphere
+    /// around the room seen from inside. It has to write depth: the compositor
+    /// drops pixels left at the far plane, which showed black everywhere but
+    /// where tiles were behind it (as MetalTileRenderer.skyDepth found). At
+    /// 100,000 km it's beyond anything the map draws, even at human scale
+    /// from the highest altitude, so it never hides the map.
+    private static func makeSky() -> Entity {
+        var material = UnlitMaterial(applyPostProcessToneMap: false)
+        material.color = .init(tint: UIColor(red: 0.55, green: 0.7, blue: 0.85, alpha: 1))
+        material.faceCulling = .front
+        let sky = ModelEntity(mesh: .generateSphere(radius: 1e8), materials: [material])
+        sky.name = skyName
+        sky.isEnabled = false
+        return sky
+    }
 
     @Environment(MapModel.self) private var model
     @Environment(\.openWindow) private var openWindow
@@ -21,11 +38,16 @@ struct ImmersiveMapView: View {
 
     var body: some View {
         RealityView { content, attachments in
+            content.add(Self.makeSky())
             model.attach(content, host: .immersive)
             if let attribution = attachments.entity(for: Self.attributionID) {
                 content.add(attribution)
             }
-        } update: { _, attachments in
+        } update: { content, attachments in
+            // Full immersion, and progressive inside its portal, hide
+            // passthrough, leaving black behind the map; show the sky there
+            // instead, as MetalImmersiveRenderer does.
+            content.entities.first { $0.name == Self.skyName }?.isEnabled = model.immersion != .mixed
             // Keep the attribution at the map's near edge, a little above the
             // origin plane, as the presentation changes size.
             guard let attribution = attachments.entity(for: Self.attributionID) else { return }
@@ -42,7 +64,10 @@ struct ImmersiveMapView: View {
                             openWindow(id: VolumeView.windowID)
                         }
                     }
+                    // Nothing here to operate, so a pinch while looking at it
+                    // goes through to the map behind and moves that.
                     AttributionView()
+                        .allowsHitTesting(false)
                 }
                 .environment(model)
             }
