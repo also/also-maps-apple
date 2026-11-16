@@ -32,6 +32,9 @@ struct StreamingSettings: Codable, Equatable {
     /// on-screen sticks: only the ones changed from the defaults.
     var controls = ControlSettings()
 
+    /// The sticks drawn over the map on iPhone.
+    var onScreenController = OnScreenController.standard
+
     static let `default` = StreamingSettings()
 
     init() {}
@@ -51,6 +54,7 @@ struct StreamingSettings: Codable, Equatable {
         forbidHoles = try c.decodeIfPresent(Bool.self, forKey: .forbidHoles) ?? d.forbidHoles
         tileSource = (try? c.decodeIfPresent(TileSource.self, forKey: .tileSource)) ?? d.tileSource
         controls = (try? c.decodeIfPresent(ControlSettings.self, forKey: .controls)) ?? d.controls
+        onScreenController = (try? c.decodeIfPresent(OnScreenController.self, forKey: .onScreenController)) ?? d.onScreenController
     }
 
     private static let defaultsKey = "StreamingSettings"
@@ -67,6 +71,31 @@ struct StreamingSettings: Codable, Equatable {
             UserDefaults.standard.set(data, forKey: Self.defaultsKey)
         }
     }
+}
+
+/// The on-screen controller on iPhone.
+enum OnScreenController: String, Codable, CaseIterable, Identifiable {
+    /// No sticks: touch gestures only.
+    case none
+    /// Move, turn and climb sticks, and a slider that tilts the view.
+    case standard
+    /// The visionOS controller's controls: the same sticks, with no slider.
+    /// The view tips toward straight down as you climb, from 50 km to 500 km
+    /// up (`EyeLevelModel.tiltWeight`), and back as you descend.
+    case visionOS
+
+    var id: Self { self }
+
+    var name: String {
+        switch self {
+        case .none: "None"
+        case .standard: "Standard"
+        case .visionOS: "visionOS Style"
+        }
+    }
+
+    /// The view's tilt follows altitude.
+    var tiltsWithAltitude: Bool { self == .visionOS }
 }
 
 /// Preferences about what's shown, kept apart from `StreamingSettings` so

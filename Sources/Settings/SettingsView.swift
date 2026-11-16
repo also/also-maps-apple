@@ -149,6 +149,22 @@ struct SettingsView: View {
 
     private var controls: some View {
         Form {
+            #if os(iOS)
+            Section {
+                Picker("On-screen controller", selection: $settings.onScreenController) {
+                    ForEach(OnScreenController.allCases) { Text($0.name).tag($0) }
+                }
+            } footer: {
+                switch settings.onScreenController {
+                case .none:
+                    Text("Touch gestures only.")
+                case .standard:
+                    Text("Sticks to move, turn and climb, and a slider to tilt the view.")
+                case .visionOS:
+                    Text("The same sticks, as with a controller on visionOS. There's no tilt slider: the view tips toward straight down as you climb, from 50 km to 500 km up, and back as you descend.")
+                }
+            }
+            #endif
             Section {
                 ControlSettingsRows(controls: $settings.controls)
             } footer: {
