@@ -8,8 +8,9 @@ import SwiftUI
 /// with Metal): the same MapModel, placement and streaming as
 /// ImmersiveMapView, but the tiles are drawn by MetalTileRenderer into a
 /// CompositorLayer, with their real depth, in mixed or full immersion. The
-/// volume stays the control panel; look-and-pinch on the map isn't
-/// available, but controllers are.
+/// volume stays the control panel. Look-and-pinch on the map comes from
+/// spatial events (MetalSpatialGestures); keyboard and controllers work as
+/// elsewhere.
 struct MetalImmersiveContent: CompositorContent {
     static let spaceID = "metal-map"
 
@@ -20,6 +21,8 @@ struct MetalImmersiveContent: CompositorContent {
             guard let metal = MetalTileRenderer.shared else { return }
             model.metalImmersiveDidOpen(metal)
             let renderer = MetalImmersiveRenderer(model: model, layerRenderer: layerRenderer, metal: metal)
+            let gestures = MetalSpatialGestures(model: model)
+            layerRenderer.onSpatialEvent = { gestures.handle($0) }
             Task { @MainActor in
                 await renderer.run()
                 model.metalImmersiveDidClose()

@@ -297,6 +297,39 @@ final class MapModel {
         placementRoot.transform.matrix * root.transform.matrix * streaming.tilesRoot.transform.matrix
     }
 
+    /// The map frame (`root`) in the immersive space's origin frame: what
+    /// SwiftUI's `convert(_:from:to: root)` does for the RealityKit
+    /// space's gestures, for the Metal space's spatial events.
+    var mapInImmersiveSpace: simd_float4x4 {
+        placementRoot.transform.matrix * root.transform.matrix
+    }
+
+    /// Where a ray in the immersive space's origin frame first meets the
+    /// gesture cap, map frame, if it does: what an entity-targeted gesture
+    /// would have hit, for the Metal space's spatial events
+    /// (MetalSpatialGestures). The cap is the ellipsoid raised to the
+    /// placement ground, within its reach, placed by the gesture framing
+    /// (placeGestureSurface); this intersects that surface exactly instead
+    /// of its mesh. Only from above, as gaze reaches the cap's top.
+    func immersiveGestureHit(origin: SIMD3<Float>, direction: SIMD3<Float>) -> SIMD3<Float>? {
+        guard let surface = gestureSurface, let framing = gestureFraming else { return nil }
+        let toMap = mapInImmersiveSpace.inverse
+        let o = toMap * SIMD4(origin, 1), d = toMap * SIMD4(direction, 0)
+        let georeference = framing.georeference
+        let mapOrigin = SIMD3<Double>(Double(o.x), Double(o.y), Double(o.z))
+        let mapDirection = SIMD3<Double>(Double(d.x), Double(d.y), Double(d.z))
+        let ecefOrigin = georeference.ecef(map: mapOrigin)
+        let ecefDirection = georeference.ecef(map: mapOrigin + mapDirection) - ecefOrigin
+        let ground = placementGround.value
+        guard Geodesy.geodetic(ecefOrigin).height > ground,
+              case let .hit(point, _) = Geodesy.intersect(ray: Ray(origin: ecefOrigin, direction: ecefDirection),
+                                                          surfaceHeight: ground)
+        else { return nil }
+        let reach = GeoMath.distance(from: surface.center, to: Geodesy.geodetic(point).coordinate) / GeoMath.earthRadius
+        guard reach <= surface.angularRadius else { return nil }
+        return SIMD3<Float>(georeference.map(point))
+    }
+
     /// The volume went away (closed, or replaced by a blocking notice). It no
     /// longer drives streaming; opening it attaches again.
     func volumeDidClose() {

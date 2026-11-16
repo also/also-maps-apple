@@ -11,6 +11,8 @@ struct DebugControls: View {
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @State private var stateNote: String?
+    @AppStorage(MetalSpatialGestures.zoomExponentKey)
+    private var metalZoomExponent = MetalSpatialGestures.defaultZoomExponent
 
     var body: some View {
         @Bindable var model = model
@@ -21,6 +23,12 @@ struct DebugControls: View {
         note("Red: the point turns and zooms rotate around. Blue: the map's center. While you pinch: orange, the point you grabbed, and white, where your hand has moved it; they should stay together. Purple: where your gaze hit the gesture target, just above or below the grabbed point.")
         Toggle("Tile bounds", isOn: $model.showsTileBounds)
         note("Each drawn tile's box: cyan inside the LOD camera's view, orange outside. Yellow: the area of interest. Pink: the LOD camera's view; white: its view direction.")
+        LabeledContent("Metal pinch zoom") {
+            Slider(value: $metalZoomExponent, in: 0.2...1, step: 0.05)
+            Text(metalZoomExponent, format: .number.precision(.fractionLength(2)))
+                .monospacedDigit()
+        }
+        note("How fast two-handed pinches zoom in the Metal immersive space: the zoom is the change in the hands' distance raised to this. 1 zooms by the ratio itself; lower zooms less for the same movement. Takes effect at the next pinch.")
         Button("Copy View State") {
             let json = model.captureState().json()
             UIPasteboard.general.string = json
