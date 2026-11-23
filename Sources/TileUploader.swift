@@ -201,26 +201,7 @@ final class TileUploader: @unchecked Sendable {
     /// repeats, which blends each tile's edge texels with the opposite edge
     /// into dark seams. Unspecified filters are trilinear.
     static func samplerDescriptor(for primitive: CNPrimitive) -> MTLSamplerDescriptor {
-        func address(_ wrap: Int) -> MTLSamplerAddressMode {
-            return switch wrap {
-            case 33071: .clampToEdge
-            case 33648: .mirrorRepeat
-            default: .repeat
-            }
-        }
-        let descriptor = MTLSamplerDescriptor()
-        descriptor.sAddressMode = address(primitive.textureWrapS)
-        descriptor.tAddressMode = address(primitive.textureWrapT)
-        descriptor.magFilter = primitive.textureMagFilter == 9728 ? .nearest : .linear
-        switch primitive.textureMinFilter {
-        case 9728: (descriptor.minFilter, descriptor.mipFilter) = (.nearest, .notMipmapped)
-        case 9729: (descriptor.minFilter, descriptor.mipFilter) = (.linear, .notMipmapped)
-        case 9984: (descriptor.minFilter, descriptor.mipFilter) = (.nearest, .nearest)
-        case 9985: (descriptor.minFilter, descriptor.mipFilter) = (.linear, .nearest)
-        case 9986: (descriptor.minFilter, descriptor.mipFilter) = (.nearest, .linear)
-        default: (descriptor.minFilter, descriptor.mipFilter) = (.linear, .linear)
-        }
-        return descriptor
+        TileSampler.descriptor(for: primitive)
     }
 
     private static func image(for primitive: CNPrimitive) -> CGImage? {
