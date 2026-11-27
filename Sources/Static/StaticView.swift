@@ -3,7 +3,7 @@ import Foundation
 /// A fixed camera and what to stream for it. The camera is also the camera
 /// level of detail is selected for. Pick one with ALSOMAPS_VIEW (`bay`, the
 /// default, or `ferry`). Streaming can be overridden for quick experiments:
-/// ALSOMAPS_RADIUS (area of interest half-width, metres),
+/// ALSOMAPS_RADIUS (area of interest half-width, meters),
 /// ALSOMAPS_DETAIL and ALSOMAPS_OUTER_DETAIL (pixels of error on screen),
 /// ALSOMAPS_LOADS and ALSOMAPS_UPLOADS (concurrency).
 struct StaticView {
@@ -82,15 +82,22 @@ struct StaticView {
                           near: 10, far: 400_000)
     }()
 
-    /// The view named by ALSOMAPS_VIEW, with any streaming overrides.
+    /// The view named by ALSOMAPS_VIEW, with any streaming overrides. With
+    /// `settings` (the saved ones), streams with those but the view's detail.
     static func fromEnvironment(defaultView: StaticView = .bay,
-                                viewportSize: CGSize? = nil) -> StaticView {
+                                viewportSize: CGSize? = nil,
+                                settings: StreamingSettings? = nil) -> StaticView {
         let env = ProcessInfo.processInfo.environment
         var view: StaticView
         switch env["ALSOMAPS_VIEW"] {
         case "ferry": view = ferry
         case "bay": view = bay
         default: view = defaultView
+        }
+        if var settings {
+            settings.detail = view.settings.detail
+            settings.outerDetail = view.settings.outerDetail
+            view.settings = settings
         }
         if let viewportSize {
             view.viewportSize = viewportSize

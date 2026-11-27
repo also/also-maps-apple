@@ -1,6 +1,6 @@
 import Foundation
 
-/// Runtime streaming and control knobs, adjustable from the Tuning window and
+/// Runtime streaming and control knobs, adjustable in Settings and
 /// saved between launches. `default` is the hand-tuned baseline the app shipped
 /// with; Reset goes back to it.
 struct StreamingSettings: Codable, Equatable {
@@ -25,21 +25,12 @@ struct StreamingSettings: Codable, Equatable {
     /// Keep parent tiles until all their children are drawable.
     var forbidHoles = true
 
-    enum TurnPivot: String, Codable, CaseIterable {
-        /// Turn and zoom about the map's centre (the focus point).
-        case center
-        /// Turn and zoom about the ground beneath the viewer, so zooming is
-        /// climbing or descending in place and turning and moving forward
-        /// feels like flying. (Stored as "frontEdge", its earlier, near-
-        /// identical form, so saved settings carry over.)
-        case viewer = "frontEdge"
-    }
-    /// What turns and zooms pivot around, from any input.
-    var keyboardTurnPivot = TurnPivot.center
-    /// Largest view half-width zoom-out allows, kilometres.
-    var zoomOutLimitKilometres = 20.0
     /// Where the tiles come from.
     var tileSource = TileSource.googlePhotorealistic
+
+    /// Speeds and stick response for the keyboard, game controller and
+    /// on-screen sticks: only the ones changed from the defaults.
+    var controls = ControlSettings()
 
     static let `default` = StreamingSettings()
 
@@ -58,9 +49,8 @@ struct StreamingSettings: Codable, Equatable {
         simultaneousLoads = try c.decodeIfPresent(Double.self, forKey: .simultaneousLoads) ?? d.simultaneousLoads
         cacheMegabytes = try c.decodeIfPresent(Double.self, forKey: .cacheMegabytes) ?? d.cacheMegabytes
         forbidHoles = try c.decodeIfPresent(Bool.self, forKey: .forbidHoles) ?? d.forbidHoles
-        keyboardTurnPivot = try c.decodeIfPresent(TurnPivot.self, forKey: .keyboardTurnPivot) ?? d.keyboardTurnPivot
-        zoomOutLimitKilometres = try c.decodeIfPresent(Double.self, forKey: .zoomOutLimitKilometres) ?? d.zoomOutLimitKilometres
         tileSource = (try? c.decodeIfPresent(TileSource.self, forKey: .tileSource)) ?? d.tileSource
+        controls = (try? c.decodeIfPresent(ControlSettings.self, forKey: .controls)) ?? d.controls
     }
 
     private static let defaultsKey = "StreamingSettings"
@@ -76,5 +66,23 @@ struct StreamingSettings: Codable, Equatable {
         if let data = try? JSONEncoder().encode(self) {
             UserDefaults.standard.set(data, forKey: Self.defaultsKey)
         }
+    }
+}
+
+/// Preferences about what's shown, kept apart from `StreamingSettings` so
+/// Reset to Defaults leaves them alone.
+enum ViewPreferences {
+    /// UserDefaults key: show tile and request stats over the map.
+    static let showsStatsKey = "ShowsStats"
+    /// UserDefaults key: draw tiles with the app's Metal renderer instead of
+    /// RealityKit (the map window on a screen, the immersive mode on visionOS).
+    static let drawsWithMetalKey = "DrawsWithMetal"
+    /// UserDefaults key: show the wrench that opens the volume's debug panel.
+    static let showsDebugControlsKey = "ShowsDebugControls"
+
+    /// The setting, or ALSOMAPS_METAL=1, which turns it on for a run.
+    static var drawsWithMetal: Bool {
+        ProcessInfo.processInfo.environment["ALSOMAPS_METAL"] == "1"
+            || UserDefaults.standard.bool(forKey: drawsWithMetalKey)
     }
 }

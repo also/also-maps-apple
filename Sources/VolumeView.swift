@@ -6,10 +6,16 @@ struct VolumeView: View {
     static let windowID = "volume"
 
     @Environment(MapModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(Soundtrack.self) private var soundtrack
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(ViewPreferences.showsDebugControlsKey) private var showsDebugControls = false
+    @State private var showsDebugPanel = false
+    @State private var showsPlaces = false
+    /// The view being saved to My Map, while its name is chosen.
+    @State private var savingPlace: PlaceToSave?
 
     var body: some View {
         RealityView { content in
@@ -19,83 +25,106 @@ struct VolumeView: View {
         // visionOS turns controller input into look-and-pinch events by
         // default; route it to the Game Controller framework for MapInput.
         .handlesGameControllerEvents(matching: .gamepad)
+        // With the map in an immersive space the volume is only the control
+        // panel; its baseplate would outline an empty box.
+        .volumeBaseplateVisibility(model.presentation.host == .volume ? .automatic : .hidden)
+        .opensPlaces(go: { model.go(to: $0) }, imported: { showsPlaces = true })
         .onAppear { model.volumeIsOpen = true }
         .onDisappear { model.volumeDidClose() }
-        .ornament(attachmentAnchor: .scene(.bottomFront)) {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    presentationPicker
-                    Toggle(isOn: Binding(get: { model.tilesHeld },
-                                         set: { model.setTilesHeld($0) })) {
-                        Label("Fly", systemImage: "airplane")
-                    }
-                    .toggleStyle(.button)
+        // Closing the window doesn't make it disappear, it sends its scene
+        // to the background; coming back (Show Controls) makes it active.
+        .onChange(of: scenePhase) { _, phase in
+            model.volumeIsOpen = phase != .background
+            // The Metal space has no Show Controls panel, so closing the
+            // volume leaves Immersive too.
+            if phase == .background, model.metalImmersiveIsOpen {
+                Task { await dismissImmersiveSpace() }
+            }
+        }
+        // The controls as the system's bottom toolbar, which visionOS
+        // places clear of the window bar and close button.
+        .toolbar {
+            ToolbarItemGroup(placement: .bottomOrnament) {
+                presentationPicker
+                TrackMenu(tracks: model.tracks, play: model.startPlayback, stopPlayback: model.stopPlayback)
                     .labelStyle(.iconOnly)
-                    .help("Hold tiles: fly through what's loaded without requesting more")
-                    Toggle(isOn: Binding(get: { model.isRecordingTrack },
-                                         set: { $0 ? model.startTrack() : model.stopTrack() })) {
-                        Label(model.isRecordingTrack ? "Stop Recording" : "Record Track",
-                              systemImage: model.isRecordingTrack ? "stop.circle.fill" : "record.circle")
-                    }
-                    .toggleStyle(.button)
-                    .labelStyle(.iconOnly)
-                    .help("Record the camera's track to a file in Files")
-                    .disabled(model.isPlayingTrack)
-                    Toggle(isOn: Binding(get: { model.showsTrack }, set: { model.showsTrack = $0 })) {
-                        Label(model.showsTrack ? "Hide Track" : "Show Track",
-                              systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                    }
-                    .toggleStyle(.button)
-                    .labelStyle(.iconOnly)
-                    .help("Draw the track being recorded, else the opened one, else the latest recording")
-                    Toggle(isOn: Binding(get: { model.isPlayingTrack },
-                                         set: { $0 ? model.startPlayback() : model.stopPlayback() })) {
-                        Label(model.isPlayingTrack ? "Stop Playback" : "Play Track",
-                              systemImage: model.isPlayingTrack ? "stop.fill" : "play.fill")
-                    }
-                    .toggleStyle(.button)
-                    .labelStyle(.iconOnly)
-                    .help("Fly the opened track, else the latest recording")
-                    .disabled(!model.canPlayTrack)
-                    if let track = model.latestTrack {
-                        ShareLink(item: track) {
-                            Label("Share Track", systemImage: "square.and.arrow.up")
-                        }
-                        .labelStyle(.iconOnly)
-                        .help("Share \(track.deletingPathExtension().lastPathComponent)")
-                    }
-                    Menu("Places", systemImage: "mappin.and.ellipse") {
-                        ForEach(PlaceLibrary.all) { place in
-                            Button(place.name) { model.go(to: place) }
-                        }
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("Go to a place")
-                    TracesMenu(streaming: model.streaming, tracks: model.tracks) { model.go(to: $0) }
-                        .labelStyle(.iconOnly)
-                    Button("Tuning", systemImage: "slider.horizontal.3") {
-                        openWindow(id: TuningView.windowID)
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("Streaming settings")
-                    if soundtrack.isAvailable {
-                        Button(soundtrack.isMuted ? "Unmute Soundtrack" : "Mute Soundtrack",
-                               systemImage: soundtrack.isMuted ? "speaker.slash" : "speaker.wave.2") {
-                            soundtrack.isMuted.toggle()
-                        }
-                        .labelStyle(.iconOnly)
+                Button("Save to My Map", systemImage: "star") {
+                    savingPlace = PlaceToSave(place: model.currentPlace(id: UUID().uuidString, name: ""),
+                                          viewCenter: model.viewCenter)
+                }
+                .labelStyle(.iconOnly)
+                .help("Save this view to My Map")
+                .popover(item: $savingPlace) { saving in
+                    SavePlaceView(saving: saving) { savingPlace = nil }
+                }
+                Button("Places", systemImage: "mappin.and.ellipse") {
+                    showsPlaces = true
+                }
+                .labelStyle(.iconOnly)
+                .help("Go to a place")
+                .popover(isPresented: $showsPlaces) {
+                    PlacesPanel(searchesGoogle: model.settings.tileSource.showsGoogleTiles,
+                                near: { [model] in model.navigation.camera.coordinate }) { place in
+                        model.go(to: place)
+                        showsPlaces = false
                     }
                 }
-                if model.presentation.host == .volume {
-                    AttributionView()
+                TracesMenu(streaming: model.streaming, tracks: model.tracks) { model.go(to: $0) }
+                    .labelStyle(.iconOnly)
+                Button("Settings", systemImage: "gearshape") {
+                    openWindow(id: SettingsView.windowID)
+                }
+                .labelStyle(.iconOnly)
+                .help("Settings")
+                if soundtrack.isAvailable {
+                    Button(soundtrack.isMuted ? "Unmute Soundtrack" : "Mute Soundtrack",
+                           systemImage: soundtrack.isMuted ? "speaker.slash" : "speaker.wave.2") {
+                        soundtrack.isMuted.toggle()
+                    }
+                    .labelStyle(.iconOnly)
+                }
+                // Shown whenever tiles are held, even with the debug panel
+                // closed, since the map stops at the edge of what's loaded.
+                // Tapping releases them.
+                if model.tilesHeld, !showsDebugPanel {
+                    Button("Tiles Held", systemImage: "pause.circle.fill") { model.setTilesHeld(false) }
+                        .help("Tiles are held: tap to stream again")
+                }
+                if showsDebugControls {
+                    Toggle(isOn: $showsDebugPanel) {
+                        Label("Debug", systemImage: "wrench.and.screwdriver")
+                    }
+                    .toggleStyle(.button)
+                    .labelStyle(.iconOnly)
+                    .help("Debug controls")
                 }
             }
         }
+        .ornament(attachmentAnchor: .scene(.trailing), contentAlignment: .leading) {
+            if showsDebugPanel {
+                DebugPanel()
+            }
+        }
+        .onChange(of: showsDebugControls) { _, shows in
+            if !shows { showsDebugPanel = false }
+        }
+        // The attribution on a back edge of the volume, away from the window
+        // controls below its front, which the system keeps a readable size
+        // as the window moves away (so a gap under the toolbar can't clear
+        // them): above the map in volume mode, and at the back of the empty
+        // volume in the Metal immersive space. The RealityKit immersive space
+        // shows its own.
+        .ornament(attachmentAnchor: .scene(model.presentation.host == .volume ? .topBack : .bottomBack),
+                  contentAlignment: .bottom) {
+            if model.presentation.host == .volume || model.metalImmersiveIsOpen {
+                AttributionView()
+            }
+        }
         .task {
-            // Debug: ALSOMAPS_OPEN_TUNING=1 opens the Tuning window, and
+            // Debug: ALSOMAPS_OPEN_SETTINGS=1 opens the Settings window, and
             // ALSOMAPS_PRESENTATION=immersive (or volume) starts in that mode.
-            if ProcessInfo.processInfo.environment["ALSOMAPS_OPEN_TUNING"] == "1" {
-                openWindow(id: TuningView.windowID)
+            if ProcessInfo.processInfo.environment["ALSOMAPS_OPEN_SETTINGS"] == "1" {
+                openWindow(id: SettingsView.windowID)
             }
             // ALSOMAPS_MARKERS=1 shows the debug markers, ALSOMAPS_TILE_BOUNDS=1
             // the tile bounds, and ALSOMAPS_STATE=<JSON from Copy View State>
@@ -106,14 +135,21 @@ struct VolumeView: View {
             if ProcessInfo.processInfo.environment["ALSOMAPS_TILE_BOUNDS"] == "1" {
                 model.showsTileBounds = true
             }
+            // ALSOMAPS_DEBUG_PANEL=1 opens the debug panel for the run.
+            if ProcessInfo.processInfo.environment["ALSOMAPS_DEBUG_PANEL"] == "1" {
+                showsDebugPanel = true
+            }
             // ALSOMAPS_SHOW_TRACK=1 draws the latest track.
             if ProcessInfo.processInfo.environment["ALSOMAPS_SHOW_TRACK"] == "1" {
                 model.showsTrack = true
             }
-            // ALSOMAPS_FULL_IMMERSION=1 opens immersive modes with full immersion,
-            // and ALSOMAPS_HUMAN_SCALE=1 keeps them at human scale.
+            // ALSOMAPS_FULL_IMMERSION=1 or ALSOMAPS_PROGRESSIVE_IMMERSION=1
+            // opens immersive modes with that immersion, and
+            // ALSOMAPS_HUMAN_SCALE=1 keeps them at human scale.
             if ProcessInfo.processInfo.environment["ALSOMAPS_FULL_IMMERSION"] == "1" {
-                model.fullImmersion = true
+                model.immersion = .full
+            } else if ProcessInfo.processInfo.environment["ALSOMAPS_PROGRESSIVE_IMMERSION"] == "1" {
+                model.immersion = .progressive
             }
             if ProcessInfo.processInfo.environment["ALSOMAPS_HUMAN_SCALE"] == "1" {
                 model.humanScale = true
@@ -153,8 +189,6 @@ struct VolumeView: View {
         }
         .pickerStyle(.segmented)
         .frame(width: 420)
-        .padding(6)
-        .glassBackgroundEffect()
     }
 
     private func present(_ presentation: MapPresentation) async {
@@ -163,14 +197,14 @@ struct VolumeView: View {
     }
 
     /// Switches presentation, opening or closing the immersive space as
-    /// needed. Shared with the Tuning window's state restore.
+    /// needed. Shared with the Settings window's state restore.
     static func present(_ presentation: MapPresentation,
                         model: MapModel,
                         open: OpenImmersiveSpaceAction,
                         dismiss: DismissImmersiveSpaceAction) async {
         switch (model.presentation.host, presentation.host) {
         case (.volume, .immersive):
-            guard case .opened = await open(id: ImmersiveMapView.spaceID) else { return }
+            guard case .opened = await open(id: ImmersiveMapView.spaceID(for: model)) else { return }
         case (.immersive, .volume):
             await dismiss()
         default:
@@ -217,8 +251,8 @@ extension View {
                 DragGesture()
                     .targetedToEntity(model.gestureTarget)
                     .onChanged { value in
-                        let start = value.convert(value.startLocation3D, from: .local, to: .scene)
-                        let now = value.convert(value.location3D, from: .local, to: .scene)
+                        let start = value.convert(value.startLocation3D, from: .local, to: model.root)
+                        let now = value.convert(value.location3D, from: .local, to: model.root)
                         model.drag(from: start, to: now)
                     }
                     .onEnded { _ in model.endDrag() }
@@ -227,19 +261,21 @@ extension View {
                 MagnifyGesture()
                     .targetedToEntity(model.gestureTarget)
                     .onChanged { value in
-                        let start = value.convert(value.startLocation3D, from: .local, to: .scene)
+                        let start = value.convert(value.startLocation3D, from: .local, to: model.root)
                         model.magnify(by: value.magnification, startedAt: start)
                     }
                     .onEnded { _ in model.endMagnify() }
             )
             .simultaneousGesture(
-                // Two-handed twist about the vertical; runs alongside zoom so
-                // one motion can turn and scale at once.
-                RotateGesture3D(constrainedToAxis: .y)
+                // Two-handed twist; runs alongside zoom so one motion can
+                // turn and scale at once. Unconstrained: the model takes the
+                // part about the ground's up as shown, which tilts with the
+                // map.
+                RotateGesture3D()
                     .targetedToEntity(model.gestureTarget)
                     .onChanged { value in
-                        let rotation = value.convert(value.rotation, from: .local, to: .scene)
-                        let start = value.convert(value.startLocation3D, from: .local, to: .scene)
+                        let rotation = value.convert(value.rotation, from: .local, to: model.root)
+                        let start = value.convert(value.startLocation3D, from: .local, to: model.root)
                         model.rotate(by: rotation, startedAt: start)
                     }
                     .onEnded { _ in model.endRotate() }
@@ -253,7 +289,10 @@ extension View {
 /// native size.
 struct AttributionView: View {
     @Environment(MapModel.self) private var model
+    @AppStorage(ViewPreferences.showsStatsKey) private var showsStats = false
 
+    /// The attribution, how loading is going, why nothing loads (a missing
+    /// or refused key), and the stats if Settings shows them. No hints.
     var body: some View {
         VStack(spacing: 4) {
             if let message = model.streaming.statusMessage {
@@ -262,28 +301,13 @@ struct AttributionView: View {
                 ProgressView(value: Double(model.streaming.loadProgress), total: 100)
                     .frame(width: 200)
             }
-            if model.tilesHeld {
-                Text("Tiles held · view requests frozen")
-                    .font(.caption)
-            }
-            if model.isRecordingTrack {
-                Text("Recording track")
-                    .font(.caption)
-            }
-            if model.isPlayingTrack {
-                Text("Playing track · \(Self.minutes(model.playbackElapsed)) / \(Self.minutes(model.playbackDuration))")
-                    .font(.caption)
-                    .monospacedDigit()
-            }
-            if model.keyboardConnected {
-                Text(MapInput.keyboardHint)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            if model.controllerName != nil {
-                Text(MapInput.controllerHint)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            if showsStats {
+                let stats = model.streaming.stats
+                VStack(spacing: 2) {
+                    Text("\(stats.renderedTiles) tiles · \(stats.entities) entities · \(Int(model.streaming.loadProgress))%")
+                    Text(stats.requestsSummary)
+                }
+                .font(.caption.monospacedDigit())
             }
             HStack(spacing: 8) {
                 if model.streaming.showsGoogleLogo {
@@ -307,10 +331,5 @@ struct AttributionView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .glassBackgroundEffect()
-    }
-
-    /// "m:ss".
-    private static func minutes(_ seconds: Int) -> String {
-        String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }

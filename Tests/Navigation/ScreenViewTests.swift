@@ -40,16 +40,16 @@ struct ScreenViewTests {
     }
 
     @Test(arguments: [200.0, 3_000, 40_000])
-    func aPlaceIsCentredInView(radius: Double) {
-        let pose = ScreenView.framePlace(centre: ronda, radius: radius, heading: 0.3, groundHeight: 565)
-        let centre = Geodesy.ecef(ronda, height: 565)
-        let toCentre = simd_normalize(centre - pose.position)
-        #expect(simd_distance(toCentre, pose.basis.forward) < 1e-6)
-        #expect(abs(simd_distance(centre, pose.position) - radius / tan(Double.pi / 8)) < 1e-3 * radius)
-        // Looking down at the centre by the place elevation; at the camera,
+    func aPlaceIsCenteredInView(radius: Double) {
+        let pose = ScreenView.framePlace(center: ronda, radius: radius, heading: 0.3, groundHeight: 565)
+        let center = Geodesy.ecef(ronda, height: 565)
+        let toCenter = simd_normalize(center - pose.position)
+        #expect(simd_distance(toCenter, pose.basis.forward) < 1e-6)
+        #expect(abs(simd_distance(center, pose.position) - radius / tan(Double.pi / 8)) < 1e-3 * radius)
+        // Looking down at the center by the place elevation; at the camera,
         // less by the Earth's curve between them.
         let elevation = ScreenView.placeElevation
-        let curve = simd_distance(centre, pose.position) * cos(elevation) / GeoMath.earthRadius
+        let curve = simd_distance(center, pose.position) * cos(elevation) / GeoMath.earthRadius
         #expect(abs(pose.pitch + elevation) < curve + 1e-3)
     }
 
@@ -74,5 +74,30 @@ struct ScreenViewTests {
                                 context: NavigationContext(cameraGround: 565))
         #expect(abs(state.camera.pitch - (camera.pitch + flight.pitchRate * 0.5)) < 1e-12)
         #expect(state.camera.position == camera.position)
+    }
+}
+
+struct ShownViewTests {
+    /// Saving what a framed place shows gives the place back.
+    @Test(arguments: [(400.0, 0.0, 0.0), (2_500, 120, 650), (50_000, 300, 0)])
+    func undoesFramePlace(radius: Double, headingDegrees: Double, groundHeight: Double) throws {
+        let fieldOfView = Double.pi / 4
+        let camera = ScreenView.framePlace(center: ronda, radius: radius, heading: headingDegrees * degrees,
+                                           groundHeight: groundHeight, fieldOfView: fieldOfView)
+        let view = try #require(ScreenView.shownView(camera: camera, groundHeight: groundHeight,
+                                                     fieldOfView: fieldOfView))
+        #expect(GeoMath.distance(from: view.center, to: ronda) < radius * 1e-6)
+        #expect(abs(view.height - groundHeight) < 1e-3)
+        #expect(abs(view.radius - radius) < radius * 1e-6)
+        #expect(abs(NavigationOperations.wrapped(view.heading - headingDegrees * degrees)) < 1e-6)
+    }
+
+    /// Straight down, the view faces the way the camera does.
+    @Test func straightDownKeepsTheCameraHeading() throws {
+        let camera = CameraPose(latitude: ronda.latitude, longitude: ronda.longitude, height: 2_000,
+                                heading: 40 * degrees, pitch: -90 * degrees)
+        let view = try #require(ScreenView.shownView(camera: camera, groundHeight: 0, fieldOfView: .pi / 4))
+        #expect(abs(NavigationOperations.wrapped(view.heading - 40 * degrees)) < 1e-6)
+        #expect(abs(view.radius - 2_000 * tan(Double.pi / 8)) < 1e-3)
     }
 }

@@ -67,16 +67,16 @@ struct TrackPlayback {
         return Self.interpolate(a.pose, b.pose, f)
     }
 
-    /// `distance` metres back along the heading and `height` up, pitched
+    /// `distance` meters back along the heading and `height` up, pitched
     /// down to look at `pose`. Flat-earth offsets, which are fine at these
     /// distances.
     static func behind(_ pose: CameraPose, distance: Double, height: Double) -> CameraPose {
-        let metresPerDegree = 111_320.0
+        let metersPerDegree = 111_320.0
         let north = -distance * cos(pose.heading)
         let east = -distance * sin(pose.heading)
-        var longitude = pose.longitude + east / (metresPerDegree * max(cos(pose.latitude * .pi / 180), 0.01))
+        var longitude = pose.longitude + east / (metersPerDegree * max(cos(pose.latitude * .pi / 180), 0.01))
         longitude = remainder(longitude, 360)
-        return CameraPose(latitude: pose.latitude + north / metresPerDegree,
+        return CameraPose(latitude: pose.latitude + north / metersPerDegree,
                           longitude: longitude,
                           height: pose.height + height,
                           heading: pose.heading,

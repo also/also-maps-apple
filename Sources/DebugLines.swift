@@ -44,7 +44,7 @@ enum DebugLines {
     static func box(_ bounds: CNTileBounds) -> MeshResource? {
         let axes = [bounds.halfAxisA, bounds.halfAxisB, bounds.halfAxisC]
         let corners = (0..<8).map { i -> SIMD3<Float> in
-            var corner = bounds.centre
+            var corner = bounds.center
             for (bit, axis) in axes.enumerated() {
                 corner += (i & (1 << bit) == 0 ? -1 : 1) * axis
             }

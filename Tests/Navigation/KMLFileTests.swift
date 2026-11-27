@@ -128,14 +128,14 @@ struct KMLFileTests {
         <coordinates>-71,42,300 -71,42.009,300</coordinates></LineString></Placemark>
         """))
         let playback = try #require(file.track(name: "Line").flatMap(TrackPlayback.init))
-        let metres = 0.009 * 111_320
-        #expect(abs(playback.duration - metres / KMLFile.speedWithoutTimes) < 1e-6)
+        let meters = 0.009 * 111_320
+        #expect(abs(playback.duration - meters / KMLFile.speedWithoutTimes) < 1e-6)
     }
 
     @Test func headingIgnoresJitterWithinTheBaseline() {
         // East, with a fix that steps 2 m back west in the middle.
-        let metre = 1 / (111_320 * cos(42 * Double.pi / 180))
-        let longitudes = [0, 10, 20, 18, 30, 40, 50].map { -71 + Double($0) * metre }
+        let meter = 1 / (111_320 * cos(42 * Double.pi / 180))
+        let longitudes = [0, 10, 20, 18, 30, 40, 50].map { -71 + Double($0) * meter }
         let coordinates = longitudes.map { KMLFile.Coordinate(longitude: $0, latitude: 42, altitude: 0) }
         let headings = KMLFile.headings(coordinates)
         #expect(headings.allSatisfy { abs($0 - Double.pi / 2) < 0.01 })

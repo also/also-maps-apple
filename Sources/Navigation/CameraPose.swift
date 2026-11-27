@@ -7,7 +7,7 @@ import simd
 struct CameraPose: Codable, Equatable {
     var latitude: Double      // degrees
     var longitude: Double     // degrees
-    /// Metres above the WGS84 ellipsoid.
+    /// Meters above the WGS84 ellipsoid.
     var height: Double
     /// Radians clockwise from local north at the camera.
     var heading: Double

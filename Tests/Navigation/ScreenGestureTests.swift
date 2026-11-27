@@ -19,9 +19,9 @@ private func hit(_ state: NavigationState, _ point: SIMD2<Double>) -> SIMD3<Doub
 
 struct ScreenGestureTests {
     @Test
-    func theCentreOfTheScreenIsTheViewRay() {
+    func theCenterOfTheScreenIsTheViewRay() {
         let start = state()
-        let ray = ScreenGestures.ray(camera: start.camera, point: viewport.centre, viewport: viewport)
+        let ray = ScreenGestures.ray(camera: start.camera, point: viewport.center, viewport: viewport)
         #expect(simd_distance(ray.direction, start.camera.basis.forward) < 1e-12)
     }
 
@@ -66,7 +66,7 @@ struct ScreenGestureTests {
     @Test
     func zoomingOutMovesAway() throws {
         let start = state()
-        let pivot = try #require(hit(start, viewport.centre))
+        let pivot = try #require(hit(start, viewport.center))
         let zoomed = ScreenGestures.zoom(start, about: pivot, scale: 0.5, context: context)
         #expect(zoomed.camera.height > start.camera.height)
     }
@@ -74,12 +74,12 @@ struct ScreenGestureTests {
     @Test
     func tiltingKeepsThePivotOnScreenAndLevelsTheView() throws {
         let start = state()
-        let pivot = try #require(hit(start, viewport.centre))
+        let pivot = try #require(hit(start, viewport.center))
         let tilted = NavigationOperations.tilt(start, about: pivot, by: 15 * degrees,
                                                range: (-Double.pi / 2)...ScreenGestures.levelestTilt, context: context)
         #expect(abs(tilted.camera.pitch - (start.camera.pitch + 15 * degrees)) < 1e-3)
         #expect(tilted.camera.height < start.camera.height)
-        let after = try #require(hit(tilted, viewport.centre))
+        let after = try #require(hit(tilted, viewport.center))
         #expect(simd_distance(after, pivot) < 0.5)
     }
 
@@ -87,9 +87,9 @@ struct ScreenGestureTests {
     func tiltStopsShortOfLevelAndDoesNotJumpFromOutsideTheRange() throws {
         let range = (-Double.pi / 2)...ScreenGestures.levelestTilt
         let start = state(pitch: -5 * degrees)
-        let pivot = try #require(hit(start, viewport.centre))
-        let levelled = NavigationOperations.tilt(start, about: pivot, by: 30 * degrees, range: range, context: context)
-        #expect(abs(levelled.camera.pitch - ScreenGestures.levelestTilt) < 1e-2)
+        let pivot = try #require(hit(start, viewport.center))
+        let leveled = NavigationOperations.tilt(start, about: pivot, by: 30 * degrees, range: range, context: context)
+        #expect(abs(leveled.camera.pitch - ScreenGestures.levelestTilt) < 1e-2)
 
         let lookingUp = state(pitch: 10 * degrees)
         let unchanged = NavigationOperations.tilt(lookingUp, about: pivot, by: 5 * degrees, range: range, context: context)
@@ -123,5 +123,42 @@ struct TwoFingerClassifierTests {
         var classifier = TwoFingerClassifier()
         _ = classifier.update(translation: SIMD2(0, 30), scale: 1, rotation: 0)
         #expect(classifier.update(translation: SIMD2(0, 30), scale: 1.5, rotation: 0.5) == .tilt)
+    }
+}
+
+struct ScrollGestureTests {
+    private func action(_ delta: SIMD2<Double>, precise: Bool = true, inverted: Bool = false,
+                        zooms: Bool = false, tilts: Bool = false) -> ScrollGesture.Action {
+        ScrollGesture(delta: delta, isPrecise: precise, isInverted: inverted, zooms: zooms, tilts: tilts).action
+    }
+
+    @Test
+    func aTrackpadPansAlongWithTheFingers() {
+        #expect(action(SIMD2(12, -5)) == .pan(SIMD2(12, -5)))
+    }
+
+    @Test
+    func aWheelZoomsWhateverTheScrollDirectionSetting() {
+        // The same push away, reported with and without natural scrolling.
+        #expect(action(SIMD2(0, 2), precise: false) == .zoom(doublings: 0.5))
+        #expect(action(SIMD2(0, -2), precise: false, inverted: true) == .zoom(doublings: 0.5))
+    }
+
+    @Test
+    func optionZoomsATrackpad() {
+        #expect(action(SIMD2(0, 60), zooms: true) == .zoom(doublings: 0.5))
+    }
+
+    @Test
+    func shiftTiltsWithEither() {
+        #expect(action(SIMD2(0, 30), tilts: true) == .tilt(30))
+        // The system reports Shift-wheel scrolling as horizontal.
+        #expect(action(SIMD2(3, 0), precise: false, tilts: true) == .tilt(30))
+    }
+
+    @Test
+    func aSidewaysWheelAndAnEmptyScrollDoNothing() {
+        #expect(action(.zero) == .none)
+        #expect(action(SIMD2(5, 0), zooms: true) == .none)
     }
 }

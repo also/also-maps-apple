@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import OSLog
+import Metal
 import RealityKit
 
 /// Turns tiles cesium-native has loaded into RealityKit entities without
@@ -10,8 +11,8 @@ import RealityKit
 /// tiles are in flight so a burst doesn't create hundreds at once.
 final class TileUploader: @unchecked Sendable {
     private let limiter = AsyncLimiter(limit: 4)
-    /// Replaces the base colour of lit, untextured content when set, for
-    /// sources whose tiles carry no colour (terrain). Set before streaming.
+    /// Replaces the base color of lit, untextured content when set, for
+    /// sources whose tiles carry no color (terrain). Set before streaming.
     var untexturedColor: SIMD4<Float>?
 
     func setConcurrency(_ limit: Int) {
@@ -36,7 +37,38 @@ final class TileUploader: @unchecked Sendable {
         }
     }
 
+    /// Builds each overlay image's texture (CNTileStreamer.rasterLoadHandler).
+    /// Nothing waits for it: tiles keep their current imagery until it's
+    /// ready (`applyOverlay`).
+    var rasterHandler: CNRasterLoadHandler {
+        { raster in
+            Task.detached(priority: .userInitiated) {
+                guard let image = Self.image(rgba: raster.rgba, width: raster.width, height: raster.height),
+                      let texture = await Self.makeTexture(image) else { return }
+                raster.renderObject = texture
+                raster.discardCPUData()
+            }
+        }
+    }
+
     // MARK: Building
+
+    /// Name of the parts that take a tileset's imagery (`applyOverlay`).
+    private static let overlayPartName = "overlay"
+    /// Terrain waiting for its imagery, briefly: the color of the plain
+    /// terrain source.
+    private static let overlayPlaceholderColor = SIMD4<Float>(0.30, 0.33, 0.24, 1)
+    /// Clamped: each overlay image covers its own patch of ground, and
+    /// repeating would bleed the opposite edge into seams. Trilinear.
+    private static let overlaySampler: MaterialParameters.Texture.Sampler = {
+        let descriptor = MTLSamplerDescriptor()
+        descriptor.sAddressMode = .clampToEdge
+        descriptor.tAddressMode = .clampToEdge
+        descriptor.minFilter = .linear
+        descriptor.magFilter = .linear
+        descriptor.mipFilter = .linear
+        return .init(descriptor)
+    }()
 
     /// Meshes off the main thread, then textures and the entity on it.
     private static func build(_ tile: CNTileMesh, untexturedColor: SIMD4<Float>?) async {
@@ -45,14 +77,18 @@ final class TileUploader: @unchecked Sendable {
         let meshes = signposter.beginInterval("BuildMesh", id: signposter.makeSignpostID())
         for primitive in tile.primitives ?? [] {
             do {
-                let mesh = if primitive.overlayTexcoords != nil {
+                // Textured content with overlay coordinates takes traces, which
+                // need a second UV set (TraceDrape).
+                let drapable = primitive.overlayTexcoords != nil && primitive.texcoords != nil
+                let mesh = if drapable {
                     try await overlayMesh(for: primitive)
                 } else {
                     try await MeshResource(from: [descriptor(for: primitive)])
                 }
-                parts.append(Part(mesh: mesh, image: image(for: primitive),
+                parts.append(Part(mesh: mesh, image: image(for: primitive), sampler: sampler(for: primitive),
                                   lit: primitive.normals != nil, baseColor: primitive.baseColor,
-                                  drapable: primitive.overlayTexcoords != nil))
+                                  takesOverlay: primitive.overlayTexcoords != nil && primitive.texcoords == nil,
+                                  drapable: drapable))
             } catch {
                 print("[AlsoMaps] tile \(tile.identifier) mesh failed: \(error)")
             }
@@ -64,10 +100,15 @@ final class TileUploader: @unchecked Sendable {
     private struct Part {
         var mesh: MeshResource
         var image: CGImage?
-        /// Untextured content with normals: drawn lit, in its base colour.
+        var sampler: MaterialParameters.Texture.Sampler
+        /// Untextured content with normals: drawn lit, in its base color.
         var lit: Bool
         var baseColor: SIMD4<Float>
-        /// The mesh has overlay coordinates, so TraceDrape can use it.
+        /// Its texture coordinates are the overlay's: it shows the
+        /// tileset's imagery once attached.
+        var takesOverlay: Bool
+        /// Textured, with overlay coordinates as a second UV set, so
+        /// TraceDrape can put traces on it.
         var drapable: Bool
     }
 
@@ -84,7 +125,8 @@ final class TileUploader: @unchecked Sendable {
                 // Untextured content (e.g. OSM buildings) needs shading to read
                 // as shapes; scene lighting comes from the environment.
                 var lit = PhysicallyBasedMaterial()
-                lit.baseColor = .init(tint: color(untexturedColor ?? part.baseColor))
+                let base = part.takesOverlay ? overlayPlaceholderColor : (untexturedColor ?? part.baseColor)
+                lit.baseColor = .init(tint: color(base))
                 lit.roughness = .init(floatLiteral: 0.85)
                 lit.metallic = .init(floatLiteral: 0)
                 lit.faceCulling = .none
@@ -95,7 +137,7 @@ final class TileUploader: @unchecked Sendable {
                 unlit.faceCulling = .none
                 if let image = part.image,
                    let texture = await Self.makeTexture(image) {
-                    unlit.color = .init(tint: .white, texture: .init(texture))
+                    unlit.color = .init(tint: .white, texture: .init(texture, sampler: part.sampler))
                     if part.drapable { drapableTexture = texture }
                 } else {
                     unlit.color = .init(tint: color(part.baseColor))
@@ -103,12 +145,31 @@ final class TileUploader: @unchecked Sendable {
                 material = unlit
             }
             let model = ModelEntity(mesh: part.mesh, materials: [material])
+            if part.takesOverlay { model.name = overlayPartName }
             entity.addChild(model)
             if let drapableTexture, let unlit = material as? UnlitMaterial {
                 entity.texturedParts.append(.init(model: model, material: unlit, texture: drapableTexture))
             }
         }
         tile.renderObject = entity
+    }
+
+    /// Shows `overlay`'s imagery on a tile's entity, if its texture is
+    /// ready; false if not (try again next frame). Aerial imagery has its
+    /// lighting baked in, so it's drawn unlit, like photogrammetry.
+    @MainActor
+    static func applyOverlay(_ overlay: CNOverlay, to entity: Entity) -> Bool {
+        guard let texture = overlay.raster.renderObject as? TextureResource else { return false }
+        var material = UnlitMaterial()
+        material.faceCulling = .none
+        material.color = .init(tint: .white, texture: .init(texture, sampler: overlaySampler))
+        // The bridge's overlay coordinates have v up and the image's top row
+        // at v = 1, which is RealityKit's convention, so they're used as is.
+        material.textureCoordinateTransform = .init(offset: overlay.translation, scale: overlay.scale)
+        for case let model as ModelEntity in entity.children where model.name == overlayPartName {
+            model.model?.materials = [material]
+        }
+        return true
     }
 
     private static func makeTexture(_ image: CGImage) async -> TextureResource? {
@@ -119,7 +180,7 @@ final class TileUploader: @unchecked Sendable {
         return try? await TextureResource(image: image, options: .init(semantic: .color))
     }
 
-    /// glTF base colours are linear; Material.Color (UIColor or NSColor)
+    /// glTF base colors are linear; Material.Color (UIColor or NSColor)
     /// components are sRGB.
     private static func color(_ linear: SIMD4<Float>) -> Material.Color {
         func encode(_ c: Float) -> CGFloat { CGFloat(pow(max(c, 0), 1 / 2.2)) }
@@ -136,7 +197,7 @@ final class TileUploader: @unchecked Sendable {
                 Array($0.bindMemory(to: SIMD3<Float>.self))
             })
         }
-        if let texcoords = primitive.texcoords {
+        if let texcoords = primitive.texcoords ?? primitive.overlayTexcoords {
             descriptor.textureCoordinates = MeshBuffer(texcoords.withUnsafeBytes {
                 Array($0.bindMemory(to: SIMD2<Float>.self))
             })
@@ -198,6 +259,37 @@ final class TileUploader: @unchecked Sendable {
         return try await MeshResource(from: mesh)
     }
 
+    private static func sampler(for primitive: CNPrimitive) -> MaterialParameters.Texture.Sampler {
+        .init(samplerDescriptor(for: primitive))
+    }
+
+    /// The glTF's sampler, for RealityKit and the Metal renderer. Wrap modes
+    /// matter: Google's tiles ask for clamp-to-edge, and RealityKit's default
+    /// repeats, which blends each tile's edge texels with the opposite edge
+    /// into dark seams. Unspecified filters are trilinear.
+    static func samplerDescriptor(for primitive: CNPrimitive) -> MTLSamplerDescriptor {
+        func address(_ wrap: Int) -> MTLSamplerAddressMode {
+            return switch wrap {
+            case 33071: .clampToEdge
+            case 33648: .mirrorRepeat
+            default: .repeat
+            }
+        }
+        let descriptor = MTLSamplerDescriptor()
+        descriptor.sAddressMode = address(primitive.textureWrapS)
+        descriptor.tAddressMode = address(primitive.textureWrapT)
+        descriptor.magFilter = primitive.textureMagFilter == 9728 ? .nearest : .linear
+        switch primitive.textureMinFilter {
+        case 9728: (descriptor.minFilter, descriptor.mipFilter) = (.nearest, .notMipmapped)
+        case 9729: (descriptor.minFilter, descriptor.mipFilter) = (.linear, .notMipmapped)
+        case 9984: (descriptor.minFilter, descriptor.mipFilter) = (.nearest, .nearest)
+        case 9985: (descriptor.minFilter, descriptor.mipFilter) = (.linear, .nearest)
+        case 9986: (descriptor.minFilter, descriptor.mipFilter) = (.nearest, .linear)
+        default: (descriptor.minFilter, descriptor.mipFilter) = (.linear, .linear)
+        }
+        return descriptor
+    }
+
     private static func image(for primitive: CNPrimitive) -> CGImage? {
         guard let rgba = primitive.rgba else { return nil }
         return image(rgba: rgba, width: primitive.textureWidth, height: primitive.textureHeight)
@@ -205,7 +297,8 @@ final class TileUploader: @unchecked Sendable {
 
     /// Wraps premultiplied RGBA8.
     static func image(rgba: Data, width: Int, height: Int) -> CGImage? {
-        guard width > 0, height > 0, let provider = CGDataProvider(data: rgba as CFData) else { return nil }
+        guard width > 0, height > 0, rgba.count >= width * height * 4,
+              let provider = CGDataProvider(data: rgba as CFData) else { return nil }
         return CGImage(width: width,
                        height: height,
                        bitsPerComponent: 8,

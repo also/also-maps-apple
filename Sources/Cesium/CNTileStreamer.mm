@@ -6,6 +6,7 @@
 #include <Cesium3DTilesSelection/BoundingVolume.h>
 #include <Cesium3DTilesSelection/IPrepareRendererResources.h>
 #include <Cesium3DTilesSelection/ITileExcluder.h>
+#include <Cesium3DTilesSelection/RasterOverlayCollection.h>
 #include <Cesium3DTilesSelection/Tile.h>
 #include <Cesium3DTilesSelection/TileLoadResult.h>
 #include <Cesium3DTilesSelection/Tileset.h>
@@ -26,6 +27,7 @@
 #include <CesiumGltf/Model.h>
 #include <CesiumGltfContent/GltfUtilities.h>
 #include <CesiumImage/ImageAsset.h>
+#include <CesiumRasterOverlays/IonRasterOverlay.h>
 #include <CesiumRasterOverlays/RasterOverlayTile.h>
 #include <CesiumUtility/Color.h>
 #include <CesiumUtility/CreditSystem.h>
@@ -55,50 +57,92 @@ using CesiumGeospatial::Ellipsoid;
 @interface CNPrimitive ()
 - (instancetype)initWithPositions:(NSData *)positions
                         texcoords:(nullable NSData *)texcoords
-                 overlayTexcoords:(nullable NSData *)overlayTexcoords
                           normals:(nullable NSData *)normals
                           indices:(NSData *)indices
                              rgba:(nullable NSData *)rgba
                             width:(NSInteger)width
                            height:(NSInteger)height
-                        baseColor:(simd_float4)baseColor;
-@end
-
-@interface CNRasterImage ()
-- (instancetype)initWithRGBA:(NSData *)rgba width:(NSInteger)width height:(NSInteger)height;
+                          sampler:(const CesiumGltf::Sampler&)sampler
+                        baseColor:(simd_float4)baseColor
+                 overlayTexcoords:(nullable NSData *)overlayTexcoords;
 @end
 
 @implementation CNPrimitive
 - (instancetype)initWithPositions:(NSData *)positions
                         texcoords:(NSData *)texcoords
-                 overlayTexcoords:(NSData *)overlayTexcoords
                           normals:(NSData *)normals
                           indices:(NSData *)indices
                              rgba:(NSData *)rgba
                             width:(NSInteger)width
                            height:(NSInteger)height
-                        baseColor:(simd_float4)baseColor {
+                          sampler:(const CesiumGltf::Sampler&)sampler
+                        baseColor:(simd_float4)baseColor
+                 overlayTexcoords:(NSData *)overlayTexcoords {
   if ((self = [super init])) {
+    _overlayTexcoords = overlayTexcoords;
     _positions = positions;
     _texcoords = texcoords;
-    _overlayTexcoords = overlayTexcoords;
     _normals = normals;
     _indices = indices;
     _rgba = rgba;
     _textureWidth = width;
     _textureHeight = height;
+    _textureWrapS = sampler.wrapS;
+    _textureWrapT = sampler.wrapT;
+    _textureMagFilter = sampler.magFilter.value_or(0);
+    _textureMinFilter = sampler.minFilter.value_or(0);
     _baseColor = baseColor;
   }
   return self;
 }
 @end
 
-@implementation CNRasterImage
+@interface CNRaster ()
+- (instancetype)initWithRGBA:(NSData *)rgba width:(NSInteger)width height:(NSInteger)height;
+@property (atomic, readwrite) NSData *rgba;
+@end
+
+@implementation CNRaster
 - (instancetype)initWithRGBA:(NSData *)rgba width:(NSInteger)width height:(NSInteger)height {
   if ((self = [super init])) {
     _rgba = rgba;
     _width = width;
     _height = height;
+  }
+  return self;
+}
+- (void)discardCPUData {
+  self.rgba = [NSData data];
+}
+@end
+
+@interface CNOverlay ()
+- (instancetype)initWithRaster:(CNRaster *)raster
+                   translation:(simd_float2)translation
+                         scale:(simd_float2)scale;
+@end
+
+@implementation CNOverlay
+- (instancetype)initWithRaster:(CNRaster *)raster
+                   translation:(simd_float2)translation
+                         scale:(simd_float2)scale {
+  if ((self = [super init])) {
+    _raster = raster;
+    _translation = translation;
+    _scale = scale;
+  }
+  return self;
+}
+@end
+
+@implementation CNIonLayer
+- (instancetype)initWithAssetID:(int64_t)assetID
+                 imageryAssetID:(int64_t)imageryAssetID
+                  smoothNormals:(BOOL)smoothNormals {
+  if ((self = [super init])) {
+    _assetID = assetID;
+    _imageryAssetID = imageryAssetID;
+    _smoothNormals = smoothNormals;
   }
   return self;
 }
@@ -128,6 +172,7 @@ using CesiumGeospatial::Ellipsoid;
 /// ECEF point the tile's vertices are measured from, full precision.
 @property (nonatomic, readonly) glm::dvec3 center;
 @property (atomic, readwrite, nullable) NSArray<CNPrimitive *> *primitives;
+@property (atomic, readwrite, nullable) CNOverlay *overlay;
 @end
 
 @implementation CNTileMesh
@@ -156,7 +201,7 @@ using CesiumGeospatial::Ellipsoid;
 @end
 
 /// Height of an ECEF point above the WGS84 ellipsoid, measured along its
-/// radius: cheap enough per vertex, and within metres of geodetic height.
+/// radius: cheap enough per vertex, and within meters of geodetic height.
 static double radialHeight(const glm::dvec3& p) {
   const double length = glm::length(p);
   if (!(length > 0.0)) {
@@ -270,7 +315,7 @@ struct FetchCounters {
 /// Google sends `Cache-Control: private, max-age=14400, must-revalidate`.
 /// By the HTTP spec must-revalidate only applies once a response is stale, but
 /// CFNetwork revalidates on every request (a 304 round trip per tile). Drop
-/// the directive as the response is stored, so max-age is honoured as sent:
+/// the directive as the response is stored, so max-age is honored as sent:
 /// tiles are served from disk for four hours, then revalidated by ETag.
 @interface CNTileCache : NSURLCache
 @end
@@ -557,8 +602,8 @@ bool appendIndices(
 
 /// Flattens a tile's glTF into CNPrimitives in the local RealityKit frame.
 /// Flattens a tile's glTF into CNPrimitives whose positions are ECEF offsets
-/// (metres, ECEF axes) from a centre point on the tile. Offsets stay small,
-/// so 32-bit floats keep them precise anywhere on Earth; the centre itself is
+/// (meters, ECEF axes) from a center point on the tile. Offsets stay small,
+/// so 32-bit floats keep them precise anywhere on Earth; the center itself is
 /// kept in double and placed relative to the anchor every frame.
 CNTileMesh* _Nullable buildTileMesh(
     const CesiumGltf::Model& model,
@@ -621,9 +666,10 @@ CNTileMesh* _Nullable buildTileMesh(
           p[i * 4 + 3] = 0.0f;
         }
 
-        // Base colour texture (photogrammetry is unlit; that's all there is).
+        // Base color texture (photogrammetry is unlit; that's all there is).
         int64_t texCoordSet = 0;
         const CesiumImage::ImageAsset* pImage = nullptr;
+        Sampler sampler;
         if (const Material* pMaterial =
                 Model::getSafe(&gltf.materials, primitive.material)) {
           if (pMaterial->pbrMetallicRoughness &&
@@ -637,11 +683,38 @@ CNTileMesh* _Nullable buildTileMesh(
                       Model::getSafe(&gltf.images, pTexture->source)) {
                 pImage = pGltfImage->pAsset.get();
               }
+              if (const Sampler* pSampler =
+                      Model::getSafe(&gltf.samplers, pTexture->sampler)) {
+                sampler = *pSampler;
+              }
             }
           }
         }
 
         NSData* rgba = pImage ? convertImageToRGBA(*pImage) : nil;
+
+        // Overlay texture coordinates, which cesium-native adds to every
+        // tile of a tileset with raster overlays. Untextured content takes
+        // imagery, which it has nothing else to show; textured content takes
+        // traces (CNRasterAttachHandler).
+        NSMutableData* overlayData = nil;
+        {
+          auto overlayIt = primitive.attributes.find("_CESIUMOVERLAY_0");
+          if (overlayIt != primitive.attributes.end()) {
+            AccessorView<glm::vec2> uvs(gltf, overlayIt->second);
+            if (uvs.status() == AccessorViewStatus::Valid &&
+                size_t(uvs.size()) == vertexCount) {
+              overlayData =
+                  [NSMutableData dataWithLength:vertexCount * 2 * sizeof(float)];
+              float* t = static_cast<float*>(overlayData.mutableBytes);
+              for (size_t i = 0; i < vertexCount; ++i) {
+                const glm::vec2 uv = uvs[int64_t(i)];
+                t[i * 2 + 0] = uv.x;
+                t[i * 2 + 1] = uv.y;
+              }
+            }
+          }
+        }
         NSMutableData* texcoordData = nil;
         if (rgba) {
           auto uvIt = primitive.attributes.find(
@@ -662,27 +735,6 @@ CNTileMesh* _Nullable buildTileMesh(
           }
           if (!texcoordData) {
             rgba = nil;
-          }
-        }
-
-        // Overlay coordinates, which cesium-native adds to the glTF when the
-        // tileset has a raster overlay. Only unlit, textured tiles use them.
-        NSMutableData* overlayTexcoordData = nil;
-        if (rgba) {
-          auto overlayIt = primitive.attributes.find("_CESIUMOVERLAY_0");
-          if (overlayIt != primitive.attributes.end()) {
-            AccessorView<glm::vec2> uvs(gltf, overlayIt->second);
-            if (uvs.status() == AccessorViewStatus::Valid &&
-                size_t(uvs.size()) == vertexCount) {
-              overlayTexcoordData =
-                  [NSMutableData dataWithLength:vertexCount * 2 * sizeof(float)];
-              float* t = static_cast<float*>(overlayTexcoordData.mutableBytes);
-              for (size_t i = 0; i < vertexCount; ++i) {
-                const glm::vec2 uv = uvs[int64_t(i)];
-                t[i * 2 + 0] = uv.x;
-                t[i * 2 + 1] = uv.y;
-              }
-            }
           }
         }
 
@@ -764,6 +816,13 @@ CNTileMesh* _Nullable buildTileMesh(
             float* fp = static_cast<float*>(flatPositions.mutableBytes);
             float* fn = static_cast<float*>(normalData.mutableBytes);
             std::vector<uint32_t> flatIndices(triangles * 3);
+            NSMutableData* flatOverlay =
+                overlayData ? [NSMutableData
+                                  dataWithLength:triangles * 3 * 2 * sizeof(float)]
+                            : nil;
+            const float* overlaySource =
+                static_cast<const float*>(overlayData.bytes);
+            float* fo = static_cast<float*>(flatOverlay.mutableBytes);
             for (size_t t = 0; t < triangles; ++t) {
               glm::vec3 corner[3];
               for (int k = 0; k < 3; ++k) {
@@ -784,9 +843,15 @@ CNTileMesh* _Nullable buildTileMesh(
                 fn[out * 4 + 2] = normal.z;
                 fn[out * 4 + 3] = 0.0f;
                 flatIndices[out] = uint32_t(out);
+                if (fo) {
+                  const size_t from = size_t(indices[t * 3 + size_t(k)]);
+                  fo[out * 2 + 0] = overlaySource[from * 2 + 0];
+                  fo[out * 2 + 1] = overlaySource[from * 2 + 1];
+                }
               }
             }
             positionData = flatPositions;
+            overlayData = flatOverlay;
             indices = std::move(flatIndices);
           }
         }
@@ -798,13 +863,14 @@ CNTileMesh* _Nullable buildTileMesh(
         NSInteger height = rgba && pImage ? pImage->height : 0;
         [primitives addObject:[[CNPrimitive alloc] initWithPositions:positionData
                                                            texcoords:texcoordData
-                                                    overlayTexcoords:overlayTexcoordData
                                                              normals:normalData
                                                              indices:indexData
                                                                 rgba:rgba
                                                                width:width
                                                               height:height
-                                                           baseColor:baseColor]];
+                                                             sampler:sampler
+                                                           baseColor:baseColor
+                                                    overlayTexcoords:overlayData]];
       });
 
   if (primitives.count == 0 || !center) {
@@ -887,57 +953,102 @@ public:
     _freed.push_back(mesh.identifier);
   }
 
+  // Raster overlays: each image becomes a CNRaster, handed to the app to
+  // build its texture. Attaching one to a tile sets the tile's `overlay`,
+  // which the app applies when it next draws the tile.
+
   void* prepareRasterInLoadThread(
       CesiumImage::ImageAsset& image,
-      const std::any&) override {
-    NSData* rgba = [NSData dataWithBytes:image.pixelData.data()
-                                  length:image.pixelData.size()];
-    CNRasterImage* raster = [[CNRasterImage alloc] initWithRGBA:rgba
-                                                          width:image.width
-                                                         height:image.height];
+      const std::any& rendererOptions) override {
+    NSData* rgba = convertImageToRGBA(image);
+    if (!rgba) {
+      return nullptr;
+    }
+    CNRaster* raster = [[CNRaster alloc] initWithRGBA:rgba
+                                                width:image.width
+                                               height:image.height];
+    // Traces build their textures when they attach (CNRasterAttachHandler).
+    if (!isTraces(rendererOptions)) {
+      if (CNRasterLoadHandler handler = rasterLoadHandler()) {
+        handler(raster);
+      }
+    }
     return (__bridge_retained void*)raster;
   }
+
   void* prepareRasterInMainThread(
       CesiumRasterOverlays::RasterOverlayTile&,
       void* pLoadThreadResult) override {
-    // As with tiles, ownership moves to the main-thread slot unchanged.
+    // Ownership moves from the load-thread slot to the main-thread slot.
     return pLoadThreadResult;
   }
+
   void freeRaster(
       const CesiumRasterOverlays::RasterOverlayTile&,
       void* pLoadThreadResult,
       void* pMainThreadResult) noexcept override {
     void* p = pMainThreadResult ? pMainThreadResult : pLoadThreadResult;
     if (p) {
-      CNRasterImage* raster = (__bridge_transfer CNRasterImage*)p;
-      (void)raster;
+      CFRelease(p);
     }
   }
+
   void attachRasterInMainThread(
       const Tile& tile,
-      int32_t,
-      const CesiumRasterOverlays::RasterOverlayTile&,
+      int32_t overlayTextureCoordinateID,
+      const CesiumRasterOverlays::RasterOverlayTile& rasterTile,
       void* pMainThreadRendererResources,
       const glm::dvec2& translation,
       const glm::dvec2& scale) override {
     CNTileMesh* mesh = meshForTile(tile);
-    if (mesh && pMainThreadRendererResources && _rasterAttachHandler) {
-      _rasterAttachHandler(
-          mesh,
-          (__bridge CNRasterImage*)pMainThreadRendererResources,
-          simd_make_float2(float(translation.x), float(translation.y)),
-          simd_make_float2(float(scale.x), float(scale.y)));
+    // Only _CESIUMOVERLAY_0 is read, so only the first projection's overlay
+    // can be shown.
+    if (!mesh || !pMainThreadRendererResources ||
+        overlayTextureCoordinateID != 0) {
+      return;
+    }
+    CNRaster* raster = (__bridge CNRaster*)pMainThreadRendererResources;
+    simd_float2 t = simd_make_float2(float(translation.x), float(translation.y));
+    simd_float2 s = simd_make_float2(float(scale.x), float(scale.y));
+    if (isTraces(rasterTile)) {
+      if (_rasterAttachHandler) {
+        _rasterAttachHandler(mesh, raster, t, s);
+      }
+    } else {
+      mesh.overlay = [[CNOverlay alloc] initWithRaster:raster translation:t scale:s];
     }
   }
+
   void detachRasterInMainThread(
       const Tile& tile,
       int32_t,
-      const CesiumRasterOverlays::RasterOverlayTile&,
-      void*) noexcept override {
+      const CesiumRasterOverlays::RasterOverlayTile& rasterTile,
+      void* pMainThreadRendererResources) noexcept override {
     CNTileMesh* mesh = meshForTile(tile);
-    if (mesh && _rasterDetachHandler) {
-      _rasterDetachHandler(mesh);
+    if (!mesh) {
+      return;
     }
+    if (isTraces(rasterTile)) {
+      if (_rasterDetachHandler) {
+        _rasterDetachHandler(mesh);
+      }
+    } else if (mesh.overlay.raster ==
+               (__bridge CNRaster*)pMainThreadRendererResources) {
+      mesh.overlay = nil;
+    }
+  }
+
+  /// Marks the traces overlay through its renderer options, which reach
+  /// both the load thread and each raster tile.
+  struct TracesMarker {};
+
+  static bool isTraces(const std::any& rendererOptions) {
+    return std::any_cast<TracesMarker>(&rendererOptions) != nullptr;
+  }
+
+  static bool isTraces(const CesiumRasterOverlays::RasterOverlayTile& rasterTile) {
+    return isTraces(
+        rasterTile.getTileProvider().getOwner().getOptions().rendererOptions);
   }
 
   // Both are only set and used on the main thread.
@@ -949,21 +1060,31 @@ public:
     return _handler;
   }
 
+  void setRasterLoadHandler(CNRasterLoadHandler handler) {
+    std::lock_guard<std::mutex> lock(_handlerMutex);
+    _rasterHandler = handler;
+  }
+
+  CNRasterLoadHandler rasterLoadHandler() {
+    std::lock_guard<std::mutex> lock(_handlerMutex);
+    return _rasterHandler;
+  }
+
   std::vector<uint64_t> takeFreed() {
     std::lock_guard<std::mutex> lock(_freedMutex);
     return std::exchange(_freed, {});
   }
 
 private:
-  static CNTileMesh* meshForTile(const Tile& tile) {
-    const TileRenderContent* pContent = tile.getContent().getRenderContent();
-    void* p = pContent ? pContent->getRenderResources() : nullptr;
-    return p ? (__bridge CNTileMesh*)p : nil;
-  }
-
   std::atomic<uint64_t> _nextID{1};
   std::mutex _handlerMutex;
   CNTileLoadHandler _handler;
+  CNRasterLoadHandler _rasterHandler;
+
+  static CNTileMesh* _Nullable meshForTile(const Tile& tile) {
+    const TileRenderContent* pRender = tile.getContent().getRenderContent();
+    return pRender ? (__bridge CNTileMesh*)pRender->getRenderResources() : nil;
+  }
   std::mutex _freedMutex;
   std::vector<uint64_t> _freed;
 };
@@ -1041,11 +1162,14 @@ NSString* stripHTML(const std::string& html) {
 
 // ── CNTileStreamer ───────────────────────────────────────────────────────────
 
+/// Makes the streamer's tilesets from shared externals and options.
+using TilesetsMaker = std::function<std::vector<std::unique_ptr<Tileset>>(
+    const TilesetExternals&,
+    const TilesetOptions&)>;
+
 @interface CNTileStreamer ()
-- (instancetype)initWithTilesetMaker:
-    (std::function<std::unique_ptr<Tileset>(
-         const TilesetExternals&,
-         const TilesetOptions&)>)makeTileset NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithTilesetsMaker:(TilesetsMaker)makeTilesets
+    NS_DESIGNATED_INITIALIZER;
 @end
 
 // Runs an abandoned streamer's main-thread tasks until `finished`, then lets
@@ -1070,7 +1194,11 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
   std::shared_ptr<CesiumUtility::CreditSystem> _creditSystem;
   std::shared_ptr<RealityKitPrepareRendererResources> _resources;
   std::shared_ptr<AreaOfInterestExcluder> _excluder;
-  std::unique_ptr<Tileset> _tileset;
+  /// Never empty once initialized. The first is the ground, for height
+  /// samples; options are set on all of them alike.
+  std::vector<std::unique_ptr<Tileset>> _tilesets;
+  /// On the ground tileset, which is the only one when there's photogrammetry
+  /// to drape.
   CesiumUtility::IntrusivePointer<CesiumRasterOverlays::RasterOverlay>
       _geoJSONOverlay;
   std::shared_ptr<FetchCounters> _fetchCounters;
@@ -1081,14 +1209,22 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
   // ~Tileset fails pending height samples and leaves in-flight loads to finish,
   // both through the main-thread queue, which frames no longer service.
   // Destroying AsyncSystem with tasks queued cancels them into the dying
-  // scheduler, which crashes, so keep servicing it until the tileset is done.
-  if (!_tileset) {
+  // scheduler, which crashes, so keep servicing it until every tileset is
+  // done.
+  if (_tilesets.empty()) {
     return;
   }
   auto finished = std::make_shared<std::atomic<bool>>(false);
-  _tileset->getAsyncDestructionCompleteEvent().thenImmediately(
-      [finished]() { finished->store(true); });
-  _tileset.reset();
+  auto remaining = std::make_shared<std::atomic<size_t>>(_tilesets.size());
+  for (const std::unique_ptr<Tileset>& pTileset : _tilesets) {
+    pTileset->getAsyncDestructionCompleteEvent().thenImmediately(
+        [finished, remaining]() {
+          if (--*remaining == 0) {
+            finished->store(true);
+          }
+        });
+  }
+  _tilesets.clear();
   AsyncSystem asyncSystem = *_asyncSystem;
   dispatch_async(dispatch_get_main_queue(), ^{
     drainMainThreadTasks(asyncSystem, finished);
@@ -1097,32 +1233,68 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
 
 - (instancetype)initWithTilesetURL:(NSString*)url {
   std::string tilesetURL = url.UTF8String;
-  return [self initWithTilesetMaker:[tilesetURL](
-                                        const TilesetExternals& externals,
-                                        const TilesetOptions& options) {
-    return std::make_unique<Tileset>(externals, tilesetURL, options);
+  return [self initWithTilesetsMaker:[tilesetURL](
+                                         const TilesetExternals& externals,
+                                         const TilesetOptions& options) {
+    std::vector<std::unique_ptr<Tileset>> tilesets;
+    tilesets.push_back(std::make_unique<Tileset>(externals, tilesetURL, options));
+    return tilesets;
   }];
 }
 
 - (instancetype)initWithIonAssetID:(int64_t)assetID
                        accessToken:(NSString*)accessToken
                      smoothNormals:(BOOL)smoothNormals {
+  return [self initWithIonLayers:@[ [[CNIonLayer alloc] initWithAssetID:assetID
+                                                         imageryAssetID:0
+                                                          smoothNormals:smoothNormals] ]
+                     accessToken:accessToken];
+}
+
+- (instancetype)initWithIonLayers:(NSArray<CNIonLayer*>*)layers
+                      accessToken:(NSString*)accessToken {
+  struct Layer {
+    int64_t assetID;
+    int64_t imageryAssetID;
+    bool smoothNormals;
+  };
+  std::vector<Layer> specs;
+  for (CNIonLayer* layer in layers) {
+    specs.push_back({layer.assetID, layer.imageryAssetID, bool(layer.smoothNormals)});
+  }
   std::string token = accessToken.UTF8String;
-  return [self initWithTilesetMaker:[assetID, token, smoothNormals](
-                                        const TilesetExternals& externals,
-                                        const TilesetOptions& options) {
-    TilesetOptions ionOptions = options;
-    ionOptions.contentOptions.generateMissingNormalsSmooth = smoothNormals;
-    return std::make_unique<Tileset>(externals, assetID, token, ionOptions);
+  return [self initWithTilesetsMaker:[specs, token](
+                                         const TilesetExternals& externals,
+                                         const TilesetOptions& options) {
+    std::vector<std::unique_ptr<Tileset>> tilesets;
+    for (const Layer& layer : specs) {
+      TilesetOptions ionOptions = options;
+      ionOptions.contentOptions.generateMissingNormalsSmooth = layer.smoothNormals;
+      auto pTileset =
+          std::make_unique<Tileset>(externals, layer.assetID, token, ionOptions);
+      if (layer.imageryAssetID != 0) {
+        CesiumRasterOverlays::RasterOverlayOptions overlayOptions;
+        overlayOptions.loadErrorCallback =
+            [](const CesiumRasterOverlays::RasterOverlayLoadFailureDetails& details) {
+              NSLog(@"[cesium] imagery load failed: %s", details.message.c_str());
+            };
+        pTileset->getOverlays().add(
+            CesiumUtility::IntrusivePointer<CesiumRasterOverlays::IonRasterOverlay>(
+                new CesiumRasterOverlays::IonRasterOverlay(
+                    "imagery",
+                    layer.imageryAssetID,
+                    token,
+                    overlayOptions)));
+      }
+      tilesets.push_back(std::move(pTileset));
+    }
+    return tilesets;
   }];
 }
 
-- (instancetype)initWithTilesetMaker:
-    (std::function<std::unique_ptr<Tileset>(
-         const TilesetExternals&,
-         const TilesetOptions&)>)makeTileset {
+- (instancetype)initWithTilesetsMaker:(TilesetsMaker)makeTilesets {
   if ((self = [super init])) {
-    // Without this, b3dm/glb/i3dm/pnts content is not recognised and the
+    // Without this, b3dm/glb/i3dm/pnts content is not recognized and the
     // loader falls back to parsing it as an external tileset.json.
     static dispatch_once_t registerOnce;
     dispatch_once(&registerOnce, ^{
@@ -1161,7 +1333,7 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
             details.message.c_str());
     };
 
-    _tileset = makeTileset(externals, options);
+    _tilesets = makeTilesets(externals, options);
 
     _streamingRadius = 500.0;
     // Looking at the anchor from 1.2 km away, 45° up, facing north.
@@ -1236,45 +1408,68 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
 
   CesiumVectorOverlays::GeoJsonDocumentRasterOverlayOptions options{
       .defaultStyle = CesiumVectorData::VectorStyle(line, {}),
-      .ellipsoid = _tileset->getOptions().ellipsoid};
+      .ellipsoid = [self options].ellipsoid};
 
+  CesiumRasterOverlays::RasterOverlayOptions overlayOptions;
+  overlayOptions.rendererOptions = RealityKitPrepareRendererResources::TracesMarker{};
   _geoJSONOverlay = new CesiumVectorOverlays::GeoJsonDocumentRasterOverlay(
       "traces",
       std::move(document),
-      options);
-  _tileset->getOverlays().add(_geoJSONOverlay);
+      options,
+      overlayOptions);
+  _tilesets.front()->getOverlays().add(_geoJSONOverlay);
 }
 
 - (void)removeGeoJSONOverlay {
   if (_geoJSONOverlay) {
-    _tileset->getOverlays().remove(_geoJSONOverlay);
+    _tilesets.front()->getOverlays().remove(_geoJSONOverlay);
     _geoJSONOverlay = nullptr;
   }
 }
 
+- (CNRasterLoadHandler)rasterLoadHandler {
+  return _resources->rasterLoadHandler();
+}
+
+- (void)setRasterLoadHandler:(CNRasterLoadHandler)handler {
+  _resources->setRasterLoadHandler(handler);
+}
+
+/// The first tileset's options, which all of them share.
+- (const TilesetOptions&)options {
+  return _tilesets.front()->getOptions();
+}
+
+- (void)updateOptions:(const std::function<void(TilesetOptions&)>&)change {
+  for (const std::unique_ptr<Tileset>& pTileset : _tilesets) {
+    change(pTileset->getOptions());
+  }
+}
+
 - (double)maximumScreenSpaceError {
-  return _tileset->getOptions().maximumScreenSpaceError;
+  return [self options].maximumScreenSpaceError;
 }
 
 - (void)setMaximumScreenSpaceError:(double)value {
-  _tileset->getOptions().maximumScreenSpaceError = value;
+  [self updateOptions:[value](TilesetOptions& o) { o.maximumScreenSpaceError = value; }];
 }
 
 - (double)culledScreenSpaceError {
-  return _tileset->getOptions().culledScreenSpaceError;
+  return [self options].culledScreenSpaceError;
 }
 
 - (void)setCulledScreenSpaceError:(double)value {
-  _tileset->getOptions().culledScreenSpaceError = value;
+  [self updateOptions:[value](TilesetOptions& o) { o.culledScreenSpaceError = value; }];
 }
 
+/// Per tileset: with several, more requests run at once in all.
 - (NSInteger)maximumSimultaneousTileLoads {
-  return NSInteger(_tileset->getOptions().maximumSimultaneousTileLoads);
+  return NSInteger([self options].maximumSimultaneousTileLoads);
 }
 
 - (void)setMaximumSimultaneousTileLoads:(NSInteger)value {
-  _tileset->getOptions().maximumSimultaneousTileLoads =
-      uint32_t(std::max<NSInteger>(1, value));
+  const uint32_t loads = uint32_t(std::max<NSInteger>(1, value));
+  [self updateOptions:[loads](TilesetOptions& o) { o.maximumSimultaneousTileLoads = loads; }];
 }
 
 - (NSInteger)takeKeyFailureStatus {
@@ -1289,20 +1484,22 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
                                     networkBytes:_fetchCounters->networkBytes];
 }
 
+/// The whole budget, split evenly between the tilesets.
 - (int64_t)maximumCachedBytes {
-  return _tileset->getOptions().maximumCachedBytes;
+  return [self options].maximumCachedBytes * int64_t(_tilesets.size());
 }
 
 - (void)setMaximumCachedBytes:(int64_t)value {
-  _tileset->getOptions().maximumCachedBytes = value;
+  const int64_t share = value / int64_t(_tilesets.size());
+  [self updateOptions:[share](TilesetOptions& o) { o.maximumCachedBytes = share; }];
 }
 
 - (BOOL)forbidHoles {
-  return _tileset->getOptions().forbidHoles;
+  return [self options].forbidHoles;
 }
 
 - (void)setForbidHoles:(BOOL)value {
-  _tileset->getOptions().forbidHoles = value;
+  [self updateOptions:[value](TilesetOptions& o) { o.forbidHoles = value; }];
 }
 
 /// The anchor point: anchorHeight above the ellipsoid at its latitude and
@@ -1366,7 +1563,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
   glm::dvec3 direction = enuToEcefRotation * enuFromAnchorAxes(_viewDirection);
   glm::dvec3 up = enuToEcefRotation * enuFromAnchorAxes(_viewUp);
   // cesium-native throws unless direction and up are perpendicular unit
-  // vectors ("normal must be normalized"): normalise, and remove any part of
+  // vectors ("normal must be normalized"): normalize, and remove any part of
   // up along direction. A degenerate camera skips the view update.
   const double directionLength = glm::length(direction);
   if (!(directionLength > 1e-9) || !std::isfinite(directionLength) ||
@@ -1385,7 +1582,8 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
   const double horizontalFieldOfView =
       2.0 * std::atan(std::tan(verticalFieldOfView / 2.0) * aspect);
 
-  const ViewUpdateResult* pResult = nullptr;
+  // Every tileset selects for the same view; their tiles are drawn together.
+  std::vector<const ViewUpdateResult*> results;
   std::optional<ViewState> selectedView;
   try {
     ViewState view(
@@ -1395,36 +1593,41 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
         glm::dvec2(2048.0 * aspect, 2048.0),
         horizontalFieldOfView,
         verticalFieldOfView);
-    pResult = &_tileset->updateViewGroup(
-        _tileset->getDefaultViewGroup(),
-        {view},
-        deltaTime);
+    for (const std::unique_ptr<Tileset>& pTileset : _tilesets) {
+      results.push_back(&pTileset->updateViewGroup(
+          pTileset->getDefaultViewGroup(),
+          {view},
+          deltaTime));
+      pTileset->loadTiles();
+    }
     selectedView = view;
-    _tileset->loadTiles();
   } catch (const std::exception& error) {
     // Don't take the app down over one bad view: log it, keep loads moving
     // and show the last good frame.
     NSLog(@"[cesium] update failed: %s", error.what());
     return [self repeatLastFrame];
   }
-  const ViewUpdateResult& result = *pResult;
   _asyncSystem->dispatchMainThreadTasks();
 
   // Each drawn tile's placement in the anchor's level frame (RealityKit axes,
   // the anchor at the origin): computed in double from the tile's
-  // full-precision centre, so only small, nearby numbers reach Float.
+  // full-precision center, so only small, nearby numbers reach Float.
   const glm::dmat4 ecefToAnchorRealityKit =
       kEnuToRealityKit * glm::inverse(anchorFrame);
+  size_t tileCount = 0;
+  for (const ViewUpdateResult* pResult : results) {
+    tileCount += pResult->tilesToRenderThisFrame.size();
+  }
   NSMutableArray<CNTileMesh*>* tiles =
-      [NSMutableArray arrayWithCapacity:result.tilesToRenderThisFrame.size()];
-  NSMutableData* transforms = [NSMutableData
-      dataWithCapacity:result.tilesToRenderThisFrame.size() *
-                       sizeof(simd_float4x4)];
+      [NSMutableArray arrayWithCapacity:tileCount];
+  NSMutableData* transforms =
+      [NSMutableData dataWithCapacity:tileCount * sizeof(simd_float4x4)];
   NSMutableData* bounds = _reportsTileBounds ? [NSMutableData data] : nil;
   auto toFloat = [](const glm::dvec3& v) {
     return simd_make_float3(float(v.x), float(v.y), float(v.z));
   };
-  for (const Tile::ConstPointer& pTile : result.tilesToRenderThisFrame) {
+  for (const ViewUpdateResult* pResult : results)
+  for (const Tile::ConstPointer& pTile : pResult->tilesToRenderThisFrame) {
     const TileRenderContent* pRender = pTile->getContent().getRenderContent();
     if (!pRender || !pRender->getRenderResources()) {
       continue;
@@ -1449,7 +1652,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
       const glm::dmat3& halfAxes = box.getHalfAxes();
       // In the tile's own frame, like its vertices.
       CNTileBounds entry;
-      entry.centre = toFloat(box.getCenter() - mesh.center);
+      entry.center = toFloat(box.getCenter() - mesh.center);
       entry.halfAxisA = toFloat(halfAxes[0]);
       entry.halfAxisB = toFloat(halfAxes[1]);
       entry.halfAxisC = toFloat(halfAxes[2]);
@@ -1480,7 +1683,11 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
   frame.tileBounds = bounds;
   frame.freedTileIDs = freed;
   frame.credits = credits;
-  frame.loadProgress = _tileset->computeLoadProgress();
+  float progress = 0;
+  for (const std::unique_ptr<Tileset>& pTileset : _tilesets) {
+    progress += pTileset->computeLoadProgress();
+  }
+  frame.loadProgress = progress / float(_tilesets.size());
   _lastFrame = frame;
   return frame;
 }
@@ -1490,10 +1697,10 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
                                   radius:(double)radius
                               completion:(void (^)(double height))completion {
   // A 3×3 grid spanning most of the visible square. A single sample at the
-  // centre lands on whatever is there (a hilltop, a roof) and sinks the rest
+  // center lands on whatever is there (a hilltop, a roof) and sinks the rest
   // of the region below the base plane; the lowest hit keeps it all above.
   const double reach = 0.8 * radius;
-  const glm::dmat4 centreFrame =
+  const glm::dmat4 centerFrame =
       CesiumGeospatial::GlobeTransforms::eastNorthUpToFixedFrame(
           Ellipsoid::WGS84.cartographicToCartesian(
               Cartographic::fromDegrees(longitude, latitude, 0.0)));
@@ -1501,7 +1708,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
   for (int row = -1; row <= 1; ++row) {
     for (int column = -1; column <= 1; ++column) {
       const glm::dvec3 ecef = glm::dvec3(
-          centreFrame * glm::dvec4(column * reach, row * reach, 0.0, 1.0));
+          centerFrame * glm::dvec4(column * reach, row * reach, 0.0, 1.0));
       if (std::optional<Cartographic> cartographic =
               Ellipsoid::WGS84.cartesianToCartographic(ecef)) {
         positions.push_back(*cartographic);
@@ -1516,7 +1723,7 @@ static glm::dvec3 enuFromAnchorAxes(simd_double3 v) {
   // sampleHeightMostDetailed ignores the input heights and reports the
   // highest surface hit at each longitude/latitude, as height above the
   // ellipsoid, which is what anchorHeight is measured in.
-  _tileset->sampleHeightMostDetailed(positions)
+  _tilesets.front()->sampleHeightMostDetailed(positions)
       .thenInMainThread([completion](SampleHeightResult&& result) {
         double lowest = INFINITY;
         for (size_t i = 0; i < result.positions.size(); ++i) {

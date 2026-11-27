@@ -2,7 +2,7 @@ import Foundation
 
 /// A GeoJSON file of lines, made fit for cesium-native, which rejects a whole
 /// document over one line with fewer than two points (Strava exports have
-/// them), and summarised so the camera can go to it.
+/// them), and summarized so the camera can go to it.
 struct TraceFile {
     enum Failure: LocalizedError {
         case notGeoJSON
@@ -64,9 +64,9 @@ struct TraceFile {
                 values.isEmpty ? 0 : values[values.count * 3 / 4] - values[values.count / 4]
             }
             let latitude = median(latitudes)
-            let metresPerDegree = 111_320.0
-            let height = spread(latitudes) * metresPerDegree
-            let width = spread(longitudes) * metresPerDegree * cos(latitude * .pi / 180)
+            let metersPerDegree = 111_320.0
+            let height = spread(latitudes) * metersPerDegree
+            let width = spread(longitudes) * metersPerDegree * cos(latitude * .pi / 180)
             return Place(id: "traces", name: name, latitude: latitude, longitude: median(longitudes),
                          radius: min(max(max(width, height) / 2, 500), 50_000))
         }

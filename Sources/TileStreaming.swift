@@ -24,6 +24,12 @@ final class TileStreaming {
             let total = cacheHits + revalidated + networkLoads
             return total == 0 ? nil : Double(cacheHits + revalidated) / Double(total)
         }
+
+        /// Requests by how they were answered, for the stats overlay.
+        var requestsSummary: String {
+            String(format: "%d cached · %d revalidated · %d downloaded (%.1f MB)",
+                   cacheHits, revalidated, networkLoads, networkMegabytes)
+        }
     }
 
     struct Credit: Hashable {
@@ -33,7 +39,7 @@ final class TileStreaming {
     }
 
     /// Holds every tile entity, each placed in the anchor's level frame
-    /// (x east, y up, z south, metres, the anchor at 0). The owner places
+    /// (x east, y up, z south, meters, the anchor at 0). The owner places
     /// this in its scene.
     let tilesRoot = Entity()
 
@@ -73,7 +79,25 @@ final class TileStreaming {
     private static let tracesNameKey = "tracesName"
     private static let tracesFile = URL.applicationSupportDirectory.appending(path: "traces.geojson")
     private var startedLoading = Date()
+    /// Builds each tile's renderer resources instead of RealityKit entities
+    /// (MetalTileRenderer); the tiles to draw are then in `drawnTiles` each
+    /// frame and nothing is added under `tilesRoot`. Setting or clearing it
+    /// while streaming restarts, so every tile is built the new way.
+    var customTileHandler: CNTileLoadHandler? {
+        didSet {
+            if (customTileHandler == nil) != (oldValue == nil) { restart() }
+        }
+    }
+    /// Builds overlay images' textures alongside `customTileHandler`. Set it
+    /// first: only setting that one restarts streaming.
+    var customRasterHandler: CNRasterLoadHandler?
+    /// With a custom handler: last frame's tiles, each with its placement in
+    /// the anchor's level frame (the same as an entity's under `tilesRoot`).
+    private(set) var drawnTiles: [(tile: CNTileMesh, placement: simd_float4x4)] = []
     private var tileEntities: [UInt64: Entity] = [:]
+    /// The imagery each tile entity shows, to spot when cesium-native
+    /// attaches better imagery.
+    private var appliedOverlays: [UInt64: CNOverlay] = [:]
     private var renderedTiles: [CNTileMesh] = []
     /// Draw each drawn tile's bounding box as a wireframe child of the tile:
     /// cyan inside the LOD camera's view, orange outside it.
@@ -89,6 +113,8 @@ final class TileStreaming {
     private var started = false
     /// The key the streamer was started with.
     private var keyInUse: String?
+    /// Debug: ALSOMAPS_TILE_STATS=1 logs tile and fetch counts once a second.
+    private let logsStats = ProcessInfo.processInfo.environment["ALSOMAPS_TILE_STATS"] == "1"
     private var debugLogElapsed: Float = 0
     /// Longest main-thread update in the current debug-log second.
     private var debugSlowestUpdate: TimeInterval = 0
@@ -170,10 +196,12 @@ final class TileStreaming {
         // Debug: ALSOMAPS_TILESET_URL streams any 3D Tiles tileset, no key.
         if let override = env["ALSOMAPS_TILESET_URL"], !override.isEmpty {
             streamer = CNTileStreamer(tilesetURL: override)
-        } else if let assetID = settings.tileSource.ionAssetID {
+        } else if let layers = settings.tileSource.ionLayers {
             guard let token = requireKey(for: .cesiumIon) else { return }
-            streamer = CNTileStreamer(ionAssetID: assetID, accessToken: token,
-                                      smoothNormals: settings.tileSource.smoothNormals)
+            streamer = CNTileStreamer(ionLayers: layers.map {
+                CNIonLayer(assetID: $0.assetID, imageryAssetID: $0.imageryAssetID ?? 0,
+                           smoothNormals: $0.smoothNormals)
+            }, accessToken: token)
         } else {
             guard let key = requireKey(for: .googleMaps) else { return }
             streamer = CNTileStreamer(tilesetURL: "https://tile.googleapis.com/v1/3dtiles/root.json?key=\(key)")
@@ -182,7 +210,9 @@ final class TileStreaming {
         statusMessage = nil
         tileUploader.untexturedColor = settings.tileSource.untexturedColor
         // Before the first update, so every tile goes through it.
-        streamer.tileLoadHandler = tileUploader.handler
+        streamer.tileLoadHandler = customTileHandler ?? tileUploader.handler
+        streamer.rasterLoadHandler = customTileHandler == nil ? tileUploader.rasterHandler : customRasterHandler
+        // Traces drape only RealityKit tiles (TileEntity), not custom ones.
         streamer.rasterAttachHandler = { [drape] tile, raster, translation, scale in
             drape.attach(tile, raster: raster, translation: translation, scale: scale)
         }
@@ -201,8 +231,10 @@ final class TileStreaming {
         streamer = nil
         for entity in tileEntities.values { entity.removeFromParent() }
         tileEntities = [:]
+        appliedOverlays = [:]
         tileBoxes = [:]
         renderedTiles = []
+        drawnTiles = []
         credits = []
         loadProgress = 0
         stats = Stats()
@@ -214,7 +246,7 @@ final class TileStreaming {
     /// The service this source needs a key for; a debug tileset needs none.
     private var keyService: CredentialService? {
         if let override = ProcessInfo.processInfo.environment["ALSOMAPS_TILESET_URL"], !override.isEmpty { return nil }
-        return settings.tileSource.ionAssetID == nil ? .googleMaps : .cesiumIon
+        return settings.tileSource.ionLayers == nil ? .googleMaps : .cesiumIon
     }
 
     /// The key to stream with, or nil with a message saying how to get one.
@@ -285,27 +317,42 @@ final class TileStreaming {
 
         for id in frame.freedTileIDs {
             tileEntities.removeValue(forKey: id.uint64Value)?.removeFromParent()
+            appliedOverlays.removeValue(forKey: id.uint64Value)
             tileBoxes.removeValue(forKey: id.uint64Value)
         }
 
-        var visible = Set<UInt64>()
-        frame.tileTransforms.withUnsafeBytes { buffer in
-            let placements = buffer.bindMemory(to: simd_float4x4.self)
-            for (index, tile) in frame.tilesToRender.enumerated() {
-                visible.insert(tile.identifier)
-                // Built off the main thread before cesium-native counted the
-                // tile as loaded; here it only needs adding.
-                if tileEntities[tile.identifier] == nil, let entity = tile.renderObject as? Entity {
-                    tileEntities[tile.identifier] = entity
-                    tilesRoot.addChild(entity)
-                }
-                // Placed relative to the current anchor every frame, so there's
-                // no fixed origin for precision to drift away from.
-                tileEntities[tile.identifier]?.transform = Transform(matrix: placements[index])
+        if customTileHandler != nil {
+            frame.tileTransforms.withUnsafeBytes { buffer in
+                let placements = buffer.bindMemory(to: simd_float4x4.self)
+                drawnTiles = frame.tilesToRender.enumerated().map { ($1, placements[$0]) }
             }
-        }
-        for (id, entity) in tileEntities {
-            entity.isEnabled = visible.contains(id)
+        } else {
+            var visible = Set<UInt64>()
+            frame.tileTransforms.withUnsafeBytes { buffer in
+                let placements = buffer.bindMemory(to: simd_float4x4.self)
+                for (index, tile) in frame.tilesToRender.enumerated() {
+                    visible.insert(tile.identifier)
+                    // Built off the main thread before cesium-native counted the
+                    // tile as loaded; here it only needs adding.
+                    if tileEntities[tile.identifier] == nil, let entity = tile.renderObject as? Entity {
+                        tileEntities[tile.identifier] = entity
+                        tilesRoot.addChild(entity)
+                    }
+                    // Placed relative to the current anchor every frame, so there's
+                    // no fixed origin for precision to drift away from.
+                    tileEntities[tile.identifier]?.transform = Transform(matrix: placements[index])
+                    // Newly attached imagery replaces the old once its
+                    // texture is ready; until then the old stays.
+                    if let overlay = tile.overlay, overlay !== appliedOverlays[tile.identifier],
+                       let entity = tileEntities[tile.identifier],
+                       TileUploader.applyOverlay(overlay, to: entity) {
+                        appliedOverlays[tile.identifier] = overlay
+                    }
+                }
+            }
+            for (id, entity) in tileEntities {
+                entity.isEnabled = visible.contains(id)
+            }
         }
         renderedTiles = frame.tilesToRender
         if showsTileBounds { updateTileBoxes(frame) }
@@ -327,23 +374,23 @@ final class TileStreaming {
                              networkMegabytes: Double(fetch.networkBytes) / 1_048_576)
         if stats != newStats { stats = newStats }
 
-        #if DEBUG
-        debugLogElapsed += deltaTime
-        if debugLogElapsed > 1 {
-            debugLogElapsed = 0
-            print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB), rasters \(drape.attachedRasters) attached / \(drape.emptyRasters) empty / \(drape.undrapableTiles) undrapable, \(drape.drapedTiles) draped")
-            fflush(stdout)
-            debugSlowestUpdate = 0
+        if logsStats {
+            debugLogElapsed += deltaTime
+            if debugLogElapsed > 1 {
+                debugLogElapsed = 0
+                print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB), rasters \(drape.attachedRasters) attached / \(drape.emptyRasters) empty / \(drape.undrapableTiles) undrapable, \(drape.drapedTiles) draped")
+                fflush(stdout)
+                debugSlowestUpdate = 0
+            }
         }
-        #endif
     }
 
-    /// Samples the most detailed surface across 0.8 × `radius` metres around
-    /// `centre` and reports the lowest hit, metres above the ellipsoid (NaN
+    /// Samples the most detailed surface across 0.8 × `radius` meters around
+    /// `center` and reports the lowest hit, meters above the ellipsoid (NaN
     /// if none), on the main thread during a later update. May load tiles.
-    func sampleGroundHeight(around centre: GeoCoordinate, radius: Double,
+    func sampleGroundHeight(around center: GeoCoordinate, radius: Double,
                             _ completion: @escaping @Sendable (Double) -> Void) {
-        streamer?.sampleGroundHeight(latitude: centre.latitude, longitude: centre.longitude,
+        streamer?.sampleGroundHeight(latitude: center.latitude, longitude: center.longitude,
                                      radius: radius, completion: completion)
     }
 
@@ -351,7 +398,7 @@ final class TileStreaming {
     /// estimates from what's loaded, with no network.
     func renderedHeightRanges() -> [TileHeightRange] {
         renderedTiles.map {
-            TileHeightRange(centre: $0.centerECEF, radius: $0.radius,
+            TileHeightRange(center: $0.centerECEF, radius: $0.radius,
                             minimumHeight: $0.minimumHeight, maximumHeight: $0.maximumHeight)
         }
     }
@@ -359,7 +406,7 @@ final class TileStreaming {
     // MARK: Tile bounds
 
     /// Each box is built once, in its tile's own frame, so it moves with the
-    /// tile; only its colour changes as the tile enters or leaves the view.
+    /// tile; only its color changes as the tile enters or leaves the view.
     private func updateTileBoxes(_ frame: CNFrame) {
         guard let data = frame.tileBounds else { return }
         data.withUnsafeBytes { buffer in

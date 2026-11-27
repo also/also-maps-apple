@@ -6,16 +6,33 @@ options:
     macOS: "26.0"
     tvOS: "26.0"
     iOS: "26.0"
+# Optimized: Debug (keys from Config/Secrets.xcconfig, DEBUG code) compiled
+# as fast as Release, for running on a device. The unoptimized Debug build
+# misses frame deadlines on Vision Pro (notes/metal-renderer.md).
+configs:
+  Debug: debug
+  Optimized: debug
+  Release: release
 settings:
   base:
     # Xcode's recommended project settings, set here so it stops prompting.
     DEAD_CODE_STRIPPING: YES
     STRING_CATALOG_GENERATE_SYMBOLS: YES
+    # CesiumNative.xcframework has only arm64 slices. Xcode's default also
+    # includes x86_64 for macOS and the simulators, which a generic simulator
+    # destination builds and then fails to link.
+    ARCHS: arm64
+  configs:
+    Optimized:
+      GCC_OPTIMIZATION_LEVEL: s
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      SWIFT_COMPILATION_MODE: wholemodule
+      ENABLE_DEBUG_DYLIB: NO
 packages:
   # cesium-native, prebuilt: https://github.com/also/cesium-native-xcframework
   CesiumNative:
     url: https://github.com/also/cesium-native-xcframework
-    exactVersion: 0.64.0-2
+    exactVersion: 0.66.0-1
 settingGroups:
   # Compiling against cesium-native: its headers, and the targets that include
   # CNTileStreamer.mm.
@@ -34,8 +51,10 @@ settingGroups:
       - LIBASYNC_STATIC
       - SPDLOG_COMPILED_LIB
       - SPDLOG_FMT_EXTERNAL
-      # The prebuilt library is a release build. Without this, ReferenceCounted
-      # in its headers has a debug-only member the library's objects don't.
+      # The xcframework is a Release build. Without NDEBUG, a Debug build
+      # sees an extra thread-ID field in cesium-native's non-thread-safe
+      # ReferenceCounted (e.g. RasterOverlay), so inline reference counting
+      # here reads past the library's objects and asserts.
       - NDEBUG
   # One app on every platform. The Mac shows this name, not the display name, in
   # Finder and the menu bar; Swift module names can't have spaces.
@@ -44,12 +63,13 @@ settingGroups:
     PRODUCT_MODULE_NAME: AlsoMaps
 configFiles:
   Debug: Config/App.xcconfig
+  Optimized: Config/App.xcconfig
   Release: Config/App.xcconfig
 targets:
   Also Maps visionOS:
     scheme:
       # Tick ALSOMAPS_* to stream the public Cesium sample instead of Google's tiles.
-      environmentVariables:
+      environmentVariables: &visionOSEnvironment
         - variable: ALSOMAPS_TILESET_URL
           value: https://raw.githubusercontent.com/CesiumGS/3d-tiles-samples/main/1.0/TilesetWithDiscreteLOD/tileset.json
           isEnabled: false
@@ -74,12 +94,6 @@ targets:
       - package: CesiumNative
       - sdk: libsqlite3.tbd
       - sdk: libc++.tbd
-    # App Attest uses Apple's production service in every build, so local and
-    # distributed builds work against the same credentials API.
-    entitlements:
-      path: Sources/AlsoMaps.entitlements
-      properties:
-        com.apple.developer.devicecheck.appattest-environment: production
     info:
       path: Sources/Info.plist
       properties:
@@ -96,6 +110,27 @@ targets:
         # Documents (camera tracks) shows in the Files app.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # Opens place links (Sources/Places/PlaceLink.swift): alsomaps://p#lat=…
+        CFBundleURLTypes: &placeLinkURLTypes
+          - CFBundleURLName: dev.also.maps.place
+            CFBundleURLSchemes: [alsomaps]
+        # Opens files (Sources/Places/PlaceStore.swift): .alsomaps is ours,
+        # GeoJSON underneath; plain .geojson opens too.
+        UTExportedTypeDeclarations: &fileTypes
+          - UTTypeIdentifier: dev.also.maps.document
+            UTTypeDescription: Also Maps Document
+            UTTypeConformsTo: [public.geojson]
+            UTTypeTagSpecification:
+              public.filename-extension: [alsomaps]
+        CFBundleDocumentTypes: &documentTypes
+          - CFBundleTypeName: Also Maps Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Owner
+            LSItemContentTypes: [dev.also.maps.document]
+          - CFBundleTypeName: GeoJSON
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.geojson]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
           UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleVolumetricApplication
@@ -112,24 +147,48 @@ targets:
           else
             rm -f "$dst"
           fi
+      # Place names (Sources/Geography): downloads the pinned Natural Earth
+      # files and converts them, or copies the cached result. Every build;
+      # the script decides whether anything changed.
+      - &geographyScript
+        name: Build Geography.sqlite
+        basedOnDependencyAnalysis: false
+        script: '"${SRCROOT}/Scripts/build_geography.sh" "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Geography.sqlite"'
+      # Which checkout, branch and commit the build came from, for Settings >
+      # Advanced. Every build, since none of that is a declared input.
+      - name: Write build info
+        basedOnDependencyAnalysis: false
+        script: '"${SRCROOT}/Scripts/write_build_info.sh"'
     settings:
       groups: [CesiumBridge, AppName]
       base:
-        # The soundtrack script reads an optional, undeclared file.
+        # The scripts read an optional, undeclared file and the git checkout,
+        # and the Geography.sqlite script downloads and caches outside the build.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
       configs:
+        # App Attest, for the app's key, and associated domains, for
+        # universal place links, need an explicit App ID on the maintainer's
+        # team. Debug builds leave them out unless Config/Secrets.xcconfig
+        # opts in (Config/App.xcconfig), so anyone's team can sign them with
+        # its wildcard profile.
+        Debug: &debugEntitlements
+          CODE_SIGN_ENTITLEMENTS: $(DEBUG_CODE_SIGN_ENTITLEMENTS)
+        Optimized: *debugEntitlements
         # Release builds get keys at run time (CredentialStore), so none ship.
+        # App Attest uses Apple's production service in every build, so local
+        # and distributed builds work against the same credentials API.
         Release:
+          CODE_SIGN_ENTITLEMENTS: Config/AppAttest.entitlements
           GOOGLE_MAPS_API_KEY: ""
           CESIUM_ION_TOKEN: ""
 
   # The macOS app: same bundle ID as the visionOS app, so both ship as one App
-  # Store listing (universal purchase). A map flown with the keyboard or a
-  # game controller (Screen), sharing the navigation core, the streaming
+  # Store listing (universal purchase). A map flown with a mouse or trackpad,
+  # the keyboard or a game controller (Screen), sharing the navigation core, the streaming
   # layer (TileStreaming and below) and the cesium-native bridge.
   Also Maps macOS:
     type: application
@@ -142,8 +201,10 @@ targets:
           - Assets.xcassets
           - Navigation
           - NavigationRealityKit.swift
+          - Metal
           - Static
           - Screen
+          - Settings
           - MapInput.swift
           - Tracks
           - TrackSession.swift
@@ -161,6 +222,10 @@ targets:
           - Config
           - Credentials
           - Places
+          - Geography
+          - Diagrams
+          - MapPresentation.swift
+          - MapViewState.swift
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
     dependencies:
@@ -177,11 +242,24 @@ targets:
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         LSApplicationCategoryType: public.app-category.navigation
+        # Place links, as for the visionOS app.
+        CFBundleURLTypes: *placeLinkURLTypes
+        UTExportedTypeDeclarations: *fileTypes
+        CFBundleDocumentTypes: *documentTypes
+    postBuildScripts:
+      # Place names, as for the visionOS app.
+      - *geographyScript
+      # Which checkout, branch and commit the build came from, for Settings >
+      # Advanced. Every build, since none of that is a declared input.
+      - name: Write build info
+        basedOnDependencyAnalysis: false
+        script: '"${SRCROOT}/Scripts/write_build_info.sh"'
     settings:
       groups: [CesiumBridge, AppName]
       base:
-        # CesiumNative.xcframework has no x86_64 macOS slice.
-        ARCHS: arm64
+        # The build info script reads the git checkout, and the
+        # Geography.sqlite script downloads and caches outside the build.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
         SWIFT_VERSION: "5.0"
@@ -190,8 +268,11 @@ targets:
         # Debug builds run unsandboxed so tools and agents can launch the
         # binary with ALSOMAPS_* variables, read its stdout, and inspect its
         # caches under ~/Library/Caches. Release keeps the sandbox.
+        # Universal place links need an explicit App ID on the maintainer's
+        # team, so Debug builds have them only when Config/Secrets.xcconfig
+        # opts in (Config/App.xcconfig).
         Debug:
-          CODE_SIGN_ENTITLEMENTS: SourcesMac/AlsoMapsMac.Debug.entitlements
+          CODE_SIGN_ENTITLEMENTS: $(DEBUG_MAC_CODE_SIGN_ENTITLEMENTS)
         Release:
           CODE_SIGN_ENTITLEMENTS: SourcesMac/AlsoMapsMac.entitlements
           # Keys come from the user; see CredentialStore.
@@ -210,8 +291,18 @@ targets:
       - path: Sources/StreamingSettings.swift
       - path: Sources/TileSource.swift
       - path: Sources/Static/StaticView.swift
+      - path: Sources/Metal/MetalVisibility.swift
+      - path: Tests/Metal
       - path: Sources/Places/Place.swift
       - path: Sources/TraceFile.swift
+      - path: Sources/Places/PlaceLink.swift
+      - path: Sources/Places/PlaceGeoJSON.swift
+      - path: Sources/Places/PlaceStore.swift
+      - path: Sources/Places/PlacesClient.swift
+      - path: Sources/Places/PlaceSearch.swift
+      - path: Tests/Places
+      - path: Sources/Geography
+      - path: Tests/Geography
       - path: Sources/Config/AppConfig.swift
       - path: Sources/Config/AppConfigStore.swift
       - path: Sources/Credentials/CredentialStore.swift
@@ -220,10 +311,15 @@ targets:
       - path: Tests/Static
       - path: Sources/Tracks
       - path: Tests/Navigation
+    # Into the test bundle, as for the apps.
+    postBuildScripts:
+      - *geographyScript
     scheme:
       testTargets: ["Also Maps Core Tests"]
     settings:
       base:
+        # The Geography.sqlite script downloads and caches outside the build.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         SWIFT_VERSION: "5.0"
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps.CoreTests
@@ -291,11 +387,14 @@ targets:
           - Assets.xcassets
           - Navigation
           - NavigationRealityKit.swift
+          - Metal
           - Static
           - Screen
+          - Settings
           - MapInput.swift
           - Tracks
           - TrackSession.swift
+          - TrackMenu.swift
           - TrackOverlay.swift
           - TubeExtruder.swift
           - StreamingSettings.swift
@@ -310,18 +409,13 @@ targets:
           - Config
           - Credentials
           - Places
+          - Geography
           - Cesium/CNTileStreamer.h
           - Cesium/CNTileStreamer.mm
     dependencies:
       - package: CesiumNative
       - sdk: libsqlite3.tbd
       - sdk: libc++.tbd
-    # App Attest uses Apple's production service in every build, so local and
-    # distributed builds work against the same credentials API.
-    entitlements:
-      path: SourcesPhone/AlsoMaps.entitlements
-      properties:
-        com.apple.developer.devicecheck.appattest-environment: production
     info:
       path: SourcesPhone/Info.plist
       properties:
@@ -332,6 +426,13 @@ targets:
         GoogleMapsAPIKey: $(GOOGLE_MAPS_API_KEY)
         CesiumIonToken: $(CESIUM_ION_TOKEN)
         UILaunchScreen: {}
+        # Place links, as for the visionOS app.
+        CFBundleURLTypes: *placeLinkURLTypes
+        UTExportedTypeDeclarations: *fileTypes
+        CFBundleDocumentTypes: *documentTypes
+        # Required with CFBundleDocumentTypes (ITMS-90737); PlaceStore.importFile
+        # reads the original with security-scoped access and keeps a copy.
+        LSSupportsOpeningDocumentsInPlace: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -342,9 +443,20 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+    postBuildScripts:
+      # Place names, as for the visionOS app.
+      - *geographyScript
+      # Which checkout, branch and commit the build came from, for Settings >
+      # Advanced. Every build, since none of that is a declared input.
+      - name: Write build info
+        basedOnDependencyAnalysis: false
+        script: '"${SRCROOT}/Scripts/write_build_info.sh"'
     settings:
       groups: [CesiumBridge, AppName]
       base:
+        # The build info script reads the git checkout, and the
+        # Geography.sqlite script downloads and caches outside the build.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: dev.also.maps
         # iPhone and iPad, natively (not iPad's scaled iPhone mode).
@@ -352,7 +464,34 @@ targets:
         SWIFT_VERSION: "5.0"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/AlsoMaps-Bridging-Header.h
       configs:
+        # Entitlements as for the visionOS app.
+        Debug: *debugEntitlements
+        Optimized: *debugEntitlements
         # Release builds get keys at run time (CredentialStore), so none ship.
         Release:
+          CODE_SIGN_ENTITLEMENTS: Config/AppAttest.entitlements
           GOOGLE_MAPS_API_KEY: ""
           CESIUM_ION_TOKEN: ""
+
+schemes:
+  # The visionOS app built Optimized, without Metal API validation or GPU
+  # frame capture: for using it on a Vision Pro rather than debugging it.
+  Also Maps visionOS (Optimized):
+    # First in the scheme list, so a fresh checkout (no xcuserdata) opens
+    # with it selected instead of the alphabetically first scheme.
+    management:
+      orderHint: 0
+    build:
+      targets:
+        Also Maps visionOS: all
+    run:
+      config: Optimized
+      enableGPUValidationMode: disabled
+      enableGPUFrameCaptureMode: disabled
+      environmentVariables: *visionOSEnvironment
+    profile:
+      config: Optimized
+    analyze:
+      config: Optimized
+    archive:
+      config: Release

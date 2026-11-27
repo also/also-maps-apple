@@ -2,8 +2,8 @@
 // header, so Swift sees plain classes; CNTileStreamer.mm owns the Tileset.
 //
 // Coordinates: there is no global origin. Each tile's vertices are small
-// offsets from its own centre; every frame the bridge hands Swift a transform
-// per drawn tile that places it in the anchor's level frame, in metres and
+// offsets from its own center; every frame the bridge hands Swift a transform
+// per drawn tile that places it in the anchor's level frame, in meters and
 // RealityKit axes (x = east, y = up, z = south, the anchor at 0).
 
 #import <Foundation/Foundation.h>
@@ -14,27 +14,61 @@ NS_ASSUME_NONNULL_BEGIN
 /// One glTF primitive flattened for RealityKit's MeshDescriptor.
 @interface CNPrimitive : NSObject
 /// float4 per vertex (xyz + padding) so it binds directly to SIMD3<Float>:
-/// ECEF-axis offsets in metres from the tile's centre; place with the
+/// ECEF-axis offsets in meters from the tile's center; place with the
 /// matching CNFrame.tileTransforms entry.
 @property (nonatomic, readonly) NSData *positions;
 /// float2 per vertex, v already flipped for RealityKit; nil if untextured.
 @property (nonatomic, readonly, nullable) NSData *texcoords;
-/// float2 per vertex: where the vertex falls in its tile's raster overlay,
-/// before CNRasterAttachHandler's translation and scale. Nil without an
-/// overlay or for untextured content.
-@property (nonatomic, readonly, nullable) NSData *overlayTexcoords;
 /// uint32 triangle list.
 @property (nonatomic, readonly) NSData *indices;
-/// RGBA8 base colour, textureWidth * textureHeight * 4 bytes; nil if none.
+/// RGBA8 base color, textureWidth * textureHeight * 4 bytes; nil if none.
 @property (nonatomic, readonly, nullable) NSData *rgba;
 @property (nonatomic, readonly) NSInteger textureWidth;
 @property (nonatomic, readonly) NSInteger textureHeight;
+/// The texture's glTF sampler: wrap modes (REPEAT when the glTF gives
+/// none), and filters (0 when unspecified, leaving the choice to the app).
+@property (nonatomic, readonly) NSInteger textureWrapS;
+@property (nonatomic, readonly) NSInteger textureWrapT;
+@property (nonatomic, readonly) NSInteger textureMagFilter;
+@property (nonatomic, readonly) NSInteger textureMinFilter;
 /// float4 per vertex: unit normals in ECEF axes. Present for untextured
 /// content (drawn lit); nil for textured photogrammetry (drawn unlit). Flat
 /// normals are computed when the glTF has none.
 @property (nonatomic, readonly, nullable) NSData *normals;
-/// glTF base colour factor (linear RGBA); multiplies the texture if any.
+/// glTF base color factor (linear RGBA); multiplies the texture if any.
 @property (nonatomic, readonly) simd_float4 baseColor;
+/// float2 per vertex: where the vertex falls in the tileset's raster
+/// overlay: imagery for untextured content (terrain), or traces for
+/// textured content (photogrammetry, CNRasterAttachHandler).
+/// cesium-native's convention, not flipped: (0, 0) at the south-west corner
+/// of the tile's projected rectangle, (1, 1) at the north-east. Sample the
+/// attached CNOverlay's image at `uv * scale + translation` (v up, so row 0
+/// of the image is v = 1). Nil without an overlay. Only the first overlay
+/// projection is read, so traces on a tileset with imagery have none.
+@property (nonatomic, readonly, nullable) NSData *overlayTexcoords;
+@end
+
+/// One raster overlay image (a piece of imagery covering one or more
+/// geometry tiles). Lives until cesium-native frees it.
+@interface CNRaster : NSObject
+/// RGBA8, width * height * 4 bytes, row 0 northmost.
+@property (atomic, readonly) NSData *rgba;
+@property (nonatomic, readonly) NSInteger width;
+@property (nonatomic, readonly) NSInteger height;
+/// Whatever the app built to draw this image (a texture), attached by the
+/// raster load handler, possibly after it has returned.
+@property (atomic, strong, nullable) id renderObject;
+/// Drops the pixels once they've been uploaded.
+- (void)discardCPUData;
+@end
+
+/// A raster attached to a geometry tile, and the mapping from the tile's
+/// overlayTexcoords into it: `uv * scale + translation`. A tile may first
+/// get an ancestor's raster (scaled to its part of it) until its own loads.
+@interface CNOverlay : NSObject
+@property (nonatomic, readonly) CNRaster *raster;
+@property (nonatomic, readonly) simd_float2 translation;
+@property (nonatomic, readonly) simd_float2 scale;
 @end
 
 /// One attribution to show: its text, and its logo if the provider gave one
@@ -52,35 +86,33 @@ NS_ASSUME_NONNULL_BEGIN
 /// Whatever the app built to draw this tile (a RealityKit entity), attached
 /// by the tile load handler before it completes.
 @property (atomic, strong, nullable) id renderObject;
-/// Where the tile's vertices are measured from, ECEF metres.
+/// Where the tile's vertices are measured from, ECEF meters.
 @property (nonatomic, readonly) simd_double3 centerECEF;
-/// Distance from centerECEF to the farthest vertex, metres.
+/// Distance from centerECEF to the farthest vertex, meters.
 @property (nonatomic, readonly) double radius;
-/// The lowest and highest vertex, metres above the WGS84 ellipsoid
-/// (measured radially, which is within metres of geodetic height).
+/// The lowest and highest vertex, meters above the WGS84 ellipsoid
+/// (measured radially, which is within meters of geodetic height).
 @property (nonatomic, readonly) double minimumHeight;
 @property (nonatomic, readonly) double maximumHeight;
+/// The imagery currently attached to this tile, if its tileset has an
+/// overlay. Changes on the main thread during updateWithDeltaTime:, as
+/// better imagery loads; a new object each time.
+@property (atomic, readonly, nullable) CNOverlay *overlay;
 /// Drops the CPU-side buffers once they've been uploaded.
 - (void)discardCPUData;
 @end
 
-/// A rasterized overlay image for one tile.
-@interface CNRasterImage : NSObject
-/// RGBA8, premultiplied, width * height * 4 bytes, north row first.
-@property (nonatomic, readonly) NSData *rgba;
-@property (nonatomic, readonly) NSInteger width;
-@property (nonatomic, readonly) NSInteger height;
-@end
-
-/// Called on the main thread during an update when `raster` becomes a tile's
-/// overlay. An overlay coordinate from CNPrimitive.overlayTexcoords samples
-/// the raster at `coordinate * scale + translation`.
+/// Called on the main thread during an update when a traces `raster`
+/// (premultiplied) becomes a tile's overlay. An overlay coordinate from
+/// CNPrimitive.overlayTexcoords samples the raster at
+/// `coordinate * scale + translation`. Imagery goes to CNTileMesh.overlay
+/// instead.
 typedef void (^CNRasterAttachHandler)(CNTileMesh *tile,
-                                      CNRasterImage *raster,
+                                      CNRaster *raster,
                                       simd_float2 translation,
                                       simd_float2 scale);
-/// Called on the main thread during an update when a tile loses its overlay,
-/// which it does just before getting a better one.
+/// Called on the main thread during an update when a tile loses its traces
+/// overlay, which it does just before getting a better one.
 typedef void (^CNRasterDetachHandler)(CNTileMesh *tile);
 
 /// Called on a background thread for each newly loaded tile, before
@@ -89,6 +121,26 @@ typedef void (^CNRasterDetachHandler)(CNTileMesh *tile);
 /// thread. Until then the tile isn't drawable, so with forbidHoles cesium-
 /// native keeps its parent instead of leaving a gap.
 typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
+
+/// Called on a background thread for each imagery image as it loads. Start
+/// building its texture and attach it as `renderObject` when done; nothing
+/// waits for it, so until then tiles keep the imagery they had.
+typedef void (^CNRasterLoadHandler)(CNRaster *raster);
+
+/// One Cesium ion tileset to stream, optionally draped with an ion imagery
+/// asset.
+@interface CNIonLayer : NSObject
+- (instancetype)initWithAssetID:(int64_t)assetID
+                 imageryAssetID:(int64_t)imageryAssetID
+                  smoothNormals:(BOOL)smoothNormals NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@property (nonatomic, readonly) int64_t assetID;
+/// 0 for none.
+@property (nonatomic, readonly) int64_t imageryAssetID;
+/// Have cesium-native generate smooth normals for content without any
+/// (terrain); otherwise flat ones are computed (buildings).
+@property (nonatomic, readonly) BOOL smoothNormals;
+@end
 
 /// How tile requests have been satisfied since the streamer started, from
 /// URLSessionTaskMetrics.
@@ -112,9 +164,9 @@ typedef void (^CNTileLoadHandler)(CNTileMesh *tile, void (^completion)(void));
 
 /// A drawn tile's bounding volume as cesium-native sees it: an oriented
 /// box in the tile's own frame, like its vertices (ECEF-axis offsets from
-/// its centre; place it with the tile's CNFrame.tileTransforms entry).
+/// its center; place it with the tile's CNFrame.tileTransforms entry).
 typedef struct {
-  simd_float3 centre;
+  simd_float3 center;
   simd_float3 halfAxisA;
   simd_float3 halfAxisB;
   simd_float3 halfAxisC;
@@ -148,23 +200,28 @@ typedef struct {
                      smoothNormals:(BOOL)smoothNormals;
 /// smoothNormals: have cesium-native generate smooth normals for content
 /// without any (terrain); otherwise flat ones are computed (buildings).
+/// Several ion tilesets drawn together (e.g. terrain and buildings), sharing
+/// the view, area of interest and settings. The first is the ground: height
+/// samples come from it alone.
+- (instancetype)initWithIonLayers:(NSArray<CNIonLayer *> *)layers
+                      accessToken:(NSString *)accessToken;
 - (instancetype)init NS_UNAVAILABLE;
 
-/// The anchor: the origin of the frame tiles are placed in, and the centre
+/// The anchor: the origin of the frame tiles are placed in, and the center
 /// of the area of interest. Degrees.
 @property (nonatomic) double anchorLatitude;
 @property (nonatomic) double anchorLongitude;
-/// Metres above the WGS84 ellipsoid.
+/// Meters above the WGS84 ellipsoid.
 @property (nonatomic) double anchorHeight;
-/// Half-width of the area of interest: the square, centred on the anchor,
-/// whose tiles may stream. Metres.
+/// Half-width of the area of interest: the square, centered on the anchor,
+/// whose tiles may stream. Meters.
 @property (nonatomic) double streamingRadius;
 /// Rotation of that square, radians clockwise from north.
 @property (nonatomic) double regionHeading;
 
 /// The LOD camera (the frustum detail is selected for), in the anchor's
-/// frame (x east, y up, z south, metres). Direction and up should be
-/// perpendicular unit vectors; the bridge normalises them and skips the
+/// frame (x east, y up, z south, meters). Direction and up should be
+/// perpendicular unit vectors; the bridge normalizes them and skips the
 /// view update if they're degenerate.
 @property (nonatomic) simd_double3 viewPosition;
 @property (nonatomic) simd_double3 viewDirection;
@@ -177,6 +234,8 @@ typedef struct {
 /// Prepares each tile's renderer resources off the main thread. Set it before
 /// the first update; without one, tiles count as loaded immediately.
 @property (nonatomic, copy, nullable) CNTileLoadHandler tileLoadHandler;
+/// Builds each overlay image's texture. Set it before the first update.
+@property (nonatomic, copy, nullable) CNRasterLoadHandler rasterLoadHandler;
 
 /// Set both before adding an overlay.
 @property (nonatomic, copy, nullable) CNRasterAttachHandler rasterAttachHandler;
@@ -220,7 +279,7 @@ typedef struct {
 - (CNFrame *)updateWithDeltaTime:(float)deltaTime;
 
 /// Samples the most detailed surface on a 3×3 grid spanning 0.8 × `radius`
-/// metres around a point (degrees) and reports the lowest hit in metres
+/// meters around a point (degrees) and reports the lowest hit in meters
 /// above the ellipsoid, or NAN if every sample failed. May load tiles.
 /// Completion runs on the main thread during a later updateWithDeltaTime:
 /// call.

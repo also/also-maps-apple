@@ -100,8 +100,8 @@ struct TrackViewpointTests {
         // Heading east at 42° N.
         let pose = CameraPose(latitude: 42, longitude: -71, height: 1000, heading: .pi / 2, pitch: 0)
         let camera = TrackPlayback.behind(pose, distance: 100, height: 30)
-        let metresWest = (pose.longitude - camera.longitude) * 111_320 * cos(42 * Double.pi / 180)
-        #expect(abs(metresWest - 100) < 0.01)
+        let metersWest = (pose.longitude - camera.longitude) * 111_320 * cos(42 * Double.pi / 180)
+        #expect(abs(metersWest - 100) < 0.01)
         #expect(abs(camera.latitude - 42) < 1e-9)
         #expect(camera.height == 1030)
         #expect(camera.heading == pose.heading)

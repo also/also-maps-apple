@@ -1,23 +1,58 @@
 import Foundation
 
-/// A dotted version number. Missing components count as zero, so 1.0 and
-/// 1.0.0 are the same version.
+/// A dotted version number, optionally with a build number. Missing components
+/// count as zero, so 1.0 and 1.0.0 are the same version.
+///
+/// `==` and `<` compare the version alone. The build only matters to
+/// `isBefore` and `isAfter`, which a range bound uses to reach into a version.
+/// In the config file a bound is either a string, `"1.0"`, which covers every
+/// build of that version, or an object, `{ "version": "1.0", "build": 42 }`.
 struct AppVersion: Comparable, Decodable {
     private let components: [Int]
+    let build: Int?
 
-    init?(_ text: String) {
+    init?(_ text: String, build: Int? = nil) {
+        self.build = build
         let components = text.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) }
         guard !components.isEmpty, !components.contains(nil) else { return nil }
         self.components = components.compactMap { $0 }
     }
 
+    private enum CodingKeys: String, CodingKey { case version, build }
+
     init(from decoder: Decoder) throws {
-        let text = try decoder.singleValueContainer().decode(String.self)
-        guard let version = AppVersion(text) else {
+        let text: String
+        var build: Int?
+        if let single = try? decoder.singleValueContainer().decode(String.self) {
+            text = single
+        } else {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            text = try c.decode(String.self, forKey: .version)
+            build = try c.decodeIfPresent(Int.self, forKey: .build)
+        }
+        guard let version = AppVersion(text, build: build) else {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
                                                     debugDescription: "Invalid version: \(text)"))
         }
         self = version
+    }
+
+    /// Whether this app is older than `bound`. Against a bound with a build,
+    /// the same version is older when its build is lower; an unknown build
+    /// counts as the newest.
+    func isBefore(_ bound: AppVersion) -> Bool {
+        if self != bound { return self < bound }
+        guard let boundBuild = bound.build else { return false }
+        return (build ?? .max) < boundBuild
+    }
+
+    /// Whether this app is newer than `bound`. Against a bound with a build,
+    /// the same version is newer when its build is higher; an unknown build
+    /// counts as the newest.
+    func isAfter(_ bound: AppVersion) -> Bool {
+        if self != bound { return self > bound }
+        guard let boundBuild = bound.build else { return false }
+        return (build ?? .max) > boundBuild
     }
 
     private func comparisonKey(length: Int) -> [Int] {
@@ -37,7 +72,8 @@ struct AppVersion: Comparable, Decodable {
     /// The running app. An unreadable version counts as the newest possible,
     /// so "older than" rules can't block it by mistake.
     static let current = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
-        .flatMap(AppVersion.init) ?? AppVersion("\(Int.max)")!
+        .flatMap { AppVersion($0, build: (Bundle.main.infoDictionary?["CFBundleVersion"] as? String).flatMap(Int.init)) }
+        ?? AppVersion("\(Int.max)")!
 }
 
 /// A message from the remote config. A `blocking` notice replaces the app, and
@@ -63,7 +99,9 @@ struct Notice: Decodable, Identifiable, Equatable {
     var link: Link?
     /// Platforms this applies to; nil is all of them. See `AppPlatform`.
     var platforms: [String]?
-    /// The lowest and highest app versions this applies to, inclusive.
+    /// The lowest and highest app versions this applies to, inclusive. Each is
+    /// a version string, or `{ "version": "1.0", "build": 42 }` to reach into
+    /// a version's builds.
     var minVersion: AppVersion?
     var maxVersion: AppVersion?
     /// "app" or "own": who's using which key. Limits a notice about the shared
@@ -75,8 +113,8 @@ struct Notice: Decodable, Identifiable, Equatable {
     func applies(platform: String, version: AppVersion, keySource: String, now: Date) -> Bool {
         if let platforms, !platforms.contains(platform) { return false }
         if let source = self.keySource, source != keySource { return false }
-        if let minVersion, version < minVersion { return false }
-        if let maxVersion, version > maxVersion { return false }
+        if let minVersion, version.isBefore(minVersion) { return false }
+        if let maxVersion, version.isAfter(maxVersion) { return false }
         if let expires, now >= expires { return false }
         return true
     }

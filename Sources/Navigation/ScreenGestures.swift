@@ -8,7 +8,7 @@ struct ScreenViewport: Equatable {
     var fieldOfView: Double
 
     var aspect: Double { size.x / max(size.y, 1) }
-    var centre: SIMD2<Double> { size / 2 }
+    var center: SIMD2<Double> { size / 2 }
 }
 
 /// Direct manipulation on a flat screen: the ground you touch stays under
@@ -18,7 +18,7 @@ struct ScreenViewport: Equatable {
 enum ScreenGestures {
     /// How far below the horizon the lowest usable ray is, radians. Points
     /// nearer the horizon, or in the sky, use this ray instead, so a small
-    /// finger move there can't mean hundreds of kilometres.
+    /// finger move there can't mean hundreds of kilometers.
     static let horizonMargin = 1.5 * Double.pi / 180
     /// The levelest view tilting reaches, radians.
     static let levelestTilt = -3 * Double.pi / 180
@@ -67,7 +67,7 @@ enum ScreenGestures {
         return state
     }
 
-    /// An ECEF offset as metres forward and right of the movement heading.
+    /// An ECEF offset as meters forward and right of the movement heading.
     static func alongMovement(_ state: NavigationState, _ offset: SIMD3<Double>) -> (forward: Double, right: Double) {
         let frame = Geodesy.enu(latitude: state.camera.latitude, longitude: state.camera.longitude)
         let east = simd_dot(offset, frame.east), north = simd_dot(offset, frame.north)
@@ -79,6 +79,54 @@ enum ScreenGestures {
     static func zoom(_ state: NavigationState, about pivot: SIMD3<Double>, scale: Double,
                      context: NavigationContext) -> NavigationState {
         NavigationOperations.dolly(state, toward: pivot, fraction: 1 - 1 / max(scale, 1e-3), context: context)
+    }
+}
+
+/// What a scroll means on a Mac: a trackpad or Magic Mouse pans, a notched
+/// wheel zooms. Holding Option zooms with either, and Shift tilts.
+struct ScrollGesture: Equatable {
+    /// Points from a trackpad, lines from a wheel, with the map following
+    /// the direction the system scrolls content.
+    var delta: SIMD2<Double>
+    /// Whether `delta` is in points.
+    var isPrecise: Bool
+    /// Whether the system has flipped the device's direction (natural
+    /// scrolling).
+    var isInverted: Bool
+    var zooms: Bool
+    var tilts: Bool
+
+    enum Action: Equatable {
+        case none
+        /// Screen points for the map to follow.
+        case pan(SIMD2<Double>)
+        case zoom(doublings: Double)
+        /// Screen points down, as if dragging: up levels the view.
+        case tilt(Double)
+    }
+
+    /// Points of trackpad scroll for a doubling, as on a touch screen's
+    /// double tap held and dragged.
+    static let pointsPerDoubling = 120.0
+    /// One line of a wheel, about one notch when turned slowly.
+    static let doublingsPerLine = 0.25
+    /// Points of tilt for one line of a wheel.
+    static let pointsPerLine = 10.0
+
+    var action: Action {
+        guard delta != .zero else { return .none }
+        // The system moves Shift-wheel scrolling to the horizontal axis.
+        let vertical = delta.y != 0 || isPrecise ? delta.y : delta.x
+        if tilts {
+            return vertical == 0 ? .none : .tilt(vertical * (isPrecise ? 1 : Self.pointsPerLine))
+        }
+        if zooms || !isPrecise {
+            guard vertical != 0 else { return .none }
+            // Pushing away zooms in, whichever way content scrolls.
+            let away = isInverted ? -vertical : vertical
+            return .zoom(doublings: away * (isPrecise ? 1 / Self.pointsPerDoubling : Self.doublingsPerLine))
+        }
+        return .pan(delta)
     }
 }
 

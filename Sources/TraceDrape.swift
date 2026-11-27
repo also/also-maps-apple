@@ -44,7 +44,7 @@ final class TraceDrape {
     private(set) var undrapableTiles = 0
     private(set) var drapedTiles = 0
 
-    func attach(_ tile: CNTileMesh, raster: CNRasterImage, translation: SIMD2<Float>, scale: SIMD2<Float>) {
+    func attach(_ tile: CNTileMesh, raster: CNRaster, translation: SIMD2<Float>, scale: SIMD2<Float>) {
         attachedRasters += 1
         guard let entity = tile.renderObject as? TileEntity, !entity.texturedParts.isEmpty else {
             undrapableTiles += 1
@@ -165,6 +165,8 @@ final class TraceDrape {
                 uniform token info:id = "ND_image_color3"
                 asset inputs:file.connect = </Root/DrapedTile.inputs:Base>
                 float2 inputs:texcoord.connect = </Root/DrapedTile/BaseUV.outputs:out>
+                string inputs:uaddressmode = "clamp"
+                string inputs:vaddressmode = "clamp"
                 color3f outputs:out
             }
 

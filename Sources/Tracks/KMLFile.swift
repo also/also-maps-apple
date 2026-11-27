@@ -30,7 +30,7 @@ struct KMLFile {
     struct Coordinate: Equatable {
         var longitude: Double
         var latitude: Double
-        /// Metres; 0 when the file gives none.
+        /// Meters; 0 when the file gives none.
         var altitude: Double
     }
 
@@ -69,11 +69,11 @@ struct KMLFile {
 
     /// Playback never takes longer than this: longer tracks are sped up.
     static let longestPlayback: TimeInterval = 300
-    /// The speed for lines without times, metres a second.
+    /// The speed for lines without times, meters a second.
     static let speedWithoutTimes = 50.0
     /// Gaps between lines are cut to this, seconds.
     static let gapBetweenLines: TimeInterval = 1
-    /// How far either side of a fix its heading is measured over, metres,
+    /// How far either side of a fix its heading is measured over, meters,
     /// so GPS jitter doesn't swing the camera.
     static let headingBaseline = 20.0
     static let viewpoint = Track.Viewpoint.behind(distance: 100, height: 30)
@@ -125,7 +125,7 @@ struct KMLFile {
     }
 
     /// Each coordinate's direction of travel, radians clockwise from north:
-    /// the bearing from `headingBaseline` metres before it to as far after,
+    /// the bearing from `headingBaseline` meters before it to as far after,
     /// or as near as the line's ends allow. A line that never moves that far
     /// faces north.
     static func headings(_ coordinates: [Coordinate]) -> [Double] {
@@ -147,8 +147,8 @@ struct KMLFile {
         return headings
     }
 
-    /// Ground distance in metres, flat-earth, which is fine over a few
-    /// kilometres.
+    /// Ground distance in meters, flat-earth, which is fine over a few
+    /// kilometers.
     static func distance(_ a: Coordinate, _ b: Coordinate) -> Double {
         let (north, east) = offset(a, b)
         return (north * north + east * east).squareRoot()
@@ -162,10 +162,10 @@ struct KMLFile {
     }
 
     private static func offset(_ a: Coordinate, _ b: Coordinate) -> (north: Double, east: Double) {
-        let metresPerDegree = 111_320.0
+        let metersPerDegree = 111_320.0
         let latitude = (a.latitude + b.latitude) / 2 * .pi / 180
-        return ((b.latitude - a.latitude) * metresPerDegree,
-                remainder(b.longitude - a.longitude, 360) * metresPerDegree * cos(latitude))
+        return ((b.latitude - a.latitude) * metersPerDegree,
+                remainder(b.longitude - a.longitude, 360) * metersPerDegree * cos(latitude))
     }
 
     // MARK: Reading

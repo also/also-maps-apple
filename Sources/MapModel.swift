@@ -5,15 +5,15 @@ import SwiftUI
 import UIKit
 
 /// Navigation and presentation for the map. The camera is the state
-/// (`navigation`); each host shows it through the adaptive model, which
-/// scales the world so the camera sits at the design eye point and what it
-/// looks at sits on the host's base plane. Tiles come from `streaming`. See
-/// docs/camera-core.md.
+/// (`navigation`); each host shows it through the eye-level placement, which
+/// puts the camera at the design eye point and the ground beneath it on the
+/// host's base plane, level unless the tilt tips it. Tiles come from
+/// `streaming`.
 @MainActor
 @Observable
 final class MapModel {
-    /// Volume extents in metres (width, height, depth).
-    nonisolated static let volumeSize = SIMD3<Double>(1.0, 0.6, 1.0)
+    /// Volume extents in meters (width, height, depth).
+    nonisolated static let volumeSize = MapPresentation.volumeSize
 
     /// Where the app starts: the Ferry Building, 600 m across the volume.
     static let defaultPlace = Place(id: "default", name: "San Francisco",
@@ -24,8 +24,14 @@ final class MapModel {
     let placementRoot = Entity()
     /// The map frame: tiles plus the gesture target.
     let root = Entity()
-    /// Invisible slab that receives drag, pinch and twist gestures.
+    /// Invisible cap of the ground that receives drag, pinch and twist
+    /// gestures (`GestureSurface`).
     let gestureTarget = Entity()
+    /// The cap the gesture target has now, nil until one is built.
+    private var gestureSurface: GestureSurface?
+    /// The cap whose collision mesh is being generated, or that last failed
+    /// to generate (so it isn't retried every frame).
+    private var pendingGestureSurface: GestureSurface?
 
     /// The tiles, their credits and stats.
     let streaming: TileStreaming
@@ -37,7 +43,6 @@ final class MapModel {
             // A new source drops every tile, held or not.
             if settings.tileSource != oldValue.tileSource, tilesHeld { setTilesHeld(false) }
             streaming.settings = settings
-            layOutGestureTarget()
             requestGroundSample()
             applyView()
         }
@@ -50,11 +55,8 @@ final class MapModel {
             guard presentation != oldValue else { return }
             stopPlayback()
             endManipulation()
-            // In the volume each host's level map has its own pitch; the
-            // assist re-targets. Immersive hosts ignore pitch.
-            settlesPitch = pitchFollowsAltitude && !usesEyeLevel
             reparentRoot()
-            layOutGestureTarget()
+            gestureSurface = nil
             applyView()
         }
     }
@@ -71,9 +73,14 @@ final class MapModel {
     /// Whether the volume (map + controls) window is open. In an immersive mode
     /// it can be closed while the immersive space stays up.
     var volumeIsOpen = false
-    /// Immersive modes hide passthrough and the system environment: only the
-    /// map is shown. Applies live to an open immersive space.
-    var fullImmersion = false
+    /// How much of the surroundings the RealityKit immersive space replaces.
+    /// Applies live to an open immersive space. The Metal space is always
+    /// full.
+    var immersion = Immersion.mixed
+    /// The immersive mode is drawn by the app's Metal renderer
+    /// (MetalImmersiveContent) instead of RealityKit, per Settings. Read when
+    /// the immersive space opens.
+    var drawsImmersiveWithMetal: Bool { ViewPreferences.drawsWithMetal }
 
     // MARK: Navigation state
 
@@ -81,32 +88,35 @@ final class MapModel {
     /// navigation state.
     private(set) var navigation: NavigationState
     private var flight = ModelFlightStyle()
-    /// The optional framing assist. In the volume, pitch eases toward the
-    /// level map up close and straight down far away (docs/camera-core.md
-    /// §12.3); in immersive hosts the map tilts with altitude instead.
-    var pitchFollowsAltitude = true
+    /// The rates being flown, ramping toward the input's per Settings.
+    private var rates = ControlInput()
+    /// Drone mode's tilt assist: the map tilts toward you as you climb, from
+    /// none below 50 km to the host's full tilt by 500 km. Off, the map
+    /// stays level.
+    var tiltFollowsAltitude = true
     /// Lowest camera height above the estimated ground in room hosts.
     private static let minimumAltitude = 55.0
+    /// Highest altitude above the estimated ground, meters. The stored
+    /// altitude is H's (the reference head pose's), so this sets how small
+    /// the globe looks from there: about 11° across at 60,000 km.
+    private static let maximumAltitude = 60_000_000.0
 
-    // Ground estimates (docs/camera-core.md §8): the terrain height the view
-    // ray meets (h_ray), the low envelope placed on the base plane
-    // (h_env), and the ground under the camera, for speed and limits.
-    private var rayHeight = EasedHeight(0)
-    private var envelopeHeight = EasedHeight(0)
+    // Ground estimates: the placement ground, put
+    // on the base plane, and the ground under the camera, for speed and
+    // limits.
+    private var placementGround = EasedHeight(0)
     private var cameraGround = CameraGround()
     /// Bumped per sample request so a slow, older result can't win.
     private var groundSampleGeneration = 0
     private var wasMoving = false
-    /// Easing pitch to the new host's level map after a host switch.
-    private var settlesPitch = false
     /// A place's framing assumes ground at 0 m until the first sample there;
     /// that sample moves the camera with the ground instead of rescaling.
     private var placeAwaitsGround = true
 
-    /// The last valid framing, kept when the volume's view ray misses.
+    /// The current framing, set by `applyView`.
     private var framing: AdaptiveModel.Framing?
 
-    /// Immersive only, for testing: the world stays at human scale (1:1) at
+    /// Immersive only: the world stays at human scale (1:1) at
     /// every altitude, with the camera on the eye and the ground wherever
     /// height puts it, instead of scaling so the ground meets the floor.
     var humanScale = false {
@@ -117,22 +127,47 @@ final class MapModel {
         }
     }
 
-    /// Immersive hosts use the eye-level model (the camera at the viewer's
-    /// eye, the map level unless tilted by altitude); the volume keeps the
-    /// adaptive model.
-    private var usesEyeLevel: Bool { presentation.host == .immersive }
+    private var isImmersive: Bool { presentation.host == .immersive }
 
-    /// The framing for `camera` in the current host, or nil when the
-    /// volume's view ray misses the surface.
-    private func frame(_ camera: CameraPose) -> AdaptiveModel.Framing? {
-        if usesEyeLevel {
-            let ground = effectiveEnvelope
-            let weight = pitchFollowsAltitude ? EyeLevelModel.tiltWeight(altitude: camera.height - ground) : 0
-            return EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground, tiltWeight: weight,
-                                         fixedScale: humanScale ? 1 : nil)
+    /// The framing for `camera` in the current host: level unless the tilt
+    /// assist tips it, by an amount that depends only on where the camera is.
+    private func frame(_ camera: CameraPose) -> AdaptiveModel.Framing {
+        framer(camera)
+    }
+
+    /// `frame`, with the current host, ground and settings captured.
+    private var framer: (CameraPose) -> AdaptiveModel.Framing {
+        framer(fixedScale: isHumanScale ? 1 : nil)
+    }
+
+    private func framer(fixedScale: Double?) -> (CameraPose) -> AdaptiveModel.Framing {
+        let room = room, ground = placementGround.value, tiltFollowsAltitude = tiltFollowsAltitude
+        return { camera in
+            let weight = tiltFollowsAltitude ? EyeLevelModel.tiltWeight(for: camera, room: room) : 0
+            return EyeLevelModel.framing(camera: camera, room: room, groundHeight: ground,
+                                         tiltWeight: weight, fixedScale: fixedScale)
         }
-        return AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
-                                     envelopeHeight: effectiveEnvelope)
+    }
+
+    /// Human scale is in effect: asked for, in the immersive space.
+    private var isHumanScale: Bool { humanScale && isImmersive }
+
+    /// The framing gestures work in: the one shown, except at human scale,
+    /// where it's the model-scale framing for the same camera. That one is
+    /// the human-scale world scaled about the eye, so everything is in the
+    /// same direction from the eye but within reach: gaze finds the gesture
+    /// target a few meters away instead of at the ground's real distance,
+    /// and a hand's movement moves the picture as much as it does at model
+    /// scale instead of moving the world by the hand's own few centimeters.
+    private var gestureFramer: (CameraPose) -> AdaptiveModel.Framing {
+        framer(fixedScale: nil)
+    }
+
+    /// `gestureFramer`'s framing for the current camera, or nil before the
+    /// first `applyView`.
+    private var gestureFraming: AdaptiveModel.Framing? {
+        guard let framing else { return nil }
+        return isHumanScale ? gestureFramer(navigation.camera) : framing
     }
 
     // MARK: Tiles held
@@ -147,21 +182,29 @@ final class MapModel {
 
     private enum GestureKind: Hashable { case drag, magnify, rotate }
 
-    /// One anchored manipulation: drag, pinch and twist compose into a
-    /// single solve that keeps the grabbed point under the hand.
+    /// One manipulation: drag, pinch and twist compose into a single turn
+    /// and zoom of the globe about the grabbed point.
     private struct Manipulation {
         /// Where the first gesture started, map frame.
         var start: SIMD3<Double>
         /// The world point that was there, ECEF.
         var grab: SIMD3<Double>
+        /// Where gaze hit the gesture target, before it was put on the
+        /// ground, ECEF. For the debug markers.
+        var hit: SIMD3<Double>
         var startPose: CameraPose
         var startScale: Double
-        /// The latest solution, the next solve's starting guess.
+        /// The georeference's rotation (ECEF → map frame) at the start.
+        var startRotation: simd_quatd
+        /// The latest solution, the next solve's starting point.
         var pose: CameraPose
         var starts: [GestureKind: SIMD3<Float>] = [:]
         var translation = SIMD3<Double>.zero
         var magnification = 1.0
         var twist = 0.0
+        /// What the twist turns about, map frame: the ground's up at the
+        /// grabbed point as shown when the twist began.
+        var twistAxis: SIMD3<Double>?
     }
     private var manipulation: Manipulation?
     private var lastMagnifyUpdate = Date.distantPast
@@ -171,8 +214,6 @@ final class MapModel {
     /// Both scenes deliver frame updates; only the presented host's are used.
     private var updateSubscriptions: [MapPresentation.Host: EventSubscription] = [:]
     private var heldActions: Set<MapInput.Action> = []
-    /// The last place jumped to, for cycling.
-    private var currentPlaceID: String?
 
     init() {
         let settings = StreamingSettings.load()
@@ -187,7 +228,7 @@ final class MapModel {
         place.longitude = env["ALSOMAPS_LON"].flatMap(Double.init) ?? place.longitude
         place.radius = env["ALSOMAPS_RADIUS"].flatMap(Double.init) ?? place.radius
         place.heading = env["ALSOMAPS_HEADING"].flatMap(Double.init) ?? place.heading
-        let camera = Self.framing(place, in: .volume, groundHeight: 0)
+        let camera = Self.framing(place, in: .volume, groundHeight: 0, tiltFollowsAltitude: true)
         navigation = ModelFlightStyle().activate(NavigationState(camera: camera))
 
         streaming = TileStreaming(inputs: StreamingInputs(anchor: StreamingAnchor(coordinate: place.coordinate)),
@@ -203,7 +244,6 @@ final class MapModel {
         // dragged the map with no pinch at all.
         gestureTarget.components.set(InputTargetComponent(allowedInputTypes: .indirect))
         root.addChild(gestureTarget)
-        layOutGestureTarget()
     }
 
     /// Called from each host's RealityView. Adds that host's anchor, routes
@@ -221,6 +261,40 @@ final class MapModel {
         }
         reparentRoot()
         start()
+    }
+
+    /// The Metal immersive space opened: tiles are built for it until it
+    /// closes. Streaming restarts each way; tiles come back from the cache.
+    func metalImmersiveDidOpen(_ metal: MetalTileRenderer) {
+        streaming.customRasterHandler = metal.rasterHandler
+        streaming.customTileHandler = metal.handler
+        metalImmersiveIsOpen = true
+    }
+
+    func metalImmersiveDidClose() {
+        metalImmersiveIsOpen = false
+        streaming.customRasterHandler = nil
+        streaming.customTileHandler = nil
+        immersiveSpaceDidClose()
+    }
+
+    /// The open immersive space is the Metal one, which can't show SwiftUI
+    /// in the scene: the volume keeps the attribution, and there's no Show
+    /// Controls panel to fall back on if it's closed.
+    private(set) var metalImmersiveIsOpen = false
+
+    /// The Metal immersive space drives the frame loop itself instead of a
+    /// RealityView: one tick per frame it draws.
+    func metalImmersiveTick(deltaTime: Float) {
+        start()
+        guard presentation.host == .immersive else { return }
+        tick(deltaTime: deltaTime)
+    }
+
+    /// Anchor frame → the immersive space's origin: where the tiles go, for a
+    /// renderer outside RealityKit.
+    var tilesInImmersiveSpace: simd_float4x4 {
+        placementRoot.transform.matrix * root.transform.matrix * streaming.tilesRoot.transform.matrix
     }
 
     /// The volume went away (closed, or replaced by a blocking notice). It no
@@ -248,26 +322,6 @@ final class MapModel {
         placementRoot.transform = Transform(roomPlacement.similarity)
     }
 
-    /// The gesture target is a thin slab at ground level covering the shown
-    /// square. Gaze passes through terrain and buildings (they have no
-    /// collision) to the slab, while looking past the map's edges or over it
-    /// no longer hits an invisible box.
-    /// How far the immersive gesture slab reaches from the map's centre
-    /// point, metres in the room.
-    private static let immersiveGestureHalfWidth = 50.0
-
-    private func layOutGestureTarget() {
-        // Immersive: wide enough to pinch anywhere nearby on the map.
-        let halfWidth = presentation.host == .immersive
-            ? max(room.contentHalfWidth, Self.immersiveGestureHalfWidth)
-            : room.contentHalfWidth
-        let width = Float(2 * halfWidth)
-        let thickness = Float(0.02 * presentation.magnification)
-        gestureTarget.components.set(CollisionComponent(shapes: [
-            .generateBox(size: [width, thickness, width])
-        ]))
-    }
-
     private var started = false
 
     private func start() {
@@ -286,66 +340,80 @@ final class MapModel {
 
     // MARK: Places
 
-    /// The camera that frames `place` in a host: its centre on the base plane,
-    /// `radius` metres of world across the host's half-width (half the
-    /// volume, or an immersive mode's magnified equivalent), level.
+    /// The camera that frames `place` in a host: its center the view center,
+    /// `radius` meters of world across the host's half-width (half the
+    /// volume, or the immersive space's magnified equivalent).
     private static func framing(_ place: Place, in presentation: MapPresentation,
-                                groundHeight: Double) -> CameraPose {
+                                groundHeight: Double, tiltFollowsAltitude: Bool) -> CameraPose {
         guard case let .room(room) = presentation.geometry else {
             preconditionFailure("visionOS hosts are rooms")
         }
-        if presentation.host == .immersive {
-            return EyeLevelModel.framePlace(centre: place.coordinate, radius: place.radius,
-                                            heading: place.heading * .pi / 180,
-                                            room: room, groundHeight: groundHeight)
-        }
-        return AdaptiveModel.framePlace(centre: place.coordinate, radius: place.radius,
+        return EyeLevelModel.framePlace(center: place.coordinate, radius: place.radius,
                                         heading: place.heading * .pi / 180,
-                                        room: room, groundHeight: groundHeight)
+                                        room: room, groundHeight: groundHeight,
+                                        tiltFollowsAltitude: tiltFollowsAltitude)
     }
 
-    /// Jumps to `place`: a camera framing its position, size and facing.
-    /// Tiles for the old area unload as they fall outside the streamed
-    /// region; the new area streams in.
+    /// Jumps to `place`: its navigation position, or for a place that's
+    /// what you're looking at, a camera framing its center, size and
+    /// facing. Tiles for the old area unload as they fall outside the
+    /// streamed region; the new area streams in.
     func go(to place: Place) {
         if tilesHeld { setTilesHeld(false) }
         stopPlayback()
         endManipulation()
-        // Framed level for this host already.
-        settlesPitch = false
-        placeAwaitsGround = true
-        currentPlaceID = place.id
-        rayHeight.reset(to: 0)
-        envelopeHeight.reset(to: 0)
+        placementGround.reset(to: 0)
         cameraGround.reset(to: 0)
         framing = nil
-        var camera = Self.framing(place, in: presentation, groundHeight: 0)
-        camera.height = context.clampHeight(camera.height)
+        let camera: CameraPose
+        if let position = place.pose(pitch: navigation.camera.pitch) {
+            // Exactly where it was saved: its height is above the ellipsoid,
+            // so the ground found there changes the scale, not the position.
+            placeAwaitsGround = false
+            camera = position
+        } else {
+            placeAwaitsGround = true
+            var framed = Self.framing(place, in: presentation, groundHeight: 0, tiltFollowsAltitude: tiltFollowsAltitude)
+            framed.height = context.clampHeight(framed.height)
+            camera = framed
+        }
         navigation = flight.activate(NavigationState(camera: camera))
         tracks.markJump()
         applyView()
         requestGroundSample()
     }
 
+    /// The navigation position as a place to save. No pitch: the tilt
+    /// follows the height here.
+    func currentPlace(id: String, name: String) -> Place {
+        Place(id: id, name: name, position: navigation.camera, savesPitch: false)
+    }
+
+    /// The ground at the center of what's shown.
+    var viewCenter: GeoCoordinate {
+        Geodesy.geodetic((framing ?? frame(navigation.camera)).georeferencePoint).coordinate
+    }
+
     // MARK: Gestures
 
-    /// `start` and `current` are the drag's scene positions, in metres.
+    /// `start` and `current` are the drag's positions in the map frame
+    /// (`root`), in meters.
     func drag(from start: SIMD3<Float>, to current: SIMD3<Float>) {
         guard beginOrContinue(.drag, at: start) else { return }
-        // Content follows the hand, along the map's surface.
-        var translation = SIMD3<Double>(roomPlacement.similarity.inverse.rotation.act(SIMD3<Double>(current - start)))
-        let up = mapUp(at: manipulation!.grab)
-        translation -= up * simd_dot(translation, up)
-        manipulation?.translation = translation
+        // Content follows the hand along the map's surface. The pose takes
+        // the part of the movement along the surface where the drag began;
+        // measuring it against the surface as it's turned now would feed the
+        // drag back into itself, and on a globe flip between two poses.
+        manipulation?.translation = SIMD3<Double>(current - start)
         solveManipulation()
     }
 
     func endDrag() { end(.drag) }
 
     /// `magnification` is relative to the pinch's start, which was at
-    /// `start` (scene metres).
+    /// `start` (map frame, meters).
     func magnify(by magnification: Double, startedAt start: SIMD3<Float>) {
-        // A cancelled pinch never reaches endMagnify; a pause in updates
+        // A canceled pinch never reaches endMagnify; a pause in updates
         // means this is a new pinch.
         if Date().timeIntervalSince(lastMagnifyUpdate) > 0.3 { manipulation?.starts[.magnify] = nil }
         lastMagnifyUpdate = Date()
@@ -356,13 +424,19 @@ final class MapModel {
 
     func endMagnify() { end(.magnify) }
 
-    /// `rotation` is the two-handed twist since the gesture began, already in
-    /// scene space. The map turns with the hands, about where they pinched.
+    /// `rotation` is the two-handed rotation since the gesture began, already
+    /// in the map frame. The map turns with the hands about the ground's up
+    /// where they pinched, as shown: about the vertical while the map is
+    /// level, toward you when the tilt stands a globe up in front of you.
     func rotate(by rotation: simd_quatf, startedAt start: SIMD3<Float>) {
-        guard beginOrContinue(.rotate, at: start) else { return }
-        // Signed angle about +Y (counterclockwise seen from above): the
-        // world turns that way, so the view heading turns clockwise.
-        manipulation?.twist = 2 * atan2(Double(rotation.imag.y), Double(rotation.real))
+        guard beginOrContinue(.rotate, at: start), let grab = manipulation?.grab else { return }
+        if manipulation?.twistAxis == nil { manipulation?.twistAxis = mapUp(at: grab) }
+        guard let axis = manipulation?.twistAxis else { return }
+        // The part of the rotation about the axis (swing-twist), signed
+        // counterclockwise seen from above the ground: the world turns that
+        // way, so the view heading turns clockwise.
+        let imaginary = SIMD3<Double>(rotation.imag)
+        manipulation?.twist = 2 * atan2(simd_dot(imaginary, axis), Double(rotation.real))
         solveManipulation()
     }
 
@@ -374,21 +448,33 @@ final class MapModel {
     private func beginOrContinue(_ kind: GestureKind, at start: SIMD3<Float>) -> Bool {
         // The played track has the camera; gestures are ignored.
         guard !tracks.isPlaying else { return false }
-        if let existing = manipulation?.starts[kind], existing != start { endManipulation() }
+        if let existing = manipulation?.starts[kind], existing != start {
+            pinchLog("restart \(kind): start moved \(Self.format(existing)) → \(Self.format(start))")
+            endManipulation()
+        }
         if manipulation == nil {
-            guard let framing else { return false }
-            let mapStart = roomPlacement.similarity.inverse.apply(SIMD3<Double>(start))
-            manipulation = Manipulation(start: mapStart,
-                                        grab: framing.georeference.ecef(map: mapStart),
+            guard let framing = gestureFraming else { return false }
+            // Gaze hit the gesture cap, which lies a little inside the
+            // curved ground between its points: grab the ground itself.
+            let hit = framing.georeference.ecef(map: SIMD3<Double>(start))
+            let grab = GestureSurface.snap(hit, toHeight: placementGround.value)
+            manipulation = Manipulation(start: framing.georeference.map(grab),
+                                        grab: grab,
+                                        hit: hit,
                                         startPose: navigation.camera,
                                         startScale: framing.georeference.scale,
+                                        startRotation: framing.georeference.rotation,
                                         pose: navigation.camera)
+            let g = Geodesy.geodetic(grab).coordinate
+            pinchLog(String(format: "begin %@ at %@, grab %.2f, %.2f, height %.0f km", "\(kind)",
+                            Self.format(start), g.latitude, g.longitude, navigation.camera.height / 1000))
         }
         if manipulation?.starts[kind] == nil { manipulation?.starts[kind] = start }
         return true
     }
 
     private func end(_ kind: GestureKind) {
+        if manipulation?.starts[kind] != nil { pinchLog("end \(kind)") }
         manipulation?.starts[kind] = nil
         if manipulation?.starts.isEmpty == true { endManipulation() }
     }
@@ -399,38 +485,85 @@ final class MapModel {
         requestGroundSample()
     }
 
-    /// Solves for the camera that keeps the grabbed point under the hand at
-    /// the pinched scale and twisted heading.
+    /// Moves the camera for the pinch so far: the pinched scale, with the
+    /// world turned so the grabbed point follows the hand (see
+    /// `AdaptiveModel.pose(for:height:from:eye:frame:)`).
     private func solveManipulation() {
         guard let m = manipulation else { return }
-        let room = self.room
-        let levelPitch = room.levelPitch
-        let startPitch = m.startPose.pitch
-        let followsAltitude = pitchFollowsAltitude && !usesEyeLevel
-        let target = AdaptiveModel.AnchorTarget(
-            grab: m.grab,
-            target: m.start + m.translation,
-            scale: m.startScale * m.magnification,
-            heading: m.startPose.heading + m.twist,
-            headingOrigin: m.startPose.coordinate,
-            pitch: { altitude in
-                followsAltitude ? AdaptiveModel.pitchTarget(altitude: altitude, levelPitch: levelPitch) : startPitch
-            })
-        let solution = AdaptiveModel.solve(target, from: m.pose, room: room,
-                                           scaleSurface: usesEyeLevel ? effectiveEnvelope : rayHeight.value,
-                                           context: context, frame: frame)
-        guard solution.error.isFinite else { return }
+        let ground = placementGround.value
+        // The height that gives the pinched scale, in the framing gestures
+        // work in. At human scale the scale shown is fixed, so the pinch
+        // raises or lowers the camera as it would at model scale.
+        let frame = gestureFramer
+        let height = context.clampHeight(
+            EyeLevelModel.height(forScale: m.startScale * m.magnification, camera: m.pose,
+                                 groundHeight: ground, room: room, frame: frame))
+        let grab = AdaptiveModel.Grab(point: m.grab, start: m.start, startRotation: m.startRotation,
+                                      startCamera: m.startPose,
+                                      translation: m.translation, twist: m.twist)
+        let pose = AdaptiveModel.pose(for: grab, height: height, from: m.pose, room: room, frame: frame)
+        guard pose.latitude.isFinite, pose.longitude.isFinite, pose.heading.isFinite else {
+            pinchLog("pose not finite")
+            return
+        }
         var state = navigation
-        let change = GeoMath.bearingChange(from: state.camera.coordinate, to: solution.pose.coordinate)
-        state.camera = solution.pose
+        let change = GeoMath.bearingChange(from: state.camera.coordinate, to: pose.coordinate)
+        state.camera = pose
         state.movementHeading = state.headingLink == .linked
-            ? solution.pose.heading
+            ? pose.heading
             : NavigationOperations.wrapped(state.movementHeading + change)
-        guard withinHeldLimits(state) else { return }
-        manipulation?.pose = solution.pose
+        guard withinHeldLimits(state) else {
+            pinchLog("outside held limits")
+            return
+        }
+        #if DEBUG
+        logStep(m, pose: pose)
+        #endif
+        manipulation?.pose = pose
         navigation = state
         applyView()
     }
+
+    /// Diagnostics for gestures (#61), DEBUG builds only. Filter the console
+    /// for "[AlsoMaps] pinch".
+    private func pinchLog(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        print("[AlsoMaps] pinch \(message())")
+        #endif
+    }
+
+    private static func format(_ v: SIMD3<Float>) -> String {
+        String(format: "(%.3f, %.3f, %.3f)", v.x, v.y, v.z)
+    }
+
+    #if DEBUG
+    /// One line per pinch update: what the hands asked for and where the
+    /// grabbed point and globe ended up.
+    private func logStep(_ m: Manipulation, pose: CameraPose) {
+        let frame = gestureFramer
+        let before = frame(m.pose), after = frame(pose)
+        let radius = after.georeference.scale * simd_length(m.grab)
+        let eye = room.designEye
+        let startTilt = m.startRotation * EyeLevelModel.levelRotation(m.startPose).inverse
+        let tilt = after.georeference.rotation * EyeLevelModel.levelRotation(pose).inverse
+        let grab = AdaptiveModel.Grab(point: m.grab, start: m.start, startRotation: m.startRotation,
+                                      startCamera: m.startPose)
+        let held = AdaptiveModel.held(grab, room: room, startTilt: startTilt, startScale: m.startScale,
+                                      framing: after, tilt: tilt)
+        let along = m.translation - held * simd_dot(m.translation, held)
+        let turn = (after.georeference.rotation * before.georeference.rotation.inverse).angle
+        let at = after.georeference.map(m.grab)
+        // The rule: a zoom in shouldn't push the grabbed point away.
+        let distance = simd_distance(at, eye) / max(simd_distance(m.start, eye), 1e-9)
+        let broken = m.magnification > 1 && distance > 1.05 ? " AWAY" : ""
+        pinchLog(String(format: "step %@ hand %.3f m roll %.1f° ×%.3f twist %.1f° → %.2f, %.2f h %.0f km heading %.1f° turn %.2f° grab (%.3f, %.3f, %.3f) distance ×%.2f%@",
+                        m.starts.keys.map { "\($0)" }.sorted().joined(separator: "+"),
+                        simd_length(m.translation), simd_length(along) / radius * 180 / .pi,
+                        m.magnification, m.twist * 180 / .pi,
+                        pose.latitude, pose.longitude, pose.height / 1000, pose.heading * 180 / .pi,
+                        min(turn, 2 * .pi - turn) * 180 / .pi, at.x, at.y, at.z, distance, broken))
+    }
+    #endif
 
     /// The map frame's up at a world point: the local vertical as shown.
     private func mapUp(at ecef: SIMD3<Double>) -> SIMD3<Double> {
@@ -454,17 +587,6 @@ final class MapModel {
         applyInput(deltaTime: dt)
         if tracks.isPlaying {
             advancePlayback(deltaTime: dt)
-        } else if settlesPitch, manipulation == nil {
-            // Until the pitch reaches the new host's target: a new scene's
-            // first frames can have almost no time step, so a small step
-            // doesn't mean it's done.
-            navigation.camera = easedPitch(navigation.camera, deltaTime: dt)
-            settlesPitch = abs(pitchTarget(for: navigation.camera) - navigation.camera.pitch) > 1e-4
-            #if DEBUG
-            if !settlesPitch {
-                print("[AlsoMaps] pitch settled at \(String(format: "%.2f", navigation.camera.pitch * 180 / .pi))° for \(presentation.id)")
-            }
-            #endif
         }
         updateGround(deltaTime: dt)
         tracks.record(navigation.camera)
@@ -491,7 +613,7 @@ final class MapModel {
             #endif
         }
 
-        let input = MapInput.current()
+        let input = MapInput.current(controls: settings.controls.values)
 
         // Buttons act once, on the frame they go down.
         for action in input.held.subtracting(heldActions) {
@@ -500,7 +622,14 @@ final class MapModel {
         heldActions = input.held
 
         // The played track has the camera; movement is ignored.
-        guard input.isMoving, !tracks.isPlaying else {
+        if tracks.isPlaying {
+            rates = ControlInput()
+        } else {
+            let target = ControlInput(move: input.move, turn: input.turn, climb: input.altitude,
+                                      dolly: input.zoom, fast: input.fast)
+            rates = settings.controls.values.ramp(rates, toward: target, deltaTime: deltaTime)
+        }
+        guard rates.isMoving else {
             // Re-sample once movement settles, like the end of a drag.
             if wasMoving {
                 wasMoving = false
@@ -509,25 +638,26 @@ final class MapModel {
             return
         }
         wasMoving = true
-        steer(with: ControlInput(move: input.move, turn: input.turn, climb: input.altitude,
-                                 dolly: input.zoom, fast: input.fast),
-              deltaTime: deltaTime)
+        steer(with: rates, deltaTime: deltaTime)
     }
 
-    /// Model flight, then the framing assists: pitch follows altitude (if
-    /// on) about the georeference point, within the horizon limit.
+    /// Model flight. Zooming changes height with the view center held in
+    /// place, not along the camera's pitch, which room hosts don't show.
     private func steer(with input: ControlInput, deltaTime: Double) {
-        flight.dollySurfaceHeight = rayHeight.value
+        flight.controls = settings.controls.values
+        flight.dollySurfaceHeight = placementGround.value
+        let framer = framer
+        flight.holdingViewCenter = { EyeLevelModel.pose($0, at: $1, holdingViewCenter: framer) }
+        // Zoom works only below where the tilt starts. Not a property of the
+        // world: it keeps zoom out of the tilt range, where the immersive
+        // space's view center isn't settled yet (#67).
+        flight.zoomCeiling = EyeLevelModel.tiltStartAltitude
         // Turning, climbing and zooming first, limited (while held) by how
         // much of the held region they'd show; then travel, limited by how
         // far it goes from it.
         var looking = input
         looking.move = .zero
         var state = flight.step(navigation, input: looking, deltaTime: deltaTime, context: context)
-        if pitchFollowsAltitude, !usesEyeLevel, input.climb != 0 || input.dolly != 0 {
-            state.camera = easedPitch(state.camera, deltaTime: deltaTime)
-        }
-        state.camera.pitch = min(state.camera.pitch, pitchLimit(for: state.camera))
         if withinHeldLimits(state, checking: [.size]) { navigation = state }
 
         guard input.move != .zero else { return }
@@ -535,48 +665,13 @@ final class MapModel {
         moving.move = input.move
         moving.fast = input.fast
         state = flight.step(navigation, input: moving, deltaTime: deltaTime, context: context)
-        state.camera.pitch = min(state.camera.pitch, pitchLimit(for: state.camera))
         if withinHeldLimits(state, checking: [.travel]) { navigation = state }
     }
 
-    /// The pitch policy's step: toward θ_target for the altitude, swinging
-    /// the camera about the georeference point so what's on the table stays.
-    private func pitchTarget(for camera: CameraPose) -> Double {
-        min(AdaptiveModel.pitchTarget(altitude: camera.height - cameraGround.value, levelPitch: room.levelPitch),
-            pitchLimit(for: camera))
-    }
-
-    private func easedPitch(_ camera: CameraPose, deltaTime: Double) -> CameraPose {
-        let target = pitchTarget(for: camera)
-        guard abs(target - camera.pitch) > 1e-6 else { return camera }
-        let pitch = camera.pitch + (target - camera.pitch) * min(1, deltaTime * 6)
-        guard let current = AdaptiveModel.framing(camera: camera, room: room, rayHeight: rayHeight.value,
-                                                  envelopeHeight: effectiveEnvelope)
-        else { return camera }
-        var turned = camera
-        turned.pitch = pitch
-        let forward = turned.basis.forward
-        var swung = CameraPose(position: current.georeferencePoint - forward * current.range,
-                               forward: forward, fallbackHeading: camera.heading)
-        swung.height = context.clampHeight(swung.height)
-        return swung
-    }
-
-    private func pitchLimit(for camera: CameraPose) -> Double {
-        AdaptiveModel.pitchLimit(cameraHeight: camera.height, rayHeight: rayHeight.value, latitude: camera.latitude)
-    }
-
     private func perform(_ action: MapInput.Action) {
-        let places = PlaceLibrary.all
         switch action {
-        case .nextPlace where !places.isEmpty:
-            go(to: PlaceLibrary.place(in: places, stepping: 1, from: currentPlaceID))
-        case .previousPlace where !places.isEmpty:
-            go(to: PlaceLibrary.place(in: places, stepping: -1, from: currentPlaceID))
         case .faceNorth where !tracks.isPlaying:
             navigation = NavigationOperations.faceNorth(navigation)
-        case .toggleFly:
-            setTilesHeld(!tilesHeld)
         default:
             break
         }
@@ -586,21 +681,22 @@ final class MapModel {
 
     private var context: NavigationContext {
         NavigationContext(cameraGround: cameraGround.value,
-                          minimumAltitude: humanScale && usesEyeLevel ? 1.6 : Self.minimumAltitude,
-                          maximumAltitude: settings.zoomOutLimitKilometres * 1_100)
+                          minimumAltitude: isHumanScale ? 1.6 : Self.minimumAltitude,
+                          maximumAltitude: Self.maximumAltitude,
+                          lift: EyeLevelModel.Lift(room: room, groundHeight: placementGround.value,
+                                                   tiltFollowsAltitude: tiltFollowsAltitude))
     }
 
     private enum HeldLimit { case travel, size }
 
     /// While tiles are held: travel keeps the georeference point within
-    /// 1.5 × the held region of its centre, and climbing or zooming keeps the
+    /// 1.5 × the held region of its center, and climbing or zooming keeps the
     /// shown region within 3 × its size. A step that would break a checked
     /// limit, and make it worse, is refused, so you slide to a stop.
     private func withinHeldLimits(_ state: NavigationState,
                                   checking limits: Set<HeldLimit> = [.travel, .size]) -> Bool {
-        guard tilesHeld, let held = heldInputs,
-              let candidate = frame(state.camera)
-        else { return true }
+        guard tilesHeld, let held = heldInputs else { return true }
+        let candidate = frame(state.camera)
         func ratio(_ limit: HeldLimit, _ framing: AdaptiveModel.Framing) -> Double {
             switch limit {
             case .travel:
@@ -619,15 +715,12 @@ final class MapModel {
 
     // MARK: Ground
 
-    /// The envelope used for placement, never above the ray surface.
-    private var effectiveEnvelope: Double { min(envelopeHeight.value, rayHeight.value) }
-
     /// The ground under the camera every frame (see `CameraGround`), for
     /// speed and limits.
     ///
-    /// The georeference ground (where the map sits on the base plane)
-    /// comes only from the 3×3 surface sample once motion settles, plus the
-    /// Earth's curve far out. Reading it from the loaded tiles continuously
+    /// The placement ground (what sits on the base plane) comes only from
+    /// the 3×3 surface sample once motion settles. Reading it from the
+    /// loaded tiles continuously
     /// fed back on itself: a new height rescaled the map, which moved the LOD
     /// camera, which changed the tiles, which changed the height. Nothing
     /// changes it while tiles are held or during a gesture.
@@ -636,52 +729,39 @@ final class MapModel {
         cameraGround.update(camera: navigation.camera, rendered: streaming.renderedHeightRanges(),
                             deltaTime: deltaTime)
 
-        guard !tilesHeld, manipulation == nil, let framing else { return }
-        let shown = framing.shownRadius(room)
-        if shown >= Self.curvatureAnchorRadius, !usesEyeLevel {
-            // In the volume, far out the Earth's curve, not the terrain,
-            // decides: sea level at the view's edges meets the base plane.
-            // Smooth in the camera, so it follows continuously. Immersive
-            // hosts tilt the globe to face the viewer instead.
-            envelopeHeight.aim(at: rayHeight.value - GroundEstimates.curvatureDrop(shown),
-                               hysteresis: 0.002 * shown)
-        }
-        rayHeight.ease(deltaTime: deltaTime)
-        envelopeHeight.ease(deltaTime: deltaTime)
+        guard !tilesHeld, manipulation == nil else { return }
+        placementGround.ease(deltaTime: deltaTime)
     }
 
-    /// Above this half-width the Earth's curve, not the terrain, decides
-    /// where the ground sits: the edges fall away by ~200 m at 50 km.
-    private static let curvatureAnchorRadius = 50_000.0
+    /// Above this half-width the terrain's detail no longer matters to where
+    /// the ground sits, and a sample would load tiles across a huge region.
+    private static let groundSampleRadius = 50_000.0
 
-    /// Where the map sits: the lowest of a 3×3 sample across the shown region
-    /// once motion settles (live only; it may load tiles), for both the
-    /// surface the view ray meets and the ground placed on the base plane. A
-    /// failed sample keeps the last estimate.
+    /// The placement ground: the lowest of a 3×3 sample across the shown
+    /// region once motion settles (live only; it may load tiles). A failed
+    /// sample keeps the last estimate.
     private func requestGroundSample() {
         guard !tilesHeld, let framing else { return }
         let shown = framing.shownRadius(room)
-        guard shown < Self.curvatureAnchorRadius else { return }
+        guard shown < Self.groundSampleRadius else { return }
         groundSampleGeneration += 1
         let generation = groundSampleGeneration
-        let centre = Geodesy.geodetic(framing.georeferencePoint).coordinate
-        streaming.sampleGroundHeight(around: centre, radius: shown) { [weak self] height in
+        let center = Geodesy.geodetic(framing.georeferencePoint).coordinate
+        streaming.sampleGroundHeight(around: center, radius: shown) { [weak self] height in
             MainActor.assumeIsolated {
                 guard let self, generation == self.groundSampleGeneration, !self.tilesHeld else { return }
                 guard height.isFinite else { return }
                 let ground = min(max(height, -500), 9_000)
                 #if DEBUG
-                print("[AlsoMaps] ground sample \(Int(ground)) m (was \(Int(self.envelopeHeight.value)) m)")
+                print("[AlsoMaps] ground sample \(Int(ground)) m (was \(Int(self.placementGround.value)) m)")
                 #endif
                 if self.placeAwaitsGround {
                     // Places are framed relative to the ground.
                     self.placeAwaitsGround = false
-                    self.navigation.camera.height += ground - self.rayHeight.value
-                    self.rayHeight.reset(to: ground)
-                    self.envelopeHeight.reset(to: ground)
+                    self.navigation.camera.height += ground - self.placementGround.value
+                    self.placementGround.reset(to: ground)
                 } else {
-                    self.rayHeight.aim(at: ground)
-                    self.envelopeHeight.aim(at: ground)
+                    self.placementGround.aim(at: ground)
                 }
             }
         }
@@ -732,23 +812,12 @@ final class MapModel {
     }
 
     /// Places everything from the camera: the georeference, the tiles root
-    /// relative to whichever anchor is streaming, the gesture slab and, while
+    /// relative to whichever anchor is streaming, the gesture target and, while
     /// live, the streaming inputs. Called every frame.
     private func applyView() {
         guard streaming.isStreaming else { return }
-        let room = self.room
-        let camera = navigation.camera
-        if let current = frame(camera) {
-            framing = current
-        } else if framing == nil {
-            framing = AdaptiveModel.nadirFraming(camera: camera, room: room, rayHeight: rayHeight.value,
-                                                 envelopeHeight: effectiveEnvelope)
-        } else {
-            #if DEBUG
-            print("[AlsoMaps] view ray missed the surface (pitch \(camera.pitch * 180 / .pi)°); keeping the last framing")
-            #endif
-        }
-        guard let framing else { return }
+        let framing = frame(navigation.camera)
+        self.framing = framing
 
         if !tilesHeld {
             streaming.inputs = streamingInputs(for: framing)
@@ -756,37 +825,76 @@ final class MapModel {
         let georeference = framing.georeference
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
 
-        // The slab lies on the ground at the placement point, level with the
-        // ground there as shown.
-        let g = Geodesy.geodetic(framing.georeferencePoint).coordinate
-        let level = simd_quatd(Geodesy.anchorFrameRotation(latitude: g.latitude, longitude: g.longitude))
-        gestureTarget.orientation = simd_quatf(vector: SIMD4<Float>((georeference.rotation * level).vector))
-        gestureTarget.position = SIMD3<Float>(framing.placementPoint)
+        placeGestureSurface(gestureFraming ?? framing)
         updateDebugMarkers()
+    }
+
+    /// Fits the gesture target to the ground as `framing` (the framing
+    /// gestures work in) places it: a cap of the
+    /// ellipsoid at the placement ground. The volume's covers twice the
+    /// shown region around the view center; Immersive's reaches the horizon
+    /// around the point beneath the eye, so gaze anywhere on the ground
+    /// finds it. Rebuilt only when the view has moved enough to need it.
+    private func placeGestureSurface(_ framing: AdaptiveModel.Framing) {
+        let ground = placementGround.value
+        let shownReach = 2 * framing.shownRadius(room) / GeoMath.earthRadius
+        let desired: GestureSurface
+        if presentation.host == .immersive {
+            let eye = Geodesy.geodetic(framing.eye(room))
+            let horizon = GestureSurface.horizonAngle(cameraHeight: eye.height, groundHeight: ground)
+            desired = .desired(center: eye.coordinate, height: ground, reach: max(horizon, shownReach))
+        } else {
+            let g = Geodesy.geodetic(framing.georeferencePoint).coordinate
+            desired = .desired(center: g, height: ground, reach: shownReach)
+        }
+        if gestureSurface?.needsRebuild(for: desired) ?? true,
+           pendingGestureSurface?.needsRebuild(for: desired) ?? true {
+            rebuildGestureTarget(GestureSurface.built(for: desired))
+        }
+        guard let surface = gestureSurface else { return }
+        // At the current ground height; a small change since it was built
+        // doesn't need a rebuild.
+        let c = surface.center
+        let level = simd_quatd(Geodesy.anchorFrameRotation(latitude: c.latitude, longitude: c.longitude))
+        let georeference = framing.georeference
+        gestureTarget.orientation = simd_quatf(vector: SIMD4<Float>((georeference.rotation * level).vector))
+        gestureTarget.position = SIMD3<Float>(georeference.map(Geodesy.ecef(c, height: ground)))
+        gestureTarget.scale = SIMD3(repeating: Float(georeference.scale * surface.unit))
+    }
+
+    /// Gives the gesture target `surface`'s mesh. Generating it is async, so
+    /// the old cap keeps taking gestures until the new one is ready; the
+    /// shape and the cap it's placed by change together.
+    private func rebuildGestureTarget(_ surface: GestureSurface) {
+        pendingGestureSurface = surface
+        let mesh = surface.localMesh()
+        Task {
+            let shape: ShapeResource
+            do {
+                shape = try await ShapeResource.generateStaticMesh(positions: mesh.positions,
+                                                                    faceIndices: mesh.faceIndices)
+            } catch {
+                print("[AlsoMaps] gesture target mesh failed: \(error)")
+                return
+            }
+            // A newer cap was asked for meanwhile.
+            guard pendingGestureSurface == surface else { return }
+            pendingGestureSurface = nil
+            gestureTarget.components.set(CollisionComponent(shapes: [shape], isStatic: true))
+            gestureSurface = surface
+            if manipulation != nil {
+                pinchLog(String(format: "target rebuilt at %.2f, %.2f reaching %.1f°", surface.center.latitude,
+                                surface.center.longitude, surface.angularRadius * 180 / .pi))
+            }
+            if let gestureFraming { placeGestureSurface(gestureFraming) }
+        }
     }
 
     /// The area of interest each host streams by default, and the LOD camera
     /// at the design eye point.
     private func streamingInputs(for framing: AdaptiveModel.Framing) -> StreamingInputs {
-        let room = self.room
-        let camera = navigation.camera
-        let policy: AOIPolicy = presentation.host == .immersive
-            ? .horizon(limitPerAltitude: settings.limitsImmersiveReach ? settings.immersiveReach : nil)
-            : .georeference(regionMultiplier: 1)
-        // The viewer is the eye, wherever the placement puts it in the world:
-        // in the immersive space, always the camera.
-        let (viewer, eyeHeight) = Geodesy.geodetic(framing.georeference.ecef(map: room.designEye))
-        let altitude = usesEyeLevel ? eyeHeight - effectiveEnvelope : camera.height - cameraGround.value
-        let area = policy.area(viewerNadir: viewer,
-                               altitude: max(altitude, 0),
-                               heading: camera.heading,
-                               georeferencePoint: Geodesy.geodetic(framing.georeferencePoint).coordinate,
-                               shownRadius: framing.shownRadius(room))
-        let anchor = StreamingAnchor(coordinate: area.centre, height: effectiveEnvelope)
-        return StreamingInputs(anchor: anchor,
-                               lod: AdaptiveModel.lodCamera(framing: framing, eye: room.designEye, anchor: anchor),
-                               regionHeading: area.heading,
-                               streamingRadius: area.radius)
+        StreamingInputs.room(framing: framing, room: room, camera: navigation.camera,
+                             policy: presentation.areaPolicy(settings), groundHeight: placementGround.value)
     }
 
     // MARK: Tracks
@@ -820,9 +928,8 @@ final class MapModel {
         guard let first = tracks.startPlayback() else { return }
         if tilesHeld { setTilesHeld(false) }
         endManipulation()
-        // Nothing but the track moves the camera: no pitch easing, and no
-        // ground sample lifting a place's framing.
-        settlesPitch = false
+        // Nothing but the track moves the camera: no ground sample lifting a
+        // place's framing.
         placeAwaitsGround = false
         lastPlaybackGroundSample = 0
         framing = nil
@@ -859,8 +966,8 @@ final class MapModel {
 
     func captureState() -> MapViewState {
         MapViewState(navigation: navigation,
-                     rayHeight: rayHeight.value,
-                     envelopeHeight: envelopeHeight.value,
+                     rayHeight: placementGround.value,
+                     envelopeHeight: placementGround.value,
                      host: presentation.id,
                      roomPlacement: roomPlacement,
                      heldStreaming: tilesHeld ? heldInputs : nil,
@@ -877,12 +984,12 @@ final class MapModel {
         settings = state.settings
         groundSampleGeneration += 1  // Drop any sample in flight.
         placeAwaitsGround = false
-        rayHeight.reset(to: state.groundEstimate.ray)
-        envelopeHeight.reset(to: state.groundEstimate.envelope)
+        // The ray estimate was always a sample; states saved before the
+        // volume moved to eye-level placement can have a curvature envelope
+        // tens of kilometers below the ground in `envelope`.
+        placementGround.reset(to: state.groundEstimate.ray)
         roomPlacement = state.roomPlacement.placement
-        var navigation = state.navigationState
-        navigation.camera.pitch = min(navigation.camera.pitch, pitchLimit(for: navigation.camera))
-        self.navigation = navigation
+        navigation = state.navigationState
         tracks.markJump()
         framing = nil
         if let held = state.heldStreaming {
@@ -900,7 +1007,10 @@ final class MapModel {
 
     /// Posts at the ground beneath the camera (red: where you are), the
     /// georeference point (blue: what's on the placement point) and the
-    /// area of interest's centre (green), in the map frame.
+    /// area of interest's center (green), in the map frame. While a gesture
+    /// runs: a post at the grabbed point (orange), a ball where the hand
+    /// wants it (white; the two should coincide) and a ball where gaze hit
+    /// the gesture target before it was put on the ground (purple).
     var showsDebugMarkers = false {
         didSet { updateDebugMarkers() }
     }
@@ -928,6 +1038,14 @@ final class MapModel {
             debugMarkers.addChild(post(.systemRed))    // beneath the camera
             debugMarkers.addChild(post(.systemBlue))   // georeference point
             debugMarkers.addChild(post(.systemGreen))  // area of interest
+            debugMarkers.addChild(post(.systemOrange)) // grabbed point
+            func ball(_ color: UIColor) -> ModelEntity {
+                var material = UnlitMaterial()
+                material.color = .init(tint: color)
+                return ModelEntity(mesh: .generateSphere(radius: 1), materials: [material])
+            }
+            debugMarkers.addChild(ball(.white))        // where the hand wants the grab
+            debugMarkers.addChild(ball(.systemPurple)) // gaze hit, before snapping
         }
         let georeference = framing.georeference
         let camera = navigation.camera
@@ -939,9 +1057,46 @@ final class MapModel {
         ]
         let size = Float(presentation.magnification)
         let height = 0.25 * size
-        for (post, point) in zip(debugMarkers.children, points) {
+        let posts = Array(debugMarkers.children)
+        for (post, point) in zip(posts, points) {
             post.scale = [0.006 * size, height, 0.006 * size]
             post.position = SIMD3<Float>(georeference.map(point)) + [0, height / 2, 0]
+        }
+
+        let grabPost = posts[3], target = posts[4], hit = posts[5]
+        for marker in [grabPost, target, hit] { marker.isEnabled = manipulation != nil }
+        guard let m = manipulation else { return }
+        grabPost.scale = [0.004 * size, height, 0.004 * size]
+        grabPost.position = SIMD3<Float>(georeference.map(m.grab)) + [0, height / 2, 0]
+        target.scale = SIMD3(repeating: 0.008 * size)
+        // The hand's target is in the framing gestures work in. At human
+        // scale that's the world shown scaled about the eye, so put the
+        // marker back out where the grab is shown.
+        let eye = room.designEye
+        let out = gestureFraming.map { georeference.scale / $0.georeference.scale } ?? 1
+        target.position = SIMD3<Float>(eye + (m.start + m.translation - eye) * out)
+        hit.scale = SIMD3(repeating: 0.005 * size)
+        hit.position = SIMD3<Float>(georeference.map(m.hit))
+    }
+}
+
+/// The RealityKit immersive space's immersion style.
+enum Immersion: String, CaseIterable, Identifiable {
+    /// Passthrough and any system environment stay around the map.
+    case mixed
+    /// The map shows in a portal the Digital Crown opens and closes, with
+    /// passthrough outside it.
+    case progressive
+    /// Only the map is shown: no passthrough or environment.
+    case full
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .mixed: "Mixed"
+        case .progressive: "Progressive"
+        case .full: "Full"
         }
     }
 }

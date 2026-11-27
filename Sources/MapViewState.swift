@@ -3,10 +3,10 @@ import simd
 
 /// Everything needed to put the view back as it was: the camera and
 /// navigation state, ground estimates, host, room placement, held tiles and
-/// the settings that shape navigation. Copied as JSON from Tuning; restored
+/// the settings that shape navigation. Copied as JSON from Settings; restored
 /// from the clipboard or, at launch, from ALSOMAPS_STATE.
 ///
-/// Version 2 is camera-centric. Older (focus, radius, Fly) states aren't
+/// Version 2 is camera-centric. Older (focus, radius, held-tile pose) states aren't
 /// supported.
 struct MapViewState: Codable {
     static let currentVersion = 2
@@ -14,14 +14,14 @@ struct MapViewState: Codable {
     struct Camera: Codable {
         var latitude: Double
         var longitude: Double
-        /// Metres above the WGS84 ellipsoid.
+        /// Meters above the WGS84 ellipsoid.
         var height: Double
         var headingDegrees: Double
         var pitchDegrees: Double
     }
 
     struct GroundEstimate: Codable {
-        /// h_ray: terrain height the view ray meets, metres above the ellipsoid.
+        /// h_ray: terrain height the view ray meets, meters above the ellipsoid.
         var ray: Double
         /// h_env: the low envelope placed on the base plane.
         var envelope: Double
@@ -108,14 +108,14 @@ struct MapViewState: Codable {
     }
 
     /// Parses and validates a view state. Older focus-centric states are
-    /// recognised and rejected with a clear message.
+    /// recognized and rejected with a clear message.
     static func parse(_ text: String) throws -> MapViewState {
         let data = Data(text.utf8)
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ParseError.notAViewState
         }
         guard let version = object["version"] as? Int else {
-            throw object["radius"] != nil || object["flyScale"] != nil
+            throw object["radius"] != nil
                 ? ParseError.unsupportedVersion : ParseError.notAViewState
         }
         guard version == currentVersion else { throw ParseError.unsupportedVersion }

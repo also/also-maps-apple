@@ -3,31 +3,49 @@ import simd
 
 /// What navigation operations need to know beyond the state itself.
 struct NavigationContext: Equatable {
-    /// Estimated ground under the camera, metres above the ellipsoid.
+    /// Estimated ground under the camera, meters above the ellipsoid.
     var cameraGround = 0.0
     /// Lowest height above that ground the camera may go.
     var minimumAltitude = 1.5
     /// Highest height above that ground the camera may go.
     var maximumAltitude = 20_000_000.0
+    /// In a room host, where the navigation position is for a stored pose:
+    /// speeds follow its height, below the stored altitude (H's) within the
+    /// tilt. Nil: the stored pose is the navigation position.
+    var lift: EyeLevelModel.Lift?
 
     func clampHeight(_ height: Double) -> Double {
         min(max(height, cameraGround + minimumAltitude), cameraGround + maximumAltitude)
     }
 
-    /// Height above the estimated ground, at least `floor` metres, for speeds.
+    /// The navigation position's height above the ellipsoid for `camera`.
+    func navigationHeight(of camera: CameraPose) -> Double {
+        lift?.navigationHeight(of: camera) ?? camera.height
+    }
+
+    /// The stored altitude, at `camera`'s place, that puts the navigation
+    /// position at `height`.
+    func storedHeight(navigationHeight height: Double, at camera: CameraPose) -> Double {
+        lift?.storedHeight(navigationHeight: height, at: camera) ?? height
+    }
+
+    /// The navigation position's height above the estimated ground, at
+    /// least `floor` meters, for speeds.
     func altitude(of camera: CameraPose, floor: Double = 10) -> Double {
-        max(camera.height - cameraGround, floor)
+        max(navigationHeight(of: camera) - cameraGround, floor)
     }
 }
 
 /// Pure operations on navigation state. "View heading" is camera.heading;
 /// under `.linked`, every change to it is applied to the movement heading
-/// too. See docs/camera-core.md §11.
+/// too.
 enum NavigationOperations {
-    /// Changes height only: latitude, longitude and both headings stay.
+    /// Changes height only: latitude, longitude and both headings stay. The
+    /// navigation position rises by `delta`.
     static func climb(_ state: NavigationState, by delta: Double, context: NavigationContext) -> NavigationState {
         var state = state
-        state.camera.height = context.clampHeight(state.camera.height + delta)
+        let height = context.navigationHeight(of: state.camera) + delta
+        state.camera.height = context.clampHeight(context.storedHeight(navigationHeight: height, at: state.camera))
         return state
     }
 
@@ -54,8 +72,8 @@ enum NavigationOperations {
         return state
     }
 
-    /// Travels along the globe, `forward` metres along the movement heading
-    /// and `right` metres across it, at constant height. Both headings are
+    /// Travels along the globe, `forward` meters along the movement heading
+    /// and `right` meters across it, at constant height. Both headings are
     /// carried along the great circle, so flying over a pole continues.
     static func move(_ state: NavigationState, forward: Double, right: Double) -> NavigationState {
         let distance = (forward * forward + right * right).squareRoot()
