@@ -208,6 +208,7 @@ targets:
           - MapInput.swift
           - Tracks
           - TrackSession.swift
+          - TrackMenu.swift
           - TrackOverlay.swift
           - TubeExtruder.swift
           - StreamingSettings.swift

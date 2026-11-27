@@ -33,7 +33,7 @@ struct AlsoMapsMacApp: App {
     }
 }
 
-/// The flying map with a Places menu. The mouse and trackpad go through
+/// The flying map with the Traces, Track and Places menus. The mouse and trackpad go through
 /// PointerSurface. Keys are read from the keyboard device each frame
 /// (MapInput); the view takes them only so the system doesn't beep at
 /// unhandled keys.
@@ -66,9 +66,15 @@ struct MacMapView: View {
             .onAppear { focused = true }
             .opensPlaces(go: { map.go(to: $0) }, imported: { showsPlaces = true })
             .onChange(of: settings) { _, settings in map.settings = settings }
+            .overlay(alignment: .top) {
+                TrackStatus(tracks: map.tracks)
+            }
+            // Write out a recording when the window closes.
+            .onDisappear { map.tracks.flush() }
             .overlay(alignment: .topTrailing) {
                 HStack {
                     TracesMenu(streaming: map.streaming, tracks: map.tracks) { map.go(to: $0) }
+                    TrackMenu(tracks: map.tracks, play: map.startPlayback, stopPlayback: map.tracks.stopPlayback)
                     Button {
                         showsDiagram.toggle()
                     } label: {

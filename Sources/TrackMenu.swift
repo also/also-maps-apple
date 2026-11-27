@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Record, play, show and share a track, collapsed into one toolbar menu on
-/// visionOS and iPhone. A track follows the navigation position on visionOS
-/// and the camera on iPhone. While recording, Stop Recording sits in red
+/// visionOS, iPhone and the Mac. A track follows the navigation position on
+/// visionOS and the camera on iPhone and the Mac. While recording, Stop Recording sits in red
 /// beside the menu, so the recorder can't run unnoticed.
 struct TrackMenu: View {
     let tracks: TrackSession
@@ -51,6 +51,26 @@ struct TrackMenu: View {
                 Label("Track", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
             }
             .help("Record, play, show or share the track")
+        }
+    }
+}
+
+/// What the track is doing, in a capsule over the top of a screen map
+/// (iPhone and the Mac); nothing while it's idle.
+struct TrackStatus: View {
+    let tracks: TrackSession
+
+    var body: some View {
+        if tracks.isRecording || tracks.isPlaying {
+            Text(tracks.isRecording
+                 ? "Recording track"
+                 : "Playing track · \(TrackSession.minutes(tracks.playbackElapsed)) / \(TrackSession.minutes(tracks.playbackDuration))")
+                .font(.caption.monospacedDigit())
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.black.opacity(0.5), in: .capsule)
+                .foregroundStyle(.white)
+                .padding(.top, 4)
         }
     }
 }

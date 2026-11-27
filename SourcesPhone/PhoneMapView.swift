@@ -56,7 +56,7 @@ struct PhoneMapView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .overlay(alignment: .top) {
-                trackStatus
+                TrackStatus(tracks: map.tracks)
             }
             // Write out the recording in case the app is suspended.
             .onChange(of: scenePhase) { _, phase in
@@ -132,22 +132,6 @@ struct PhoneMapView: View {
     /// Record, play, show and share the track, in the same menu as on visionOS.
     private var trackControls: some View {
         TrackMenu(tracks: map.tracks, play: map.startPlayback, stopPlayback: map.tracks.stopPlayback)
-    }
-
-    /// What the track is doing, under the bar.
-    @ViewBuilder private var trackStatus: some View {
-        let tracks = map.tracks
-        if tracks.isRecording || tracks.isPlaying {
-            Text(tracks.isRecording
-                 ? "Recording track"
-                 : "Playing track · \(TrackSession.minutes(tracks.playbackElapsed)) / \(TrackSession.minutes(tracks.playbackDuration))")
-                .font(.caption.monospacedDigit())
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(.black.opacity(0.5), in: .capsule)
-                .foregroundStyle(.white)
-                .padding(.top, 4)
-        }
     }
 }
 
