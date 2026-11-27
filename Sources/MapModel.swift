@@ -238,7 +238,8 @@ final class MapModel {
         debugMarkers.isEnabled = false
         root.addChild(streaming.tilesRoot)
         streaming.tilesRoot.addChild(tileBoundsOverlay.root)
-        root.addChild(tracks.overlay.root)
+        library = TraceLibrary(streaming: streaming, tracks: tracks)
+        root.addChild(tracks.root)
         // Indirect only (look + pinch). Allowing direct input meant hands that
         // were merely inside the map's area counted as touching it and
         // dragged the map with no pinch at all.
@@ -592,8 +593,8 @@ final class MapModel {
         tracks.record(navigation.camera)
         applyView()
         if let framing {
-            tracks.overlay.update(georeference: framing.georeference,
-                                  worldRadius: TrackOverlay.roomRadius / framing.georeference.scale)
+            tracks.update(georeference: framing.georeference,
+                          worldRadius: TrackOverlay.roomRadius / framing.georeference.scale)
         }
         streaming.update(deltaTime: deltaTime)
         tileBoundsOverlay.update(inputs: streaming.inputs, scale: streaming.tilesRoot.transform.scale.x,
@@ -905,26 +906,22 @@ final class MapModel {
     /// controller movement are ignored while it plays, and jumping to a
     /// place, restoring a view or switching presentation stops it.
     let tracks = TrackSession()
+    /// The Traces list: loaded GPS files and recordings, shown on the map.
+    let library: TraceLibrary
     @ObservationIgnored private var lastPlaybackGroundSample: TimeInterval = 0
 
     var isRecordingTrack: Bool { tracks.isRecording }
-    var latestTrack: URL? { tracks.latestTrack }
     func startTrack() { tracks.startRecording() }
     func stopTrack() { tracks.stopRecording() }
     func flushTrack() { tracks.flush() }
-
-    var showsTrack: Bool {
-        get { tracks.showsTrack }
-        set { tracks.showsTrack = newValue }
-    }
 
     var isPlayingTrack: Bool { tracks.isPlaying }
     var playbackElapsed: Int { tracks.playbackElapsed }
     var playbackDuration: Int { tracks.playbackDuration }
 
-    /// Plays the latest track from the start.
-    func startPlayback() {
-        guard let first = tracks.startPlayback() else { return }
+    /// Plays `track` from the start.
+    func startPlayback(_ track: Track) {
+        guard let first = tracks.startPlayback(track) else { return }
         if tilesHeld { setTilesHeld(false) }
         endManipulation()
         // Nothing but the track moves the camera: no ground sample lifting a

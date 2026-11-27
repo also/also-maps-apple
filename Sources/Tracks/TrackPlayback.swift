@@ -1,21 +1,22 @@
 import Foundation
 
-/// A recorded track as a camera over time, for playing it back: the pose at
-/// any time since the first sample.
+/// A track as a camera over time, for playing it back: the pose at any time
+/// since the first sample.
 ///
 /// Between two samples in a segment the pose is interpolated: latitude,
 /// height and pitch linearly, longitude and heading the shorter way round.
-/// Samples are about 30 Hz, so the straight line in degrees is as good as
-/// the straight line in space. Across a segment change (a camera jump) it
-/// isn't interpolated: the earlier sample holds until the next segment's
-/// first sample's time, then the camera jumps there, as it did recording.
+/// Recorded samples are about 30 Hz, and GPS fixes seconds apart, so the
+/// straight line in degrees is as good as the straight line in space.
+/// Across a segment change (a camera jump) it isn't interpolated: the
+/// earlier sample holds until the next segment's first sample's time, then
+/// the camera jumps there, as it did recording.
 struct TrackPlayback {
     /// In time order, at least one.
-    let samples: [CameraTrack.Sample]
+    let samples: [Track.Sample]
 
     /// Nil if there are no samples. Samples out of time order are dropped.
-    init?<S: Sequence>(samples: S) where S.Element == CameraTrack.Sample {
-        var ordered: [CameraTrack.Sample] = []
+    init?<S: Sequence>(samples: S) where S.Element == Track.Sample {
+        var ordered: [Track.Sample] = []
         for sample in samples where ordered.last.map({ sample.time >= $0.time }) ?? true {
             ordered.append(sample)
         }
@@ -23,10 +24,9 @@ struct TrackPlayback {
         self.samples = ordered
     }
 
-    /// The track in a file written by TrackRecorder; nil if it has no samples.
-    init?(contentsOf url: URL) throws {
-        let text = try String(contentsOf: url, encoding: .utf8)
-        self.init(samples: text.split(whereSeparator: \.isNewline).lazy.compactMap(CameraTrack.sample(fromLine:)))
+    /// Nil if the track has no samples.
+    init?(_ track: Track) {
+        self.init(samples: track.samples)
     }
 
     /// Seconds from the first sample to the last.

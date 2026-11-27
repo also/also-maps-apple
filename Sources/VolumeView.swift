@@ -14,6 +14,7 @@ struct VolumeView: View {
     @AppStorage(ViewPreferences.showsDebugControlsKey) private var showsDebugControls = false
     @State private var showsDebugPanel = false
     @State private var showsPlaces = false
+    @State private var showsTraces = false
     /// The view being saved to My Map, while its name is chosen.
     @State private var savingPlace: PlaceToSave?
 
@@ -46,7 +47,7 @@ struct VolumeView: View {
         .toolbar {
             ToolbarItemGroup(placement: .bottomOrnament) {
                 presentationPicker
-                TrackMenu(tracks: model.tracks, play: model.startPlayback, stopPlayback: model.stopPlayback)
+                TrackControls(tracks: model.tracks, stopPlayback: model.stopPlayback)
                     .labelStyle(.iconOnly)
                 Button("Save to My Map", systemImage: "star") {
                     savingPlace = PlaceToSave(place: model.currentPlace(id: UUID().uuidString, name: ""),
@@ -68,6 +69,19 @@ struct VolumeView: View {
                         model.go(to: place)
                         showsPlaces = false
                     }
+                }
+                Button("Traces", systemImage: "point.bottomleft.forward.to.point.topright.scurvepath") {
+                    showsTraces = true
+                }
+                .labelStyle(.iconOnly)
+                .help("GPS traces and recorded tracks")
+                .popover(isPresented: $showsTraces) {
+                    TracesPanel(library: model.library, tracks: model.tracks,
+                                go: { model.go(to: $0) },
+                                play: { track in
+                                    showsTraces = false
+                                    model.startPlayback(track)
+                                })
                 }
                 Button("Settings", systemImage: "gearshape") {
                     openWindow(id: SettingsView.windowID)
@@ -137,9 +151,13 @@ struct VolumeView: View {
             if ProcessInfo.processInfo.environment["ALSOMAPS_DEBUG_PANEL"] == "1" {
                 showsDebugPanel = true
             }
-            // ALSOMAPS_SHOW_TRACK=1 draws the latest track.
-            if ProcessInfo.processInfo.environment["ALSOMAPS_SHOW_TRACK"] == "1" {
-                model.showsTrack = true
+            // ALSOMAPS_SHOW_TRACK=1 draws the latest recording.
+            if ProcessInfo.processInfo.environment["ALSOMAPS_SHOW_TRACK"] == "1",
+               let latest = model.library.entries.first(where: {
+                   if case .recording = $0.source { return true }
+                   return false
+               }) {
+                model.library.setShown(latest.id, true)
             }
             // ALSOMAPS_FULL_IMMERSION=1 or ALSOMAPS_PROGRESSIVE_IMMERSION=1
             // opens immersive modes with that immersion, and
@@ -163,9 +181,18 @@ struct VolumeView: View {
                let presentation = MapPresentation.withID(id) {
                 await present(presentation)
             }
-            // ALSOMAPS_PLAY_TRACK=1 plays the latest track (after any of the above).
+            // ALSOMAPS_PLAY_TRACK=1 plays the track in ALSOMAPS_TRACES once
+            // it's open (after any of the above), or else the latest
+            // recording.
             if ProcessInfo.processInfo.environment["ALSOMAPS_PLAY_TRACK"] == "1" {
-                model.startPlayback()
+                let library = model.library
+                if ProcessInfo.processInfo.environment["ALSOMAPS_TRACES"] != nil {
+                    for _ in 0..<100 where library.environmentEntryID == nil {
+                        try? await Task.sleep(for: .milliseconds(100))
+                    }
+                }
+                let id = library.environmentEntryID ?? library.entries.first(where: \.hasTrack)?.id
+                if let id, let track = library.track(id) { model.startPlayback(track) }
             }
         }
     }

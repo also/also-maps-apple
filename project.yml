@@ -82,6 +82,9 @@ targets:
         - variable: ALSOMAPS_RADIUS
           value: "800"
           isEnabled: false
+        - variable: ALSOMAPS_TRACES
+          value: ""
+          isEnabled: false
     type: application
     platform: visionOS
     sources:
@@ -205,6 +208,7 @@ targets:
           - MapInput.swift
           - Tracks
           - TrackSession.swift
+          - TrackControls.swift
           - TrackOverlay.swift
           - TubeExtruder.swift
           - StreamingSettings.swift
@@ -212,6 +216,10 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - TraceDrape.swift
+          - TraceFile.swift
+          - TracesPanel.swift
+          - TraceLibrary.swift
           - DebugLines.swift
           - Config
           - Credentials
@@ -288,6 +296,7 @@ targets:
       - path: Sources/Metal/MetalVisibility.swift
       - path: Tests/Metal
       - path: Sources/Places/Place.swift
+      - path: Sources/TraceFile.swift
       - path: Sources/Places/PlaceLink.swift
       - path: Sources/Places/PlaceGeoJSON.swift
       - path: Sources/Places/PlaceStore.swift
@@ -335,6 +344,8 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - TraceDrape.swift
+          - TraceFile.swift
           - DebugLines.swift
           - Config
           - Credentials/CredentialStore.swift
@@ -384,7 +395,7 @@ targets:
           - MapInput.swift
           - Tracks
           - TrackSession.swift
-          - TrackMenu.swift
+          - TrackControls.swift
           - TrackOverlay.swift
           - TubeExtruder.swift
           - StreamingSettings.swift
@@ -392,6 +403,10 @@ targets:
           - TileSource.swift
           - TileStreaming.swift
           - TileUploader.swift
+          - TraceDrape.swift
+          - TraceFile.swift
+          - TracesPanel.swift
+          - TraceLibrary.swift
           - DebugLines.swift
           - Config
           - Credentials

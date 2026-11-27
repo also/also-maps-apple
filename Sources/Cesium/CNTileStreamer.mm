@@ -29,7 +29,11 @@
 #include <CesiumImage/ImageAsset.h>
 #include <CesiumRasterOverlays/IonRasterOverlay.h>
 #include <CesiumRasterOverlays/RasterOverlayTile.h>
+#include <CesiumUtility/Color.h>
 #include <CesiumUtility/CreditSystem.h>
+#include <CesiumVectorData/GeoJsonDocument.h>
+#include <CesiumVectorData/VectorStyle.h>
+#include <CesiumVectorOverlays/GeoJsonDocumentRasterOverlay.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -690,10 +694,11 @@ CNTileMesh* _Nullable buildTileMesh(
         NSData* rgba = pImage ? convertImageToRGBA(*pImage) : nil;
 
         // Overlay texture coordinates, which cesium-native adds to every
-        // tile of a tileset with raster overlays. Only untextured content
-        // takes imagery: it has nothing else to show.
+        // tile of a tileset with raster overlays. Untextured content takes
+        // imagery, which it has nothing else to show; textured content takes
+        // traces (CNRasterAttachHandler).
         NSMutableData* overlayData = nil;
-        if (!rgba) {
+        {
           auto overlayIt = primitive.attributes.find("_CESIUMOVERLAY_0");
           if (overlayIt != primitive.attributes.end()) {
             AccessorView<glm::vec2> uvs(gltf, overlayIt->second);
@@ -954,7 +959,7 @@ public:
 
   void* prepareRasterInLoadThread(
       CesiumImage::ImageAsset& image,
-      const std::any&) override {
+      const std::any& rendererOptions) override {
     NSData* rgba = convertImageToRGBA(image);
     if (!rgba) {
       return nullptr;
@@ -962,8 +967,11 @@ public:
     CNRaster* raster = [[CNRaster alloc] initWithRGBA:rgba
                                                 width:image.width
                                                height:image.height];
-    if (CNRasterLoadHandler handler = rasterLoadHandler()) {
-      handler(raster);
+    // Traces build their textures when they attach (CNRasterAttachHandler).
+    if (!isTraces(rendererOptions)) {
+      if (CNRasterLoadHandler handler = rasterLoadHandler()) {
+        handler(raster);
+      }
     }
     return (__bridge_retained void*)raster;
   }
@@ -988,33 +996,64 @@ public:
   void attachRasterInMainThread(
       const Tile& tile,
       int32_t overlayTextureCoordinateID,
-      const CesiumRasterOverlays::RasterOverlayTile&,
+      const CesiumRasterOverlays::RasterOverlayTile& rasterTile,
       void* pMainThreadRendererResources,
       const glm::dvec2& translation,
       const glm::dvec2& scale) override {
     CNTileMesh* mesh = meshForTile(tile);
-    // One overlay in one projection, so only _CESIUMOVERLAY_0 is read.
+    // Only _CESIUMOVERLAY_0 is read, so only the first projection's overlay
+    // can be shown.
     if (!mesh || !pMainThreadRendererResources ||
         overlayTextureCoordinateID != 0) {
       return;
     }
-    mesh.overlay = [[CNOverlay alloc]
-        initWithRaster:(__bridge CNRaster*)pMainThreadRendererResources
-           translation:simd_make_float2(float(translation.x), float(translation.y))
-                 scale:simd_make_float2(float(scale.x), float(scale.y))];
+    CNRaster* raster = (__bridge CNRaster*)pMainThreadRendererResources;
+    simd_float2 t = simd_make_float2(float(translation.x), float(translation.y));
+    simd_float2 s = simd_make_float2(float(scale.x), float(scale.y));
+    if (isTraces(rasterTile)) {
+      if (_rasterAttachHandler) {
+        _rasterAttachHandler(mesh, raster, t, s);
+      }
+    } else {
+      mesh.overlay = [[CNOverlay alloc] initWithRaster:raster translation:t scale:s];
+    }
   }
 
   void detachRasterInMainThread(
       const Tile& tile,
       int32_t,
-      const CesiumRasterOverlays::RasterOverlayTile&,
+      const CesiumRasterOverlays::RasterOverlayTile& rasterTile,
       void* pMainThreadRendererResources) noexcept override {
     CNTileMesh* mesh = meshForTile(tile);
-    if (mesh && mesh.overlay.raster ==
-                    (__bridge CNRaster*)pMainThreadRendererResources) {
+    if (!mesh) {
+      return;
+    }
+    if (isTraces(rasterTile)) {
+      if (_rasterDetachHandler) {
+        _rasterDetachHandler(mesh);
+      }
+    } else if (mesh.overlay.raster ==
+               (__bridge CNRaster*)pMainThreadRendererResources) {
       mesh.overlay = nil;
     }
   }
+
+  /// Marks the traces overlay through its renderer options, which reach
+  /// both the load thread and each raster tile.
+  struct TracesMarker {};
+
+  static bool isTraces(const std::any& rendererOptions) {
+    return std::any_cast<TracesMarker>(&rendererOptions) != nullptr;
+  }
+
+  static bool isTraces(const CesiumRasterOverlays::RasterOverlayTile& rasterTile) {
+    return isTraces(
+        rasterTile.getTileProvider().getOwner().getOptions().rendererOptions);
+  }
+
+  // Both are only set and used on the main thread.
+  CNRasterAttachHandler _rasterAttachHandler;
+  CNRasterDetachHandler _rasterDetachHandler;
 
   CNTileLoadHandler tileLoadHandler() {
     std::lock_guard<std::mutex> lock(_handlerMutex);
@@ -1158,6 +1197,10 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
   /// Never empty once initialized. The first is the ground, for height
   /// samples; options are set on all of them alike.
   std::vector<std::unique_ptr<Tileset>> _tilesets;
+  /// On the ground tileset, which is the only one when there's photogrammetry
+  /// to drape.
+  CesiumUtility::IntrusivePointer<CesiumRasterOverlays::RasterOverlay>
+      _geoJSONOverlay;
   std::shared_ptr<FetchCounters> _fetchCounters;
   CNFrame* _lastFrame;
 }
@@ -1309,6 +1352,79 @@ static void drainMainThreadTasks(AsyncSystem asyncSystem,
 
 - (void)setTileLoadHandler:(CNTileLoadHandler)handler {
   _resources->setTileLoadHandler(handler);
+}
+
+- (CNRasterAttachHandler)rasterAttachHandler {
+  return _resources->_rasterAttachHandler;
+}
+
+- (void)setRasterAttachHandler:(CNRasterAttachHandler)handler {
+  _resources->_rasterAttachHandler = handler;
+}
+
+- (CNRasterDetachHandler)rasterDetachHandler {
+  return _resources->_rasterDetachHandler;
+}
+
+- (void)setRasterDetachHandler:(CNRasterDetachHandler)handler {
+  _resources->_rasterDetachHandler = handler;
+}
+
+- (void)showGeoJSONOverlayFromPath:(NSString*)path
+                         lineWidth:(double)lineWidth
+                             color:(simd_float4)color
+                        completion:(void (^)(NSString* _Nullable))completion {
+  [self removeGeoJSONOverlay];
+
+  using CesiumVectorData::GeoJsonDocument;
+  auto document = _asyncSystem->runInWorkerThread([path, completion]() {
+    NSData* data = [NSData dataWithContentsOfFile:path];
+    auto result = GeoJsonDocument::fromGeoJson(std::span<const std::byte>(
+        static_cast<const std::byte*>(data.bytes),
+        data.length));
+    if (!result.value) {
+      NSString* message = result.errors.errors.empty()
+          ? @"The file couldn't be read."
+          : @(result.errors.errors.front().c_str());
+      dispatch_async(dispatch_get_main_queue(), ^{
+        completion(message);
+      });
+      return std::make_shared<GeoJsonDocument>();
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+      completion(nil);
+    });
+    return std::make_shared<GeoJsonDocument>(std::move(*result.value));
+  });
+
+  CesiumVectorData::LineStyle line;
+  line.color = CesiumUtility::Color(
+      uint8_t(color.x * 255),
+      uint8_t(color.y * 255),
+      uint8_t(color.z * 255),
+      uint8_t(color.w * 255));
+  line.width = lineWidth;
+  line.widthMode = CesiumVectorData::LineWidthMode::Pixels;
+
+  CesiumVectorOverlays::GeoJsonDocumentRasterOverlayOptions options{
+      .defaultStyle = CesiumVectorData::VectorStyle(line, {}),
+      .ellipsoid = [self options].ellipsoid};
+
+  CesiumRasterOverlays::RasterOverlayOptions overlayOptions;
+  overlayOptions.rendererOptions = RealityKitPrepareRendererResources::TracesMarker{};
+  _geoJSONOverlay = new CesiumVectorOverlays::GeoJsonDocumentRasterOverlay(
+      "traces",
+      std::move(document),
+      options,
+      overlayOptions);
+  _tilesets.front()->getOverlays().add(_geoJSONOverlay);
+}
+
+- (void)removeGeoJSONOverlay {
+  if (_geoJSONOverlay) {
+    _tilesets.front()->getOverlays().remove(_geoJSONOverlay);
+    _geoJSONOverlay = nullptr;
+  }
 }
 
 - (CNRasterLoadHandler)rasterLoadHandler {

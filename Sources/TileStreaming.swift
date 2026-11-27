@@ -65,9 +65,18 @@ final class TileStreaming {
     private(set) var loadProgress: Float = 0
     private(set) var statusMessage: String?
     var isStreaming: Bool { streamer != nil }
+    /// The GeoJSON draped over the map (TraceLibrary's shown files); nil
+    /// for none.
+    private(set) var tracesURL: URL?
+    /// Called on the main thread when cesium-native can't read the traces.
+    @ObservationIgnored var tracesFailed: ((String) -> Void)?
 
     private var streamer: CNTileStreamer?
     private let tileUploader = TileUploader()
+    private let drape = TraceDrape()
+    /// sRGB, the teal the traces are drawn in on the web.
+    private static let traceColor = SIMD4<Float>(0, 0.863, 0.761, 1)
+    private var startedLoading = Date()
     /// Builds each tile's renderer resources instead of RealityKit entities
     /// (MetalTileRenderer); the tiles to draw are then in `drawnTiles` each
     /// frame and nothing is added under `tilesRoot`. Setting or clearing it
@@ -121,6 +130,24 @@ final class TileStreaming {
         startStreamer()
     }
 
+    // MARK: Traces
+
+    /// Drapes the GeoJSON file at `url` over the map, replacing what was
+    /// there, or takes it away for nil. Kept across restarts.
+    func showTraces(at url: URL?) {
+        tracesURL = url
+        streamer?.removeGeoJSONOverlay()
+        showTraces()
+    }
+
+    private func showTraces() {
+        guard let tracesURL else { return }
+        streamer?.showGeoJSONOverlay(path: tracesURL.path, lineWidth: 2, color: Self.traceColor) { [weak self] error in
+            guard let error else { return }
+            self?.tracesFailed?(error)
+        }
+    }
+
     private func startStreamer() {
         let env = ProcessInfo.processInfo.environment
         let streamer: CNTileStreamer
@@ -145,7 +172,14 @@ final class TileStreaming {
         // Before the first update, so every tile goes through it.
         streamer.tileLoadHandler = customTileHandler ?? tileUploader.handler
         streamer.rasterLoadHandler = customTileHandler == nil ? tileUploader.rasterHandler : customRasterHandler
+        // Traces drape only RealityKit tiles (TileEntity), not custom ones.
+        streamer.rasterAttachHandler = { [drape] tile, raster, translation, scale in
+            drape.attach(tile, raster: raster, translation: translation, scale: scale)
+        }
+        streamer.rasterDetachHandler = { [drape] tile in drape.detach(tile) }
         self.streamer = streamer
+        showTraces()
+        startedLoading = Date()
         applySettings()
         applyInputs()
     }
@@ -239,6 +273,7 @@ final class TileStreaming {
         defer { debugSlowestUpdate = max(debugSlowestUpdate, Date().timeIntervalSince(updateStart)) }
         #endif
         let frame = streamer.update(withDeltaTime: deltaTime)
+        drape.finishFrame()
 
         for id in frame.freedTileIDs {
             tileEntities.removeValue(forKey: id.uint64Value)?.removeFromParent()
@@ -287,6 +322,9 @@ final class TileStreaming {
         if frame.loadProgress >= 100, loadProgress < 100 {
             Signposts.tiles.emitEvent("LoadComplete")
             statusMessage = nil
+            #if DEBUG
+            print("[AlsoMaps] load complete \(String(format: "%.1f", Date().timeIntervalSince(startedLoading))) s after start, \(frame.tilesToRender.count) tiles")
+            #endif
         }
         loadProgress = frame.loadProgress
         let fetch = streamer.fetchStats()
@@ -300,7 +338,8 @@ final class TileStreaming {
             debugLogElapsed += deltaTime
             if debugLogElapsed > 1 {
                 debugLogElapsed = 0
-                print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB)")
+                print("[AlsoMaps] render \(frame.tilesToRender.count) tiles, \(tileEntities.count) entities, progress \(Int(frame.loadProgress))%, anchor \(String(format: "%.4f, %.4f", inputs.anchor.coordinate.latitude, inputs.anchor.coordinate.longitude)), height \(Int(inputs.anchor.height)) m, slowest update \(String(format: "%.1f", debugSlowestUpdate * 1000)) ms, fetch \(fetch.cacheHits) cached / \(fetch.revalidated) revalidated / \(fetch.networkLoads) downloaded (\(String(format: "%.1f", Double(fetch.networkBytes) / 1_048_576)) MB), rasters \(drape.attachedRasters) attached / \(drape.emptyRasters) empty / \(drape.undrapableTiles) undrapable, \(drape.drapedTiles) draped")
+                fflush(stdout)
                 debugSlowestUpdate = 0
             }
         }

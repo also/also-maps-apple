@@ -77,10 +77,18 @@ final class TileUploader: @unchecked Sendable {
         let meshes = signposter.beginInterval("BuildMesh", id: signposter.makeSignpostID())
         for primitive in tile.primitives ?? [] {
             do {
-                let mesh = try await MeshResource(from: [descriptor(for: primitive)])
+                // Textured content with overlay coordinates takes traces, which
+                // need a second UV set (TraceDrape).
+                let drapable = primitive.overlayTexcoords != nil && primitive.texcoords != nil
+                let mesh = if drapable {
+                    try await overlayMesh(for: primitive)
+                } else {
+                    try await MeshResource(from: [descriptor(for: primitive)])
+                }
                 parts.append(Part(mesh: mesh, image: image(for: primitive), sampler: sampler(for: primitive),
                                   lit: primitive.normals != nil, baseColor: primitive.baseColor,
-                                  takesOverlay: primitive.overlayTexcoords != nil && primitive.texcoords == nil))
+                                  takesOverlay: primitive.overlayTexcoords != nil && primitive.texcoords == nil,
+                                  drapable: drapable))
             } catch {
                 print("[AlsoMaps] tile \(tile.identifier) mesh failed: \(error)")
             }
@@ -99,6 +107,9 @@ final class TileUploader: @unchecked Sendable {
         /// Its texture coordinates are the overlay's: it shows the
         /// tileset's imagery once attached.
         var takesOverlay: Bool
+        /// Textured, with overlay coordinates as a second UV set, so
+        /// TraceDrape can put traces on it.
+        var drapable: Bool
     }
 
     @MainActor
@@ -106,9 +117,10 @@ final class TileUploader: @unchecked Sendable {
         let signposter = Signposts.tiles
         let assembly = signposter.beginInterval("Assemble", id: signposter.makeSignpostID())
         defer { signposter.endInterval("Assemble", assembly) }
-        let entity = Entity()
+        let entity = TileEntity()
         for part in parts {
             let material: any RealityKit.Material
+            var drapableTexture: TextureResource?
             if part.lit {
                 // Untextured content (e.g. OSM buildings) needs shading to read
                 // as shapes; scene lighting comes from the environment.
@@ -126,6 +138,7 @@ final class TileUploader: @unchecked Sendable {
                 if let image = part.image,
                    let texture = await Self.makeTexture(image) {
                     unlit.color = .init(tint: .white, texture: .init(texture, sampler: part.sampler))
+                    if part.drapable { drapableTexture = texture }
                 } else {
                     unlit.color = .init(tint: color(part.baseColor))
                 }
@@ -134,6 +147,9 @@ final class TileUploader: @unchecked Sendable {
             let model = ModelEntity(mesh: part.mesh, materials: [material])
             if part.takesOverlay { model.name = overlayPartName }
             entity.addChild(model)
+            if let drapableTexture, let unlit = material as? UnlitMaterial {
+                entity.texturedParts.append(.init(model: model, material: unlit, texture: drapableTexture))
+            }
         }
         tile.renderObject = entity
     }
@@ -192,6 +208,57 @@ final class TileUploader: @unchecked Sendable {
         return descriptor
     }
 
+    /// A primitive with overlay coordinates, which take a second UV set and
+    /// so a LowLevelMesh, as MeshDescriptor has room for only one.
+    @MainActor
+    private static func overlayMesh(for primitive: CNPrimitive) async throws -> MeshResource {
+        struct Vertex {
+            var position: SIMD3<Float>
+            var uv0: SIMD2<Float>
+            var uv1: SIMD2<Float>
+        }
+        let vertexCount = primitive.positions.count / MemoryLayout<SIMD3<Float>>.stride
+        let indexCount = primitive.indices.count / MemoryLayout<UInt32>.stride
+
+        var descriptor = LowLevelMesh.Descriptor()
+        descriptor.vertexCapacity = vertexCount
+        descriptor.indexCapacity = indexCount
+        descriptor.vertexAttributes = [
+            .init(semantic: .position, format: .float3, layoutIndex: 0,
+                  offset: MemoryLayout.offset(of: \Vertex.position)!),
+            .init(semantic: .uv0, format: .float2, layoutIndex: 0,
+                  offset: MemoryLayout.offset(of: \Vertex.uv0)!),
+            .init(semantic: .uv1, format: .float2, layoutIndex: 0,
+                  offset: MemoryLayout.offset(of: \Vertex.uv1)!),
+        ]
+        descriptor.vertexLayouts = [.init(bufferIndex: 0, bufferStride: MemoryLayout<Vertex>.stride)]
+        let mesh = try LowLevelMesh(descriptor: descriptor)
+
+        var bounds = BoundingBox.empty
+        mesh.withUnsafeMutableBytes(bufferIndex: 0) { rawBuffer in
+            let vertices = rawBuffer.bindMemory(to: Vertex.self)
+            primitive.positions.withUnsafeBytes { positionBytes in
+                primitive.texcoords!.withUnsafeBytes { texcoordBytes in
+                    primitive.overlayTexcoords!.withUnsafeBytes { overlayBytes in
+                        let positions = positionBytes.bindMemory(to: SIMD3<Float>.self)
+                        let texcoords = texcoordBytes.bindMemory(to: SIMD2<Float>.self)
+                        let overlays = overlayBytes.bindMemory(to: SIMD2<Float>.self)
+                        for i in 0..<vertexCount {
+                            vertices[i] = Vertex(position: positions[i], uv0: texcoords[i], uv1: overlays[i])
+                            bounds.formUnion(positions[i])
+                        }
+                    }
+                }
+            }
+        }
+        mesh.withUnsafeMutableIndices { rawBuffer in
+            primitive.indices.copyBytes(to: rawBuffer)
+        }
+        mesh.parts.append(LowLevelMesh.Part(indexOffset: 0, indexCount: indexCount, topology: .triangle,
+                                            materialIndex: 0, bounds: bounds))
+        return try await MeshResource(from: mesh)
+    }
+
     private static func sampler(for primitive: CNPrimitive) -> MaterialParameters.Texture.Sampler {
         .init(samplerDescriptor(for: primitive))
     }
@@ -228,7 +295,8 @@ final class TileUploader: @unchecked Sendable {
         return image(rgba: rgba, width: primitive.textureWidth, height: primitive.textureHeight)
     }
 
-    private static func image(rgba: Data, width: Int, height: Int) -> CGImage? {
+    /// Wraps premultiplied RGBA8.
+    static func image(rgba: Data, width: Int, height: Int) -> CGImage? {
         guard width > 0, height > 0, rgba.count >= width * height * 4,
               let provider = CGDataProvider(data: rgba as CFData) else { return nil }
         return CGImage(width: width,

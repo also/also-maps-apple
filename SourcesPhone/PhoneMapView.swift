@@ -7,6 +7,7 @@ struct PhoneMapView: View {
     @State private var map = PhoneMapView.makeMap()
     @State private var selection = initialPlace
     @State private var showsPlaces = false
+    @State private var showsTraces = false
     /// The view being saved to My Map, while its name is chosen.
     @State private var savingPlace: PlaceToSave?
     @State private var search = PlaceSearch()
@@ -56,7 +57,7 @@ struct PhoneMapView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .overlay(alignment: .top) {
-                trackStatus
+                TrackStatus(tracks: map.tracks)
             }
             // Write out the recording in case the app is suspended.
             .onChange(of: scenePhase) { _, phase in
@@ -80,6 +81,9 @@ struct PhoneMapView: View {
                         savingPlace = PlaceToSave(place: map.currentPlace(id: UUID().uuidString, name: ""),
                                                   viewCenter: map.viewCenter)
                     }
+                    Button("Traces", systemImage: "point.bottomleft.forward.to.point.topright.scurvepath") {
+                        showsTraces = true
+                    }
                     Button("Places", systemImage: "mappin.and.ellipse") {
                         showsPlaces = true
                     }
@@ -93,6 +97,28 @@ struct PhoneMapView: View {
                 SavePlaceView(saving: saving) { savingPlace = nil }
                     .frame(maxWidth: .infinity)
                     .presentationDetents([.medium])
+            }
+            .sheet(isPresented: $showsTraces) {
+                NavigationStack {
+                    TracesPanel(library: map.library, tracks: map.tracks,
+                                go: { place in
+                                    selection = nil
+                                    map.go(to: place)
+                                    showsTraces = false
+                                },
+                                play: { track in
+                                    showsTraces = false
+                                    map.startPlayback(track)
+                                })
+                    .navigationTitle("Traces")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showsTraces = false }
+                        }
+                    }
+                }
+                .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showsPlaces, onDismiss: {
                 search.cancelChoice()
@@ -125,25 +151,9 @@ struct PhoneMapView: View {
 
     // MARK: Tracks
 
-    /// Record, play, show and share the track, in the same menu as on visionOS.
+    /// Record a track, or stop recording or playback, as on visionOS.
     private var trackControls: some View {
-        TrackMenu(tracks: map.tracks, play: map.startPlayback, stopPlayback: map.tracks.stopPlayback)
-    }
-
-    /// What the track is doing, under the bar.
-    @ViewBuilder private var trackStatus: some View {
-        let tracks = map.tracks
-        if tracks.isRecording || tracks.isPlaying {
-            Text(tracks.isRecording
-                 ? "Recording track"
-                 : "Playing track · \(TrackSession.minutes(tracks.playbackElapsed)) / \(TrackSession.minutes(tracks.playbackDuration))")
-                .font(.caption.monospacedDigit())
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(.black.opacity(0.5), in: .capsule)
-                .foregroundStyle(.white)
-                .padding(.top, 4)
-        }
+        TrackControls(tracks: map.tracks, stopPlayback: map.tracks.stopPlayback)
     }
 }
 

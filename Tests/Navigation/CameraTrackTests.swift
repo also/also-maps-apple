@@ -8,7 +8,7 @@ private let pose = CameraPose(latitude: 37.7955, longitude: -122.3937, height: 1
 
 struct CameraTrackEncodingTests {
     @Test func lineHoldsTimeSegmentAndPoseInDegrees() {
-        let sample = CameraTrack.Sample(time: start.addingTimeInterval(0.017), segment: 2, pose: pose)
+        let sample = Track.Sample(time: start.addingTimeInterval(0.017), segment: 2, pose: pose)
         #expect(CameraTrack.line(sample) == "2026-10-26T07:33:20.017Z,2,37.7955000,-122.3937000,1834.25,12.50,-41.20")
     }
 
@@ -23,7 +23,7 @@ struct CameraTrackEncodingTests {
     }
 
     @Test func lineRoundTrips() throws {
-        let sample = CameraTrack.Sample(time: start.addingTimeInterval(1.25), segment: 1, pose: pose)
+        let sample = Track.Sample(time: start.addingTimeInterval(1.25), segment: 1, pose: pose)
         let parsed = try #require(CameraTrack.sample(fromLine: Substring(CameraTrack.line(sample))))
         #expect(parsed.time == sample.time)
         #expect(parsed.segment == 1)
@@ -47,7 +47,7 @@ struct CameraTrackEncodingTests {
 struct TrackSamplerTests {
     /// Frames at `hz` for `seconds`, with the samples taken.
     private func run(_ sampler: inout TrackSampler, hz: Double, seconds: Double,
-                     from t0: Date = start) -> [CameraTrack.Sample] {
+                     from t0: Date = start) -> [Track.Sample] {
         (0..<Int(hz * seconds)).compactMap { sampler.sample(pose, at: t0.addingTimeInterval(Double($0) / hz)) }
     }
 
@@ -110,6 +110,5 @@ struct TrackRecorderTests {
         let samples = lines.dropFirst().compactMap(CameraTrack.sample(fromLine:))
         #expect(samples.count == 31)
         #expect(samples.last?.segment == 1)
-        #expect(TrackRecorder.latestTrack(in: directory)?.lastPathComponent == recorder.url.lastPathComponent)
     }
 }

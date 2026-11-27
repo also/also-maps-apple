@@ -1,7 +1,7 @@
 import Foundation
 import RealityKit
 
-/// A camera track drawn as a tube on the map: one tube per segment, no
+/// A track drawn as a tube on the map: one tube per segment, no
 /// tube across a jump. The host picks the tube's radius in the world each
 /// frame: in a room, the same thickness in the room at any map scale; on a
 /// screen, in proportion to the camera's altitude. The mesh is rebuilt
@@ -49,7 +49,7 @@ final class TrackOverlay {
     }
 
     /// Adds a sample to the track, starting one if there's none.
-    func append(_ sample: CameraTrack.Sample) {
+    func append(_ sample: Track.Sample) {
         if path == nil {
             path = TrackPath(samples: [sample])
         } else {

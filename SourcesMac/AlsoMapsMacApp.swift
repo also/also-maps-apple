@@ -33,7 +33,7 @@ struct AlsoMapsMacApp: App {
     }
 }
 
-/// The flying map with a Places menu. The mouse and trackpad go through
+/// The flying map with the Traces panel, track controls and Places. The mouse and trackpad go through
 /// PointerSurface. Keys are read from the keyboard device each frame
 /// (MapInput); the view takes them only so the system doesn't beep at
 /// unhandled keys.
@@ -43,6 +43,7 @@ struct MacMapView: View {
     /// ALSOMAPS_DIAGRAM opens it at launch, for tools.
     @State private var showsDiagram = ProcessInfo.processInfo.environment["ALSOMAPS_DIAGRAM"] != nil
     @State private var showsPlaces = false
+    @State private var showsTraces = false
     /// The view being saved to My Map, while its name is chosen.
     @State private var savingPlace: PlaceToSave?
     @FocusState private var focused: Bool
@@ -66,8 +67,27 @@ struct MacMapView: View {
             .onAppear { focused = true }
             .opensPlaces(go: { map.go(to: $0) }, imported: { showsPlaces = true })
             .onChange(of: settings) { _, settings in map.settings = settings }
+            .overlay(alignment: .top) {
+                TrackStatus(tracks: map.tracks)
+            }
+            // Write out a recording when the window closes.
+            .onDisappear { map.tracks.flush() }
             .overlay(alignment: .topTrailing) {
                 HStack {
+                    Button("Traces", systemImage: "point.bottomleft.forward.to.point.topright.scurvepath") {
+                        showsTraces = true
+                    }
+                    .help("GPS traces and recorded tracks (⌘T)")
+                    .keyboardShortcut("t")
+                    .popover(isPresented: $showsTraces, arrowEdge: .bottom) {
+                        TracesPanel(library: map.library, tracks: map.tracks,
+                                    go: { map.go(to: $0) },
+                                    play: { track in
+                                        showsTraces = false
+                                        map.startPlayback(track)
+                                    })
+                    }
+                    TrackControls(tracks: map.tracks, stopPlayback: map.tracks.stopPlayback)
                     Button {
                         showsDiagram.toggle()
                     } label: {

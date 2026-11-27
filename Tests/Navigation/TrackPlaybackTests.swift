@@ -5,8 +5,8 @@ private let degrees = Double.pi / 180
 private let start = Date(timeIntervalSince1970: 1_793_000_000)
 
 private func sample(_ time: TimeInterval, segment: Int = 0, latitude: Double = 37.79, longitude: Double = -122.39,
-                    height: Double = 1000, heading: Double = 0, pitch: Double = -40) -> CameraTrack.Sample {
-    CameraTrack.Sample(time: start.addingTimeInterval(time), segment: segment,
+                    height: Double = 1000, heading: Double = 0, pitch: Double = -40) -> Track.Sample {
+    Track.Sample(time: start.addingTimeInterval(time), segment: segment,
                        pose: CameraPose(latitude: latitude, longitude: longitude, height: height,
                                         heading: heading * degrees, pitch: pitch * degrees))
 }
@@ -89,7 +89,7 @@ struct TrackPlaybackTests {
         recorder.record(sample(0, height: 1000).pose, at: start)
         recorder.record(sample(2, height: 3000).pose, at: start.addingTimeInterval(2))
         recorder.finish()
-        let playback = try #require(try TrackPlayback(contentsOf: recorder.url))
+        let playback = try #require(TrackPlayback(CameraTrack.read(recorder.url)))
         #expect(abs(playback.duration - 2) < 1e-3)
         #expect(abs(playback.pose(at: 1).height - 2000) < 0.01)
     }

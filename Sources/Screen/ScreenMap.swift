@@ -31,6 +31,8 @@ final class ScreenMap {
     /// visionOS. While a track plays it has the camera, and movement input
     /// is ignored; going to a place stops it.
     let tracks = TrackSession()
+    /// The Traces list: loaded GPS files and recordings, shown on the map.
+    let library: TraceLibrary
 
     @ObservationIgnored private var flight = ModelFlightStyle()
     /// The rates being flown, ramping toward the input's per Settings.
@@ -77,13 +79,14 @@ final class ScreenMap {
         streaming = TileStreaming(inputs: ScreenView.streamingInputs(camera: camera, groundHeight: 0,
                                                                      fieldOfView: Self.fieldOfView, aspect: 1),
                                   settings: settings)
+        library = TraceLibrary(streaming: streaming, tracks: tracks)
         navigation = flight.activate(navigation)
     }
 
     func attach(_ content: inout RealityViewCameraContent) {
         content.camera = .virtual
         content.add(streaming.tilesRoot)
-        content.add(tracks.overlay.root)
+        content.add(tracks.root)
         content.add(cameraEntity)
         applyView()
         streaming.start()
@@ -167,9 +170,9 @@ final class ScreenMap {
         }
     }
 
-    /// Plays the latest track from its first pose.
-    func startPlayback() {
-        guard let first = tracks.startPlayback() else { return }
+    /// Plays `track` from its first pose.
+    func startPlayback(_ track: Track) {
+        guard let first = tracks.startPlayback(track) else { return }
         touch = TouchState()
         navigation = flight.activate(NavigationState(camera: first))
     }
@@ -251,8 +254,8 @@ final class ScreenMap {
         let georeference = ScreenView.georeference(camera: camera)
         streaming.tilesRoot.transform = Transform(georeference.placement(of: streaming.inputs.anchor))
         let altitude = max(camera.height - cameraGround.value, Self.minimumAltitude)
-        tracks.overlay.update(georeference: georeference,
-                              worldRadius: TrackOverlay.screenRadiusPerAltitude * altitude)
+        tracks.update(georeference: georeference,
+                      worldRadius: TrackOverlay.screenRadiusPerAltitude * altitude)
 
         let (near, far) = ScreenView.clipping(altitude: camera.height - cameraGround.value)
         cameraEntity.components.set(PerspectiveCameraComponent(near: Float(near), far: Float(far),
