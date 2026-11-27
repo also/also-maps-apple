@@ -92,12 +92,11 @@ struct KMLFileTests {
         }
     }
 
-    @Test func trackKeepsTimesFacesTravelAndFollowsBehind() throws {
+    @Test func trackKeepsTimesAndFacesTravel() throws {
         let file = try KMLFile(data: kml(flight(fixes: 3, step: 10, altitude: 1000)))
         let track = try #require(file.track(name: "Flight"))
         #expect(track.name == "Flight")
         #expect(track.samples.count == 3)
-        #expect(track.viewpoint == KMLFile.viewpoint)
         let times = track.samples.map { $0.time.timeIntervalSince(track.samples[0].time) }
         #expect(times.map { ($0 * 1000).rounded() } == [0, 10_000, 20_000])
         // Flying north.

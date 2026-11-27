@@ -94,28 +94,3 @@ struct TrackPlaybackTests {
         #expect(abs(playback.pose(at: 1).height - 2000) < 0.01)
     }
 }
-
-struct TrackViewpointTests {
-    @Test func behindIsBackAlongTheHeadingAndLooksDown() {
-        // Heading east at 42° N.
-        let pose = CameraPose(latitude: 42, longitude: -71, height: 1000, heading: .pi / 2, pitch: 0)
-        let camera = TrackPlayback.behind(pose, distance: 100, height: 30)
-        let metersWest = (pose.longitude - camera.longitude) * 111_320 * cos(42 * Double.pi / 180)
-        #expect(abs(metersWest - 100) < 0.01)
-        #expect(abs(camera.latitude - 42) < 1e-9)
-        #expect(camera.height == 1030)
-        #expect(camera.heading == pose.heading)
-        #expect(abs(camera.pitch - -atan2(30, 100)) < 1e-12)
-    }
-
-    @Test func playbackUsesTheTracksViewpoint() throws {
-        let samples = [Track.Sample(time: Date(timeIntervalSince1970: 0), segment: 0,
-                                    pose: CameraPose(latitude: 42, longitude: -71, height: 500, heading: 0, pitch: 0))]
-        let onTrack = try #require(TrackPlayback(Track(name: "On", samples: samples)))
-        #expect(onTrack.pose(at: 0) == samples[0].pose)
-        let behind = try #require(TrackPlayback(Track(name: "Behind", samples: samples,
-                                                      viewpoint: .behind(distance: 100, height: 30))))
-        #expect(behind.pose(at: 0).height == 530)
-        #expect(behind.trackPose(at: 0) == samples[0].pose)
-    }
-}

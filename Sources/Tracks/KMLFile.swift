@@ -76,12 +76,13 @@ struct KMLFile {
     /// How far either side of a fix its heading is measured over, meters,
     /// so GPS jitter doesn't swing the camera.
     static let headingBaseline = 20.0
-    static let viewpoint = Track.Viewpoint.behind(distance: 100, height: 30)
 
     /// The lines in the air as one track, a segment per line, or nil if
     /// there are none. Lines keep their own times when they all have them,
     /// and are put in time order; otherwise they're flown in file order at
-    /// `speedWithoutTimes`.
+    /// `speedWithoutTimes`. Played back like a recording, from each fix:
+    /// the file says where, not which way a camera looked, so it faces the
+    /// direction of travel, level.
     func track(name: String) -> Track? {
         var airborne = lines.filter(\.isAirborne)
         guard !airborne.isEmpty else { return nil }
@@ -112,7 +113,7 @@ struct KMLFile {
                                         samples[i].time.timeIntervalSinceReferenceDate * rate)
             }
         }
-        return Track(name: name, samples: samples, viewpoint: Self.viewpoint)
+        return Track(name: name, samples: samples)
     }
 
     /// Seconds from the first coordinate to each, at `speedWithoutTimes`.

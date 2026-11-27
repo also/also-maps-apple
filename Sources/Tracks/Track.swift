@@ -13,19 +13,9 @@ struct Track {
         var pose: CameraPose
     }
 
-    /// Where playback puts the camera.
-    enum Viewpoint: Equatable {
-        /// At each sample's pose: the camera's own tracks.
-        case onTrack
-        /// `distance` meters behind and `height` above, looking down at the
-        /// track, so what's being followed stays in view.
-        case behind(distance: Double, height: Double)
-    }
-
     var name: String
     /// In time order.
     var samples: [Sample]
-    var viewpoint: Viewpoint = .onTrack
 
     /// Where it starts, for going there before playing it.
     var start: Place? {
