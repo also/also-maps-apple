@@ -177,12 +177,4 @@ final class TrackRecorder {
         flush()
         try? handle.close()
     }
-
-    /// The most recent track in `directory` (names sort by start time).
-    static func latestTrack(in directory: URL) -> URL? {
-        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        return files
-            .filter { $0.pathExtension == CameraTrack.fileExtension && $0.lastPathComponent.hasPrefix("Track ") }
-            .max { $0.lastPathComponent < $1.lastPathComponent }
-    }
 }

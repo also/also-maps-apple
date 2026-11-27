@@ -53,7 +53,7 @@ cesium-native decides which tiles to load and fetches them; a thin bridge hands 
 
   Tiles are placed relative to whichever anchor is streaming, so held tiles stay put while you move.
 - **Metal renderer.** `Sources/Metal/` and `Sources/MetalImmersiveSpace.swift` are an experimental alternative to RealityKit, behind the Draw with Metal setting (General, or Immersion on visionOS). See [notes/metal-renderer.md](notes/metal-renderer.md).
-- **App services.** `Sources/Credentials/` ([Keys](#keys)), `Sources/Config/` ([docs/remote-config.md](docs/remote-config.md)), `Sources/Places/` ([Places](#places)) and `Sources/Tracks/` (recording the camera's path to a CSV in the app's Documents folder, and playing it back).
+- **App services.** `Sources/Credentials/` ([Keys](#keys)), `Sources/Config/` ([docs/remote-config.md](docs/remote-config.md)), `Sources/Places/` ([Places](#places)) and `Sources/Tracks/` (recording the camera's path to a CSV in the app's Documents folder, reading GPS files, and the [Traces](#traces-and-tracks-prototype) list).
 
 ## Views
 
@@ -219,17 +219,19 @@ Where things land when unsandboxed:
 
 Timing the tile pipeline with signposts and `xctrace` is in [docs/profiling.md](docs/profiling.md). Tile caching, the request counters in the Tuning stats, and how to measure them are in [docs/tile-caching.md](docs/tile-caching.md).
 
-## Draped traces (prototype)
+## Traces and tracks (prototype)
 
-The **Traces** menu on visionOS, macOS and iOS opens a GeoJSON file and drapes its lines over the tiles as texture, so they follow the surface and need no heights. The camera goes to them, and they come back next launch until you remove them. `ALSOMAPS_TRACES=<path>` opens a file as if picked, without moving the camera; on a simulator, the file has to be somewhere the app can read, such as its `Documents`.
+The **Traces** button on visionOS, macOS (⌘T) and iOS opens a panel like Places: the GPS files you've loaded and your camera recordings, each with a show/hide toggle, and a play button for anything with a track. Everything shown is on the map at once. Tapping a row goes to it; its menu removes a loaded file or shares a recording. Loaded files are copied to `Application Support/Traces/` with an `index.json` of the list, so they stay until removed. Recordings stay in Documents and are listed from there, hidden until you show them. `ALSOMAPS_TRACES=<path>` loads a file as if picked, without moving the camera; on a simulator, the file has to be somewhere the app can read, such as its `Documents`. `ALSOMAPS_PLAY_TRACK=1` plays it once it's loaded (visionOS).
 
-cesium-native rasterizes a texture for each tile (`GeoJsonDocumentRasterOverlay`), and `Sources/TraceDrape.swift` swaps tiles with something to show to a shader graph material that composites it over the photo. Only unlit, textured tiles are draped, so not terrain or OSM buildings. Lines paint whatever is on top, so they land on tree canopy and run down facades.
+The track controls in the toolbar record a track, and stop recording or playback.
+
+Lines are draped over the tiles as texture, so they follow the surface and need no heights. The shown files' lines are joined into one GeoJSON document (`TraceStore.linesCollection`), which cesium-native rasterizes into a texture for each tile (`GeoJsonDocumentRasterOverlay`), and `Sources/TraceDrape.swift` swaps tiles with something to show to a shader graph material that composites it over the photo. Only unlit, textured tiles are draped, so not terrain or OSM buildings, nor the Metal renderer's tiles. Lines paint whatever is on top, so they land on tree canopy and run down facades.
 
 `Sources/TraceFile.swift` drops lines with fewer than two points on the way in, which Strava exports have and cesium-native rejects a whole document over.
 
-The menu also opens KML (`Sources/Tracks/KMLFile.swift`): `LineString`s and `gx:Track`s, in Placemarks, MultiGeometry or `gx:MultiTrack`. Lines on the ground are draped like GeoJSON. Lines with `absolute` altitudes become a track, like a recorded camera track: drawn as a tube, and played with the track controls, the camera following 100 m behind and 30 m above. The camera goes to the track's start. Tracks keep the file's times when every line has them, with the gaps between lines cut to a second; lines without times are flown at 50 m/s. Anything longer than five minutes is sped up to fit. `ALSOMAPS_PLAY_TRACK=1` plays an `ALSOMAPS_TRACES` track once it's open (visionOS).
+GeoJSON files are all lines. KML files (`Sources/Tracks/KMLFile.swift`) can have both: `LineString`s and `gx:Track`s, in Placemarks, MultiGeometry or `gx:MultiTrack`. Lines on the ground are draped. Lines with `absolute` altitudes become a track, like a recorded camera track: drawn as a tube and flown with the camera following 100 m behind and 30 m above. A loaded track's place is its start. Tracks keep the file's times when every line has them, with the gaps between lines cut to a second; lines without times are flown at 50 m/s. Anything longer than five minutes is sped up to fit.
 
-KML gaps: altitudes are above sea level but used as heights above the ellipsoid, so tracks sit off by the geoid (about 30 m too high around San Francisco). `relativeToGround` lines are draped rather than raised, since that needs the ground's height along them. An opened track isn't kept for next launch, and KMZ isn't read.
+KML gaps: altitudes are above sea level but used as heights above the ellipsoid, so tracks sit off by the geoid (about 30 m too high around San Francisco). `relativeToGround` lines are draped rather than raised, since that needs the ground's height along them. KMZ isn't read.
 
 ## Known gaps
 

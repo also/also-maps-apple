@@ -208,7 +208,7 @@ targets:
           - MapInput.swift
           - Tracks
           - TrackSession.swift
-          - TrackMenu.swift
+          - TrackControls.swift
           - TrackOverlay.swift
           - TubeExtruder.swift
           - StreamingSettings.swift
@@ -218,7 +218,8 @@ targets:
           - TileUploader.swift
           - TraceDrape.swift
           - TraceFile.swift
-          - TracesMenu.swift
+          - TracesPanel.swift
+          - TraceLibrary.swift
           - DebugLines.swift
           - Config
           - Credentials
@@ -345,7 +346,6 @@ targets:
           - TileUploader.swift
           - TraceDrape.swift
           - TraceFile.swift
-          - TracesMenu.swift
           - DebugLines.swift
           - Config
           - Credentials/CredentialStore.swift
@@ -395,7 +395,7 @@ targets:
           - MapInput.swift
           - Tracks
           - TrackSession.swift
-          - TrackMenu.swift
+          - TrackControls.swift
           - TrackOverlay.swift
           - TubeExtruder.swift
           - StreamingSettings.swift
@@ -405,7 +405,8 @@ targets:
           - TileUploader.swift
           - TraceDrape.swift
           - TraceFile.swift
-          - TracesMenu.swift
+          - TracesPanel.swift
+          - TraceLibrary.swift
           - DebugLines.swift
           - Config
           - Credentials

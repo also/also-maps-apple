@@ -110,6 +110,5 @@ struct TrackRecorderTests {
         let samples = lines.dropFirst().compactMap(CameraTrack.sample(fromLine:))
         #expect(samples.count == 31)
         #expect(samples.last?.segment == 1)
-        #expect(TrackRecorder.latestTrack(in: directory)?.lastPathComponent == recorder.url.lastPathComponent)
     }
 }

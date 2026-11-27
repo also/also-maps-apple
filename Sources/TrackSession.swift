@@ -1,11 +1,11 @@
 import Foundation
 import Observation
+import RealityKit
 
 /// Tracks for one map, on any platform: recording the camera to a file,
-/// drawing a track as a tube, and flying along it. The track drawn and
-/// played is the one being recorded, else one opened from a file, else the
-/// latest recording. The map feeds it the camera each frame and, while it
-/// plays, takes the camera from it.
+/// drawing tracks as tubes, and flying along one. TraceLibrary says which
+/// tracks are shown and which to play. The map feeds it the camera each
+/// frame and, while it plays, takes the camera from it.
 @MainActor
 @Observable
 final class TrackSession {
@@ -15,16 +15,17 @@ final class TrackSession {
 
     /// The recording in progress, sampling the camera each frame.
     private(set) var recorder: TrackRecorder?
-    /// The most recent track file, finished or in progress.
-    private(set) var latestTrack: URL? = TrackRecorder.latestTrack(in: directory)
     var isRecording: Bool { recorder != nil }
-    /// A track opened from a file, drawn and played instead of the latest
-    /// recording until it's closed or a recording starts.
-    private(set) var openedTrack: Track?
-    var canPlay: Bool { recorder == nil && (openedTrack != nil || latestTrack != nil) }
+    /// Called when a recording starts or stops, so the Traces list can
+    /// show it.
+    @ObservationIgnored var recordingsChanged: (() -> Void)?
 
-    /// The tube; its root goes in the map's scene.
-    @ObservationIgnored let overlay = TrackOverlay()
+    /// The tubes; it goes in the map's scene.
+    @ObservationIgnored let root = Entity()
+    /// The shown tracks' tubes, by TraceEntry ID.
+    @ObservationIgnored private var overlays: [String: TrackOverlay] = [:]
+    /// The recording in progress, drawn as it grows when it's shown.
+    @ObservationIgnored private let recordingOverlay = TrackOverlay()
 
     /// The track being played back, driving the camera from its first
     /// sample to its last, by the frame clock.
@@ -37,17 +38,25 @@ final class TrackSession {
     private(set) var playbackDuration = 0
     var isPlaying: Bool { playback != nil }
 
+    init() {
+        root.addChild(recordingOverlay.root)
+    }
+
     // MARK: Recording
+
+    /// The TraceEntry ID of the recording in progress.
+    var recordingID: String? {
+        recorder.map { TraceEntry.recordingID(fileName: $0.url.lastPathComponent) }
+    }
 
     func startRecording() {
         guard recorder == nil, playback == nil else { return }
-        openedTrack = nil
         do {
             let recorder = try TrackRecorder(directory: Self.directory)
             self.recorder = recorder
-            latestTrack = recorder.url
-            overlay.path = nil  // Drawn as it's recorded.
+            recordingOverlay.path = nil
             print("[AlsoMaps] recording track to \(recorder.url.path)")
+            recordingsChanged?()
         } catch {
             print("[AlsoMaps] couldn't start a track: \(error)")
         }
@@ -57,13 +66,16 @@ final class TrackSession {
         guard let recorder else { return }
         recorder.finish()
         self.recorder = nil
+        recordingOverlay.path = nil
+        recordingOverlay.isEnabled = false
         print("[AlsoMaps] track finished: \(recorder.sampleCount) samples in \(recorder.url.lastPathComponent)")
+        recordingsChanged?()
     }
 
     /// Records `camera` if a sample is due, and draws it.
     func record(_ camera: CameraPose) {
         if let sample = recorder?.record(camera) {
-            overlay.append(sample)
+            recordingOverlay.append(sample)
         }
     }
 
@@ -74,60 +86,41 @@ final class TrackSession {
     /// Writes buffered samples out, for when the app may be suspended.
     func flush() { recorder?.flush() }
 
-    // MARK: Opening
-
-    /// Shows a track from a file, stopping any recording or playback.
-    func open(_ track: Track) {
-        stopPlayback()
-        stopRecording()
-        openedTrack = track
-        overlay.path = TrackPath(samples: track.samples)
-        showsTrack = true
-    }
-
-    /// Goes back to the latest recording.
-    func closeOpenedTrack() {
-        guard openedTrack != nil else { return }
-        stopPlayback()
-        openedTrack = nil
-        overlay.path = nil
-        if showsTrack { loadPath() }
-    }
-
-    /// The track to play: the opened one, or the latest recording.
-    private func trackToShow() -> Track? {
-        if let openedTrack { return openedTrack }
-        guard let latestTrack else { return nil }
-        do {
-            return try CameraTrack.read(latestTrack)
-        } catch {
-            print("[AlsoMaps] couldn't read track \(latestTrack.lastPathComponent): \(error)")
-            return nil
-        }
-    }
-
     // MARK: Drawing
 
-    /// Draws the track being recorded, else the opened one, else the latest
-    /// recording, as a tube.
-    var showsTrack = false {
-        didSet {
-            overlay.isEnabled = showsTrack
-            if showsTrack { loadPath() }
+    /// Draws these tracks as tubes, by TraceEntry ID, and no others. The
+    /// recording in progress is drawn as it grows if its ID is among
+    /// `shownIDs`; it isn't in `tracks`, as it's still being written.
+    func show(_ tracks: [String: Track], shownIDs: Set<String>) {
+        for (id, overlay) in overlays where tracks[id] == nil {
+            overlay.root.removeFromParent()
+            overlays[id] = nil
         }
+        for (id, track) in tracks where overlays[id] == nil {
+            let overlay = TrackOverlay()
+            overlay.path = TrackPath(samples: track.samples)
+            overlay.isEnabled = true
+            root.addChild(overlay.root)
+            overlays[id] = overlay
+        }
+        recordingOverlay.isEnabled = recordingID.map(shownIDs.contains) ?? false
     }
 
-    private func loadPath() {
-        guard overlay.path == nil, recorder == nil, let track = trackToShow() else { return }
-        overlay.path = TrackPath(samples: track.samples)
+    /// Places the tubes for this frame's georeference, with the tube radius
+    /// in the world (TrackOverlay.update).
+    func update(georeference: Georeference, worldRadius: Double) {
+        recordingOverlay.update(georeference: georeference, worldRadius: worldRadius)
+        for overlay in overlays.values {
+            overlay.update(georeference: georeference, worldRadius: worldRadius)
+        }
     }
 
     // MARK: Playback
 
-    /// Starts the opened track, or else the latest recording, from the
-    /// start and returns its first pose, or nil if there's nothing to play.
-    func startPlayback() -> CameraPose? {
-        guard playback == nil, recorder == nil, let track = trackToShow() else { return nil }
+    /// Starts `track` from the start and returns its first pose, or nil if
+    /// there's nothing to play.
+    func startPlayback(_ track: Track) -> CameraPose? {
+        guard playback == nil, recorder == nil else { return nil }
         guard let played = TrackPlayback(track) else {
             print("[AlsoMaps] track \(track.name) has no samples")
             return nil

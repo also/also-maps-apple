@@ -65,19 +65,17 @@ final class TileStreaming {
     private(set) var loadProgress: Float = 0
     private(set) var statusMessage: String?
     var isStreaming: Bool { streamer != nil }
-    /// The name of the traces draped over the map; nil if there are none.
-    private(set) var tracesName = UserDefaults.standard.string(forKey: TileStreaming.tracesNameKey)
-    private(set) var isLoadingTraces = false
-    /// Why the last traces couldn't be shown, until it's been read.
-    var tracesError: String?
+    /// The GeoJSON draped over the map (TraceLibrary's shown files); nil
+    /// for none.
+    private(set) var tracesURL: URL?
+    /// Called on the main thread when cesium-native can't read the traces.
+    @ObservationIgnored var tracesFailed: ((String) -> Void)?
 
     private var streamer: CNTileStreamer?
     private let tileUploader = TileUploader()
     private let drape = TraceDrape()
     /// sRGB, the teal the traces are drawn in on the web.
     private static let traceColor = SIMD4<Float>(0, 0.863, 0.761, 1)
-    private static let tracesNameKey = "tracesName"
-    private static let tracesFile = URL.applicationSupportDirectory.appending(path: "traces.geojson")
     private var startedLoading = Date()
     /// Builds each tile's renderer resources instead of RealityKit entities
     /// (MetalTileRenderer); the tiles to draw are then in `drawnTiles` each
@@ -134,57 +132,19 @@ final class TileStreaming {
 
     // MARK: Traces
 
-    /// Drapes a GeoJSON file over the map, keeping a copy so it's there next
-    /// launch. Returns a view of it, or nil with `tracesError` set.
-    func openTraces(_ url: URL) async -> Place? {
-        await openTraces(named: url.deletingPathExtension().lastPathComponent) { name in
-            try TraceFile(geoJSON: Self.read(url), name: name)
-        }
-    }
-
-    /// Drapes the lines `prepare` makes, off the main thread, as `openTraces`
-    /// does a GeoJSON file.
-    func openTraces(named name: String,
-                    _ prepare: @escaping @Sendable (String) throws -> TraceFile) async -> Place? {
-        isLoadingTraces = true
-        defer { isLoadingTraces = false }
-        do {
-            let place = try await Task.detached(priority: .userInitiated) {
-                let file = try prepare(name)
-                try FileManager.default.createDirectory(at: Self.tracesFile.deletingLastPathComponent(),
-                                                        withIntermediateDirectories: true)
-                try file.data.write(to: Self.tracesFile, options: .atomic)
-                return file.place
-            }.value
-            tracesName = name
-            UserDefaults.standard.set(name, forKey: Self.tracesNameKey)
-            showTraces()
-            return place
-        } catch {
-            tracesError = error.localizedDescription
-            return nil
-        }
-    }
-
-    /// A file the user picked, which may need its security scope opened.
-    nonisolated static func read(_ url: URL) throws -> Data {
-        let accessing = url.startAccessingSecurityScopedResource()
-        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-        return try Data(contentsOf: url)
-    }
-
-    func removeTraces() {
+    /// Drapes the GeoJSON file at `url` over the map, replacing what was
+    /// there, or takes it away for nil. Kept across restarts.
+    func showTraces(at url: URL?) {
+        tracesURL = url
         streamer?.removeGeoJSONOverlay()
-        tracesName = nil
-        UserDefaults.standard.removeObject(forKey: Self.tracesNameKey)
-        try? FileManager.default.removeItem(at: Self.tracesFile)
+        showTraces()
     }
 
     private func showTraces() {
-        streamer?.showGeoJSONOverlay(path: Self.tracesFile.path, lineWidth: 2, color: Self.traceColor) { [weak self] error in
-            guard let self, let error else { return }
-            self.tracesError = error
-            self.removeTraces()
+        guard let tracesURL else { return }
+        streamer?.showGeoJSONOverlay(path: tracesURL.path, lineWidth: 2, color: Self.traceColor) { [weak self] error in
+            guard let error else { return }
+            self?.tracesFailed?(error)
         }
     }
 
@@ -218,7 +178,7 @@ final class TileStreaming {
         }
         streamer.rasterDetachHandler = { [drape] tile in drape.detach(tile) }
         self.streamer = streamer
-        if tracesName != nil { showTraces() }
+        showTraces()
         startedLoading = Date()
         applySettings()
         applyInputs()

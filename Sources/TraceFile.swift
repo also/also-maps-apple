@@ -16,8 +16,9 @@ struct TraceFile {
         }
     }
 
-    /// GeoJSON, without the lines cesium-native rejects.
-    var data: Data
+    /// A JSON array of GeoJSON Features, without the lines cesium-native
+    /// rejects, for joining with other files' (`collection`).
+    var features: Data
     var lineCount: Int
     /// A view of where most of the lines are.
     var place: Place
@@ -36,9 +37,39 @@ struct TraceFile {
     private init(root: [String: Any], name: String) throws {
         var lines = LineSummary()
         guard let cleaned = Self.clean(root, &lines), lines.count > 0 else { throw Failure.noLines }
-        data = try JSONSerialization.data(withJSONObject: cleaned, options: .withoutEscapingSlashes)
+        features = try JSONSerialization.data(withJSONObject: Self.features(of: cleaned),
+                                              options: .withoutEscapingSlashes)
         lineCount = lines.count
         place = lines.place(name: name)
+    }
+
+    /// One FeatureCollection of several files' `features`, joined as text so
+    /// that even large files join quickly.
+    static func collection(_ featureArrays: [Data]) -> Data {
+        var data = Data(#"{"type":"FeatureCollection","features":["#.utf8)
+        var first = true
+        for array in featureArrays {
+            // Between the brackets, without surrounding whitespace.
+            guard let open = array.firstIndex(of: UInt8(ascii: "[")),
+                  let close = array.lastIndex(of: UInt8(ascii: "]")), close > open + 1 else { continue }
+            let inner = array[(open + 1)..<close]
+            guard inner.contains(where: { !Character(UnicodeScalar($0)).isWhitespace }) else { continue }
+            if !first { data.append(UInt8(ascii: ",")) }
+            data.append(contentsOf: inner)
+            first = false
+        }
+        data.append(contentsOf: Data("]}".utf8))
+        return data
+    }
+
+    /// The Features an object holds: a collection's own, a Feature, or a
+    /// bare geometry wrapped in one.
+    private static func features(of object: [String: Any]) -> [[String: Any]] {
+        switch object["type"] as? String {
+        case "FeatureCollection": object["features"] as? [[String: Any]] ?? []
+        case "Feature": [object]
+        default: [["type": "Feature", "properties": [String: Any](), "geometry": object]]
+        }
     }
 
     /// Where each line's middle is. Medians, so that one trip abroad doesn't
